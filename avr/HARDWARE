@@ -1,0 +1,10 @@
+Hardware connections:
+
+The files here expect the following hardware:
+- A hardware random number generator (see adc.c for the pin to connect it to),
+- A 2-line HD44780-based LCD (see lcd_and_input.c for the pins to connect it
+  to) and
+- Two push buttons (see lcd_and_input.c for the pins to connect it to) which
+  connect between an input pin and ground.
+
+Communication with the host BitCoin client is done via. the USART.

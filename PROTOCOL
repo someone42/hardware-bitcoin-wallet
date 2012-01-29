@@ -1,0 +1,65 @@
+Everything is:
+| <command> | <length> |  <data>
+|  1 byte   | 4 bytes  | n bytes
+
+<length> is little-endian
+<length> and <data> are the "payload" for a command
+<command>, <length> and <data> are a "packet"
+
+commands:
+
+0x00: ping
+length can be anything
+data can be anything
+
+0x01: acknowledge ping
+length can be anything
+data can be anything
+
+0x02: return success
+length is 0 (if nothing is return)
+...unless something is returned
+
+0x03: return failure
+length can be anything
+data is an error message
+
+0x04: create new wallet
+length is 0
+Response: 02 (length 0) or 03
+
+0x05: create new address in wallet
+length is 0
+Response: 02 (with address) or 03
+
+0x06: get number of addresses
+length is 0
+Response: 02 (with little-endian 32-bit number) or 03
+
+0x07: get addresses
+length is 0
+Response: 02 (with addresses) or 03
+If an error occurs while getting addresses, some of the addresses may be
+all 00s.
+
+0x08: is address mine?
+length is 20
+data is address
+Response: 02 (yes it is mine) or 03 (error or no it isn't mine)
+
+0x09: get public key
+length is 20
+data is address
+Response: 02 (with pubkey) or 03
+
+0x0A: sign transaction
+length is 20 + <tx size>
+data is address then transaction
+Response: 02 (with signature) or 03
+
+Flow control (for AVR only):
+
+Every n bytes, wait for an acknowledge from the other side. An acknowledge
+is 0xFF followed by a little-endian u32 with number of bytes you can send
+before the next acknowledge (i.e. "n").
+Initial n is 16
