@@ -1,0 +1,6 @@
+hwb_tester.c is a program which can send and receive packets over a serial
+link.
+Compile it with something like: gcc -Os -o hwb_tester hwb_tester.c
+and run it with something like ./hwb_tester /dev/ttyUSB0
+While running, it will prompt for the names of files containing packets. A few
+example files (with extension .bin) are included in this subdirectory.
