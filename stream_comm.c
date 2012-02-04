@@ -136,52 +136,42 @@ static u8 read_bytes(u8 *buffer, u8 length)
 	return 0;
 }
 
-// Validate and sign a transaction, given the BitCoin address specified by
-// address (which must be a pointer to a 20-byte buffer) and a transaction
-// length specified by txlength. The signature or any error messages will be
-// sent to the output stream.
-// This will return 0 on success, 1 if a write error occurred or 2 if a read
-// error occurred. "Success" here is defined as "no read or write errors
-// occurred"; 0 will be returned even if the transaction was rejected.
-// This function will always consume txlength bytes from the input stream,
-// except when a read error occurs.
-static u8 check_and_sign_by_address(u8 *address, u32 txlength)
+// Sign the transaction with hash given by sighash with the private key
+// associated with the address handle ah. If the signing process was
+// successful, the signature is also sent as a success packet.
+// This has the same return values as check_and_sign_by_address().
+u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 {
-	u8 sighash[32];
-	u8 txhash[32];
+	u8 signature[73];
 	u8 privkey[32];
+	u8 signature_length;
+
+	signature_length = 0;
+	if (get_privkey(ah, privkey) == WALLET_NO_ERROR)
+	{
+		// Note: sign_transaction() cannot fail.
+		signature_length = sign_transaction(signature, sighash, privkey);
+	}
+	if (translate_wallet_error (wallet_get_last_error(), signature_length, signature) != 0)
+	{
+		return 1; // write error
+	}
+	return 0;
+}
+
+// Read the transaction from the input stream, parse it and ask the user
+// if they accept it. A non-zero value will be written to *out_confirmed if
+// the user accepted it, otherwise a zero value will be written.
+// This has the same return values as check_and_sign_by_address().
+u8 parse_and_ask_transaction(u32 txlength, u8 *sighash, u8 *out_confirmed)
+{
 	u8 confirmed;
 	u8 i;
-	u8 junk;
 	tx_errors r;
-	address_handle ah;
-
-	// Check if address is in wallet.
-	ah = is_mine(address);
-	if (ah == BAD_ADDRESS_HANDLE)
-	{
-		// parse_transaction() eats up txlength bytes from the input stream.
-		// But if is_mine() did not succeed, parse_transaction() will never
-		// be called. Since this function must consume txlength bytes from the
-		// input streams, it must be done explicitly here.
-		for (; txlength--; )
-		{
-			if (stream_get_one_byte(&junk) != 0)
-			{
-				return 2; // read error
-			}
-		}
-		if (translate_wallet_error (wallet_get_last_error(), 0, NULL) != 0)
-		{
-			return 1; // write error
-		}
-		else
-		{
-			return 0;
-		}
-	}
+	u8 txhash[32];
 
 	// Validate transaction and calculate hashes of it.
+	*out_confirmed = 0;
 	clear_outputs_seen();
 	r = parse_transaction(txlength, sighash, txhash);
 	if (r == TX_READ_ERROR)
@@ -246,22 +236,97 @@ static u8 check_and_sign_by_address(u8 *address, u32 txlength)
 		}
 	}
 
-	if (confirmed)
-	{
-		// Okay to sign transaction.
-		u8 signature[73];
-		u8 signature_length;
+	*out_confirmed = confirmed;
+	return 0;
+}
 
-		signature_length = 0;
-		if (get_privkey(ah, privkey) == WALLET_NO_ERROR)
+// Validate and sign a transaction, given the BitCoin address specified by
+// address (which must be a pointer to a 20-byte buffer) and a transaction
+// length specified by txlength. The signature or any error messages will be
+// sent to the output stream.
+// This will return 0 on success, 1 if a write error occurred or 2 if a read
+// error occurred. "Success" here is defined as "no read or write errors
+// occurred"; 0 will be returned even if the transaction was rejected.
+// This function will always consume txlength bytes from the input stream,
+// except when a read error occurs.
+// This used to be declared "static", but that modifier was removed to
+// coerce GCC into not inlining this function into process_packet(). Inlining
+// is bad because then a lot of variables end up in the frame of
+// process_packet(), clogging up RAM even when not signing a transaction.
+u8 check_and_sign_by_address(u8 *address, u32 txlength)
+{
+	u8 confirmed;
+	u8 r;
+	u8 junk;
+	address_handle ah;
+	u8 sighash[32];
+
+	// Check if address is in wallet.
+	ah = is_mine(address);
+	if (ah == BAD_ADDRESS_HANDLE)
+	{
+		// parse_transaction() eats up txlength bytes from the input stream.
+		// But if is_mine() did not succeed, parse_transaction() will never
+		// be called. Since this function must consume txlength bytes from the
+		// input streams, it must be done explicitly here.
+		for (; txlength--; )
 		{
-			// Note: sign_transaction() cannot fail.
-			signature_length = sign_transaction(signature, sighash, privkey);
+			if (stream_get_one_byte(&junk) != 0)
+			{
+				return 2; // read error
+			}
 		}
-		if (translate_wallet_error (wallet_get_last_error(), signature_length, signature) != 0)
+		if (translate_wallet_error (wallet_get_last_error(), 0, NULL) != 0)
 		{
 			return 1; // write error
 		}
+		else
+		{
+			return 0;
+		}
+	}
+
+	r = parse_and_ask_transaction(txlength, sighash, &confirmed);
+	if (r)
+	{
+		return r;
+	}
+
+	if (confirmed)
+	{
+		// Okay to sign transaction.
+		r = sign_transaction_by_ah(ah, sighash);
+		if (r)
+		{
+			return r;
+		}
+	}
+
+	return 0;
+}
+
+// Read address from input stream and send a packet containing the
+// corresponding public key.
+// Returns 1 if a read or write error occurred, otherwise returns 0.
+u8 get_and_send_public_key(void)
+{
+	address_handle ah;
+	u8 pubkey[65];
+	u8 address[20];
+
+	if (read_bytes(address, 20) != 0)
+	{
+		return 1; // read error
+	}
+	ah = is_mine(address);
+	if (ah != BAD_ADDRESS_HANDLE)
+	{
+		pubkey[0] = 0x04;
+		get_pubkey(ah, &(pubkey[1]));
+	}
+	if (translate_wallet_error (wallet_get_last_error(), 65, pubkey) != 0)
+	{
+		return 1; // write error
 	}
 
 	return 0;
@@ -540,22 +605,9 @@ u8 process_packet(void)
 		}
 		if (r == 0)
 		{
-			address_handle ah;
-			u8 pubkey[65];
-
-			if (read_bytes(buffer, 20) != 0)
+			if (get_and_send_public_key())
 			{
-				return 1; // read error
-			}
-			ah = is_mine(buffer);
-			if (ah != BAD_ADDRESS_HANDLE)
-			{
-				pubkey[0] = 0x04;
-				get_pubkey(ah, &(pubkey[1]));
-			}
-			if (translate_wallet_error (wallet_get_last_error(), 65, pubkey) != 0)
-			{
-				return 1; // write error
+				return 1; // read or write error
 			}
 		} // if (r == 0)
 		break;
@@ -575,7 +627,6 @@ u8 process_packet(void)
 		}
 		else
 		{
-			// Check if address is in wallet before asking for confirmation.
 			if (read_bytes(buffer, 20) != 0)
 			{
 				return 1; // read error

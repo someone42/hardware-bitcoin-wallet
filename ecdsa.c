@@ -9,17 +9,27 @@
 // "SEC 2: Recommended Elliptic Curve Domain Parameters" by Certicom
 // research, obtained 11-August-2011 from:
 // http://www.secg.org/collateral/sec2_final.pdf
-//
-// This file is licensed as described by the file LICENCE.
 
 // Defining this will facilitate testing
 //#define TEST
+
+// Estimate of memory requirements
+// 432 bytes: ecdsa_sign() call
 
 #ifdef TEST
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
 #endif // #ifdef TEST
+
+#if defined(AVR) && defined(__GNUC__)
+#include <avr/io.h>
+#include <avr/pgmspace.h>
+#define LOOKUP_BYTE(x)		(pgm_read_byte_near(x))
+#else
+#define PROGMEM
+#define LOOKUP_BYTE(x)		(*(x))
+#endif // #if defined(AVR) && defined(__GNUC__)
 
 #include "common.h"
 #include "bignum256.h"
@@ -65,14 +75,14 @@ static const u8 secp256k1_compn[17] = {
 0x01};
 
 // The x component of the base point G used in secp256k1
-static const u8 secp256k1_Gx[32] = {
+static const u8 secp256k1_Gx[32] PROGMEM = {
 0x98, 0x17, 0xf8, 0x16, 0x5b, 0x81, 0xf2, 0x59,
 0xd9, 0x28, 0xce, 0x2d, 0xdb, 0xfc, 0x9b, 0x02,
 0x07, 0x0b, 0x87, 0xce, 0x95, 0x62, 0xa0, 0x55,
 0xac, 0xbb, 0xdc, 0xf9, 0x7e, 0x66, 0xbe, 0x79};
 
 // The y component of the base point G used in secp256k1
-static const u8 secp256k1_Gy[32] = {
+static const u8 secp256k1_Gy[32] PROGMEM = {
 0xb8, 0xd4, 0x10, 0xfb, 0x8f, 0xd0, 0x47, 0x9c,
 0x19, 0x54, 0x85, 0xa6, 0x48, 0xb4, 0x17, 0xfd,
 0xa8, 0x08, 0x11, 0x0e, 0xfc, 0xfb, 0xa4, 0x5d,
@@ -179,7 +189,7 @@ static void point_double(point_jacobian *p)
 // is in Jacobian coordinates), storing the result back into p1.
 // Mixed coordinates are used because it reduces the number of squarings and
 // multiplications from 16 to 11.
-// See equations (3) ("addition in mixed Jacobian-affine coordinates") from
+// See equations (3) ("addition in mixed Jacobian-a.ne coordinates") from
 // section 4 of that article described in the comments to point_double().
 static void point_add(point_jacobian *p1, point_affine *p2)
 {
@@ -268,9 +278,20 @@ void point_multiply(point_affine *p, bignum256 k)
 // Set the point p to the base point of secp256k1.
 void set_to_G(point_affine *p)
 {
+	u8 buffer[32];
+	u8 i;
+
 	p->is_point_at_infinity = 0;
-	bigassign(p->x, (bignum256)secp256k1_Gx);
-	bigassign(p->y, (bignum256)secp256k1_Gy);
+	for (i = 0; i < 32; i++)
+	{
+		buffer[i] = LOOKUP_BYTE(&(secp256k1_Gx[i]));
+	}
+	bigassign(p->x, (bignum256)buffer);
+	for (i = 0; i < 32; i++)
+	{
+		buffer[i] = LOOKUP_BYTE(&(secp256k1_Gy[i]));
+	}
+	bigassign(p->y, (bignum256)buffer);
 }
 
 // Set field parameters to be those defined by the prime number p which
@@ -378,13 +399,6 @@ static void check_point_is_on_curve(point_affine *p)
 	}
 }
 
-static void set_p_to_G(point_affine *p)
-{
-	p->is_point_at_infinity = 0;
-	bigassign(p->x, (bignum256)secp256k1_Gx);
-	bigassign(p->y, (bignum256)secp256k1_Gy);
-}
-
 // Read little-endian hex string containing 256-bit integer and store into r
 static void bigfread(FILE *f, bignum256 r)
 {
@@ -429,10 +443,10 @@ static int crappy_verify_signature(bignum256 r, bignum256 s, bignum256 hash, big
 	biginvert(temp2, s);
 	bigmultiply(k1, temp2, temp1);
 	bigmultiply(k2, temp2, r);
-	bigsetfield(secp256k1_p, secp256k1_compp, sizeof(secp256k1_compp));
+	set_field_to_p();
 	bigmod(k1, k1);
 	bigmod(k2, k2);
-	set_p_to_G(&p);
+	set_to_G(&p);
 	point_multiply(&p, k1);
 	p2.is_point_at_infinity = 0;
 	bigassign(p2.x, pubkey_x);
@@ -478,10 +492,10 @@ int main(int argc, char **argv)
 	succeeded = 0;
 	failed = 0;
 
-	bigsetfield(secp256k1_p, secp256k1_compp, sizeof(secp256k1_compp));
+	set_field_to_p();
 
 	// Check that G is on the curve
-	set_p_to_G(&p);
+	set_to_G(&p);
 	check_point_is_on_curve(&p);
 
 	// Check that point at infinity ("O") actually acts as identity element
@@ -510,7 +524,7 @@ int main(int argc, char **argv)
 		succeeded++;
 	}
 	// P + O = P
-	set_p_to_G(&p);
+	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
 	p.is_point_at_infinity = 1;
 	point_add(&p2, &p);
@@ -528,7 +542,7 @@ int main(int argc, char **argv)
 	}
 	// O + P = P
 	p2.is_point_at_infinity = 1;
-	set_p_to_G(&p);
+	set_to_G(&p);
 	point_add(&p2, &p);
 	jacobian_to_affine(&p2, &p);
 	if ((p.is_point_at_infinity != 0) 
@@ -544,7 +558,7 @@ int main(int argc, char **argv)
 	}
 
 	// Test that P + P produces the same result as 2P
-	set_p_to_G(&p);
+	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
 	point_add(&p2, &p);
 	jacobian_to_affine(&p2, &compare);
@@ -565,7 +579,7 @@ int main(int argc, char **argv)
 	check_point_is_on_curve(&compare);
 
 	// Test that P + -P = O
-	set_p_to_G(&p);
+	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
 	bigsetzero(temp);
 	bigsubtract(p.y, temp, p.y);
@@ -582,7 +596,7 @@ int main(int argc, char **argv)
 	}
 
 	// Test that 2P + P gives a point on curve
-	set_p_to_G(&p);
+	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
 	point_double(&p2);
 	point_add(&p2, &p);
@@ -590,7 +604,7 @@ int main(int argc, char **argv)
 	check_point_is_on_curve(&p);
 
 	// Test that point_multiply by 0 gives O
-	set_p_to_G(&p);
+	set_to_G(&p);
 	bigsetzero(temp);
 	point_multiply(&p, temp);
 	if (p.is_point_at_infinity == 0) 
@@ -604,7 +618,7 @@ int main(int argc, char **argv)
 	}
 
 	// Test that point_multiply by 1 gives P back
-	set_p_to_G(&p);
+	set_to_G(&p);
 	bigsetzero(temp);
 	temp[0] = 1;
 	point_multiply(&p, temp);
@@ -621,11 +635,11 @@ int main(int argc, char **argv)
 	}
 
 	// Test that point_multiply by 2 gives 2P back
-	set_p_to_G(&p);
+	set_to_G(&p);
 	bigsetzero(temp);
 	temp[0] = 2;
 	point_multiply(&p, temp);
-	set_p_to_G(&compare);
+	set_to_G(&compare);
 	affine_to_jacobian(&compare, &p2);
 	point_double(&p2);
 	jacobian_to_affine(&p2, &compare);
@@ -644,7 +658,7 @@ int main(int argc, char **argv)
 	// Test that point_multiply by various constants gives a point on curve
 	for (i = 0; i < 300; i++)
 	{
-		set_p_to_G(&p);
+		set_to_G(&p);
 		bigsetzero(temp);
 		temp[0] = (u8)(i & 0xff);
 		temp[1] = (u8)((i >> 8) & 0xff);
@@ -653,7 +667,7 @@ int main(int argc, char **argv)
 	}
 
 	// Test that n * G = O
-	set_p_to_G(&p);
+	set_to_G(&p);
 	point_multiply(&p, (bignum256)secp256k1_n);
 	if (p.is_point_at_infinity == 0) 
 	{
@@ -702,7 +716,7 @@ int main(int argc, char **argv)
 		skipwhitespace(f);
 		bigfread(f, compare.y);
 		skipwhitespace(f);
-		set_p_to_G(&p);
+		set_to_G(&p);
 		point_multiply(&p, temp);
 		check_point_is_on_curve(&p);
 		if ((p.is_point_at_infinity != compare.is_point_at_infinity) 
