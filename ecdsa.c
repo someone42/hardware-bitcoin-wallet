@@ -9,12 +9,11 @@
 // "SEC 2: Recommended Elliptic Curve Domain Parameters" by Certicom
 // research, obtained 11-August-2011 from:
 // http://www.secg.org/collateral/sec2_final.pdf
+//
+// This file is licensed as described by the file LICENCE.
 
 // Defining this will facilitate testing
 //#define TEST
-
-// Estimate of memory requirements
-// 432 bytes: ecdsa_sign() call
 
 #ifdef TEST
 #include <stdlib.h>
@@ -189,7 +188,7 @@ static void point_double(point_jacobian *p)
 // is in Jacobian coordinates), storing the result back into p1.
 // Mixed coordinates are used because it reduces the number of squarings and
 // multiplications from 16 to 11.
-// See equations (3) ("addition in mixed Jacobian-a.ne coordinates") from
+// See equations (3) ("addition in mixed Jacobian-affine coordinates") from
 // section 4 of that article described in the comments to point_double().
 static void point_add(point_jacobian *p1, point_affine *p2)
 {
