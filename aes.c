@@ -388,7 +388,7 @@ static void scantestvectors(char *filename)
 	u8 plaintext[16];
 	u8 ciphertext[16];
 	u8 compare[16];
-	u8 expkey[176];
+	u8 expkey[EXPKEY_SIZE];
 
 	f = fopen(filename, "r");
 	if (f == NULL)

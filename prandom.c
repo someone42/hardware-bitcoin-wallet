@@ -28,7 +28,7 @@
 #endif // #ifdef TEST
 
 // XOR 16 bytes specified by r with the 16 bytes specified by op1.
-static void xor16bytes(u8 *r, u8 *op1)
+void xor16bytes(u8 *r, u8 *op1)
 {
 	u8 i;
 

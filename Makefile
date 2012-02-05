@@ -82,7 +82,7 @@ OBJDIR = .
 # List C source files here. (C dependencies are automatically generated.)
 SRC = avr/adc.c avr/eeprom.c avr/lcd_and_input.c avr/main.c avr/strings.c \
 avr/usart.c aes.c baseconv.c bignum256.c ecdsa.c endian.c hash.c prandom.c \
-ripemd160.c sha256.c stream_comm.c transaction.c wallet.c
+ripemd160.c sha256.c stream_comm.c transaction.c wallet.c xex.c
 
 
 # List C++ source files here. (C dependencies are automatically generated.)
