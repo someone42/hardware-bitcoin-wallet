@@ -5,6 +5,8 @@
 // All the platform-independent code makes reference to some functions
 // which are strongly platform-dependent. This file describes all the
 // functions which must be implemented on the platform-dependent side.
+//
+// This file is licensed as described by the file LICENCE.
 
 #ifndef HWINTERFACE_H_INCLUDED
 #define HWINTERFACE_H_INCLUDED

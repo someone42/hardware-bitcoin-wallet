@@ -3,6 +3,8 @@
 // ***********************************************************************
 //
 // This describes functions exported by wallet.c
+//
+// This file is licensed as described by the file LICENCE.
 
 #ifndef WALLET_H_INCLUDED
 #define WALLET_H_INCLUDED

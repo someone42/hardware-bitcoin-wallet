@@ -25,7 +25,8 @@ length can be anything
 data is an error message
 
 0x04: create new wallet
-length is 0
+length is 32
+data is the encryption key (use all 00s if there isn't any)
 Response: 02 (length 0) or 03
 
 0x05: create new address in wallet
@@ -56,6 +57,19 @@ Response: 02 (with pubkey) or 03
 length is 20 + <tx size>
 data is address then transaction
 Response: 02 (with signature) or 03
+
+0x0B: load (unlock) wallet
+length is 32
+data is the encryption key (use all 00s if there isn't any)
+Response: 02 (length 0) or 03
+
+0x0C: unload (lock) wallet
+length is 0
+Response: 02 (length 0) or 03
+
+0x0D: format storage
+length is 0
+Response: 02 (length 0) or 03
 
 Flow control (for AVR only):
 

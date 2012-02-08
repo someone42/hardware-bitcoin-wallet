@@ -8,6 +8,8 @@
 // encrypted_nonvolatile_read() just like their non-encrypted bretheren.
 // The keys passed to set_tweak_key() and set_encryption_key() should be
 // secret and independent.
+//
+// This file is licensed as described by the file LICENCE.
 
 #ifndef XEX_H_INCLUDED
 #define XEX_H_INCLUDED
