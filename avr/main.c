@@ -9,6 +9,7 @@
 #include "../common.h"
 #include "../stream_comm.h"
 #include "../wallet.h"
+#include "../xex.h"
 #include "hwinit.h"
 
 int main(void)
@@ -20,6 +21,7 @@ int main(void)
 	init_stream_comm();
 	init_lcd_and_input();
 	init_wallet();
+	clear_keys();
 
 	do
 	{

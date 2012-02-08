@@ -3,8 +3,6 @@
 // ***********************************************************************
 //
 // This describes functions exported by wallet.c
-//
-// This file is licensed as described by the file LICENCE.
 
 #ifndef WALLET_H_INCLUDED
 #define WALLET_H_INCLUDED
@@ -45,6 +43,7 @@ typedef enum wallet_errors_type
 
 extern wallet_errors wallet_get_last_error(void);
 extern wallet_errors init_wallet(void);
+extern wallet_errors sanitise_nv_storage(u32 start, u32 end);
 extern wallet_errors new_wallet(void);
 extern address_handle make_new_address(u8 *out);
 extern u32 get_num_addresses(void);

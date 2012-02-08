@@ -20,6 +20,7 @@
 #include "ripemd160.h"
 #include "ecdsa.h"
 #include "hwinterface.h"
+#include "xex.h"
 
 #if defined(TEST) || defined(INTERFACE_STUBS)
 #include <stdlib.h>
@@ -83,7 +84,7 @@ wallet_errors init_wallet(void)
 
 	wallet_loaded = 0;
 	// Read version and number of records.
-	if (nonvolatile_read(0, buffer, 8) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read(0, buffer, 8) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;
@@ -96,7 +97,7 @@ wallet_errors init_wallet(void)
 	}
 	num_records = read_u32_littleendian(&(buffer[4]));
 	// Check nonce and hash of nonce.
-	if (nonvolatile_read(32, buffer, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read(32, buffer, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;
@@ -121,6 +122,68 @@ wallet_errors init_wallet(void)
 	return lasterror;
 }
 
+// Sanitise (clear) non-volatile storage between the addresses start
+// (inclusive) and end (exclusive). start and end must be a multiple of
+// 32.
+// This will still return WALLET_NO_ERROR even if end is an address beyond the
+// end of the non-volatile storage area. This done so that using
+// start == 0 and end == 0xffffffff will clear the entire non-volatile storage
+// area.
+wallet_errors sanitise_nv_storage(u32 start, u32 end)
+{
+	u8 buffer[32];
+	u32 address;
+	nonvolatile_return r;
+	u8 pass;
+	u8 i;
+
+	r = NV_NO_ERROR;
+	for (pass = 0; pass < 4; pass++)
+	{
+		address = start;
+		r = NV_NO_ERROR;
+		while ((r == NV_NO_ERROR) && (address < end));
+		{
+			if (pass == 0)
+			{
+				for (i = 0; i < 32; i++)
+				{
+					buffer[i] = 0;
+				}
+			}
+			else if (pass == 1)
+			{
+				for (i = 0; i < 32; i++)
+				{
+					buffer[i] = 0xff;
+				}
+			}
+			else
+			{
+				get_random_256(buffer);
+			}
+			r = nonvolatile_write(address, buffer, 32);
+			address += 32;
+		}
+
+		if ((r != NV_INVALID_ADDRESS) && (r != NV_NO_ERROR))
+		{
+			// Uh oh, probably an I/O error.
+			break;
+		}
+	} // end for (pass = 0; pass < 4; pass++)
+
+	if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
+	{
+		lasterror = WALLET_NO_ERROR;
+	}
+	else
+	{
+		lasterror = WALLET_WRITE_ERROR;
+	}
+	return lasterror;
+}
+
 // Create new wallet. A brand new wallet contains no addresses. A return value
 // of WALLET_NO_ERROR indicates success, anything else indicates failure.
 // Warning: this will erase the current one.
@@ -130,6 +193,15 @@ wallet_errors new_wallet(void)
 	u8 hash[32];
 	u8 i;
 	hash_state hs;
+	wallet_errors r;
+
+	// Erase all traces of the existing wallet.
+	r = sanitise_nv_storage(0, 0xffffffff);
+	if (r != WALLET_NO_ERROR)
+	{
+		lasterror = r;
+		return lasterror;
+	}
 
 	// version and number of records
 	for (i = 0; i < 32; i++)
@@ -138,14 +210,14 @@ wallet_errors new_wallet(void)
 	}
 	buffer[0] = 1;
 	buffer[4] = 1;
-	if (nonvolatile_write(0, buffer, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(0, buffer, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
 	// nonce and hash of nonce
 	get_random_256(buffer);
-	if (nonvolatile_write(32, buffer, 16) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(32, buffer, 16) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
@@ -157,20 +229,20 @@ wallet_errors new_wallet(void)
 	}
 	sha256_finish(&hs);
 	convertHtobytearray(&hs, hash, 1);
-	if (nonvolatile_write(48, hash, 16) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(48, hash, 16) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
 	// seed for deterministic address generator
 	get_random_256(buffer);
-	if (nonvolatile_write(64, buffer, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(64, buffer, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
 	get_random_256(buffer);
-	if (nonvolatile_write(96, buffer, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(96, buffer, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
@@ -202,13 +274,13 @@ address_handle make_new_address(u8 *out)
 	}
 	baseaddress = num_records << 7;
 	// Generate and write private key.
-	if (nonvolatile_read(64, seed, 64) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read(64, seed, 64) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return BAD_ADDRESS_HANDLE;
 	}
 	generate_deterministic_256(buffer, seed, num_records);
-	r = nonvolatile_write(baseaddress + 32, buffer, 32);
+	r = encrypted_nonvolatile_write(baseaddress + 32, buffer, 32);
 	if (r == NV_INVALID_ADDRESS)
 	{
 		// Attempted to write past end of storage device, so there's no more
@@ -225,12 +297,12 @@ address_handle make_new_address(u8 *out)
 	set_field_to_p();
 	set_to_G(&pubkey);
 	point_multiply(&pubkey, buffer);
-	if (nonvolatile_write(baseaddress + 64, pubkey.x, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(baseaddress + 64, pubkey.x, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
 	}
-	if (nonvolatile_write(baseaddress + 96, pubkey.y, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(baseaddress + 96, pubkey.y, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -265,7 +337,7 @@ address_handle make_new_address(u8 *out)
 	{
 		buffer[i] = 0;
 	}
-	if (nonvolatile_write(baseaddress, buffer, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(baseaddress, buffer, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -274,7 +346,7 @@ address_handle make_new_address(u8 *out)
 	// Update num_records in RAM and non-volatile storage.
 	num_records++;
 	write_u32_littleendian(buffer, num_records);
-	if (nonvolatile_write(4, buffer, 4) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(4, buffer, 4) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -321,7 +393,7 @@ address_handle list_first_address(u8 *out)
 		lasterror = WALLET_EMPTY;
 		return BAD_ADDRESS_HANDLE;
 	}
-	if (nonvolatile_read(128, out, 20) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read(128, out, 20) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -352,7 +424,7 @@ address_handle list_next_address(u8 *out)
 		lasterror = WALLET_END_OF_LIST;
 		return BAD_ADDRESS_HANDLE;
 	}
-	if (nonvolatile_read(list_counter << 7, out, 20) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read(list_counter << 7, out, 20) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -379,7 +451,7 @@ address_handle is_mine(u8 *address)
 	}
 	for (i = 1; i < num_records; i++)
 	{
-		if (nonvolatile_read(i << 7, buffer, 20) != NV_NO_ERROR)
+		if (encrypted_nonvolatile_read(i << 7, buffer, 20) != NV_NO_ERROR)
 		{
 			lasterror = WALLET_READ_ERROR;
 			return BAD_ADDRESS_HANDLE;
@@ -427,7 +499,7 @@ static wallet_errors get_field(address_handle ah, u8 *out, u32 offset, u8 length
 		lasterror = WALLET_INVALID_HANDLE;
 		return lasterror;
 	}
-	if (nonvolatile_read((ah << 7) + offset, out, length) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read((ah << 7) + offset, out, length) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;

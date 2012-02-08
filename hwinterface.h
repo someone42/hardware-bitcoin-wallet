@@ -5,8 +5,6 @@
 // All the platform-independent code makes reference to some functions
 // which are strongly platform-dependent. This file describes all the
 // functions which must be implemented on the platform-dependent side.
-//
-// This file is licensed as described by the file LICENCE.
 
 #ifndef HWINTERFACE_H_INCLUDED
 #define HWINTERFACE_H_INCLUDED
@@ -35,7 +33,9 @@ typedef enum askuser_command_type
 	// Do you want to create a new address in this wallet?
 	ASKUSER_NEW_ADDRESS			=	2,
 	// Do you want to do this transaction?
-	ASKUSER_SIGN_TRANSACTION	=	3
+	ASKUSER_SIGN_TRANSACTION	=	3,
+	// Do you want to delete everything?
+	ASKUSER_FORMAT				=	4
 } askuser_command;
 
 // Values for get_string() function which specify which set of strings
@@ -104,6 +104,11 @@ extern u8 ask_user(askuser_command command);
 // of bits (not bytes) of entropy in the buffer. Do not use pseudo-random
 // number generators to fill the buffer, except for testing.
 extern u16 hardware_random_bytes(u8 *buffer, u8 n);
+
+// Non-volatile storage must have a size which is a multiple of 128 bytes.
+// If the size of the storage area is not a multiple of 128 bytes, then the
+// area should be truncated (in software) to the largest multiple of 128
+// bytes.
 
 // Write to non-volatile storage. address is a byte offset specifying where
 // in non-volatile storage to start writing to. data is a pointer to the

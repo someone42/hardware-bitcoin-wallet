@@ -7,4 +7,5 @@ The files here expect the following hardware:
 - Two push buttons (see lcd_and_input.c for the pins to connect it to) which
   connect between an input pin and ground.
 
-Communication with the host BitCoin client is done via. the USART.
+Communication with the host BitCoin client is done via. the USART at baud rate
+57600, 8 data bits, no parity and 1 stop bit.

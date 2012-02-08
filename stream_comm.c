@@ -18,6 +18,8 @@
 #include "wallet.h"
 #include "bignum256.h"
 #include "stream_comm.h"
+#include "prandom.h"
+#include "xex.h"
 
 #ifdef TEST
 #include <stdlib.h>
@@ -133,6 +135,21 @@ static u8 read_bytes(u8 *buffer, u8 length)
 			return 1; // read error
 		}
 	}
+	payload_length -= length;
+	return 0;
+}
+
+// Format non-volatile storage, erasing its contents and replacing it with
+// random data.
+// This returns 0 on success or non-zero if there was a write error.
+u8 format_storage(void)
+{
+	if (translate_wallet_error(sanitise_nv_storage(0, 0xffffffff), 0, NULL) != 0)
+	{
+		return 1; // write error
+	}
+
+	init_wallet(); // force wallet to unload
 	return 0;
 }
 
@@ -338,11 +355,14 @@ static u8 read_and_ignore_input(void)
 {
 	u8 junk;
 
-	for (; payload_length--; )
+	if (payload_length)
 	{
-		if (stream_get_one_byte(&junk) != 0)
+		for (; payload_length--; )
 		{
-			return 1; // read error
+			if (stream_get_one_byte(&junk) != 0)
+			{
+				return 1; // read error
+			}
 		}
 	}
 	return 0;
@@ -391,7 +411,7 @@ void init_stream_comm(void)
 u8 process_packet(void)
 {
 	u8 command;
-	u8 buffer[20];
+	u8 buffer[32];
 	u8 i;
 	u8 r;
 
@@ -439,13 +459,17 @@ u8 process_packet(void)
 
 	case 0x04:
 		// Create new wallet.
-		r = expect_length(0);
+		r = expect_length(32);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (r == 0)
 		{
+			if (read_bytes(buffer, 32) != 0)
+			{
+				return 1; // read error
+			}
 			if (ask_user(ASKUSER_NUKE_WALLET) != 0)
 			{
 				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03) != 0)
@@ -455,6 +479,8 @@ u8 process_packet(void)
 			}
 			else
 			{
+				set_encryption_key(buffer);
+				set_tweak_key(&(buffer[16]));
 				if (translate_wallet_error (new_wallet(), 0, NULL) != 0)
 				{
 					return 1; // write error
@@ -500,7 +526,7 @@ u8 process_packet(void)
 		if (r == 0)
 		{
 			write_u32_littleendian(buffer, get_num_addresses());
-			if (translate_wallet_error (wallet_get_last_error(), 4, buffer) != 0)
+			if (translate_wallet_error(wallet_get_last_error(), 4, buffer) != 0)
 			{
 				return 1; // write error
 			}
@@ -637,6 +663,54 @@ u8 process_packet(void)
 			}
 			payload_length = 0;
 		}
+		break;
+
+	case 0x0b:
+		// Load wallet
+		r = expect_length(32);
+		if (r >= EXPECT_LENGTH_IO_ERROR)
+		{
+			return 1; // read or write error
+		}
+		if (r == 0)
+		{
+			if (read_bytes(buffer, 32) != 0)
+			{
+				return 1; // read error
+			}
+			set_encryption_key(buffer);
+			set_tweak_key(&(buffer[16]));
+			if (translate_wallet_error (init_wallet(), 0, NULL) != 0)
+			{
+				return 1; // write error
+			}
+		} // if (r == 0)
+		break;
+
+	case 0x0d:
+		// Format storage.
+		r = expect_length(0);
+		if (r >= EXPECT_LENGTH_IO_ERROR)
+		{
+			return 1; // read or write error
+		}
+		if (r == 0)
+		{
+			if (ask_user(ASKUSER_FORMAT) != 0)
+			{
+				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03) != 0)
+				{
+					return 1; // write error
+				}
+			}
+			else
+			{
+				if (format_storage() != 0)
+				{
+					return 1; // write error
+				}
+			}
+		} // if (r == 0)
 		break;
 
 	default:
@@ -857,6 +931,9 @@ u8 ask_user(askuser_command command)
 	case ASKUSER_SIGN_TRANSACTION:
 		printf("Sign transaction? ");
 		break;
+	case ASKUSER_FORMAT:
+		printf("Format storage area? ");
+		break;
 	default:
 		assert(0);
 		return 1;
@@ -877,19 +954,29 @@ u8 ask_user(askuser_command command)
 }
 
 // Create new wallet
-static const u8 test_stream1[] = {
-0x04, 0x00, 0x00, 0x00, 0x00};
+static const u8 test_stream_new_wallet[] = {
+0x04, 0x20, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Create new address
-static const u8 test_stream2[] = {
+static const u8 test_stream_new_address[] = {
 0x05, 0x00, 0x00, 0x00, 0x00};
 
 // List addresses
-static const u8 test_stream3[] = {
+static const u8 test_stream_list_addresses[] = {
 0x07, 0x00, 0x00, 0x00, 0x00};
 
+// Query if address is in wallet
+static const u8 test_stream_ismine[] = {
+0x08, 0x14, 0x00, 0x00, 0x00,
+0x65, 0xda, 0xfb, 0x53, 0xbb, 0x2b, 0xd3, 0x7d, 0xf7, 0xa2,
+0xd6, 0x3f, 0xa7, 0x62, 0x34, 0x0e, 0x23, 0x14, 0x79, 0xae};
+
 // Sign something
-static u8 test_stream4[] = {
+static u8 test_stream_sign_tx[] = {
 0x0a, 0xa8, 0x00, 0x00, 0x00,
 0x65, 0xda, 0xfb, 0x53, 0xbb, 0x2b, 0xd3, 0x7d, 0xf7, 0xa2,
 0xd6, 0x3f, 0xa7, 0x62, 0x34, 0x0e, 0x23, 0x14, 0x79, 0xae,
@@ -935,6 +1022,26 @@ static u8 test_stream4[] = {
 0x01, 0x00, 0x00, 0x00 // hashtype
 };
 
+// Format storage
+static const u8 test_stream_format[] = {
+0x0d, 0x00, 0x00, 0x00, 0x00};
+
+// Load wallet using correct key
+static const u8 test_stream_load_correct[] = {
+0x0b, 0x20, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+// Load wallet using incorrect key
+static const u8 test_stream_load_incorrect[] = {
+0x0b, 0x20, 0x00, 0x00, 0x00,
+0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
 static void send_one_test_stream(const u8 *test_stream, int size)
 {
 	int r;
@@ -958,13 +1065,17 @@ int main(int argc, char **argv)
 	wallet_test_init();
 	init_wallet();
 
-	send_one_test_stream(test_stream1, sizeof(test_stream1));
+	send_one_test_stream(test_stream_new_wallet, sizeof(test_stream_new_wallet));
 	for(i = 0; i < 4; i++)
 	{
-		send_one_test_stream(test_stream2, sizeof(test_stream2));
+		send_one_test_stream(test_stream_new_address, sizeof(test_stream_new_address));
 	}
-	send_one_test_stream(test_stream3, sizeof(test_stream3));
-	send_one_test_stream(test_stream4, sizeof(test_stream4));
+	send_one_test_stream(test_stream_ismine, sizeof(test_stream_ismine));
+	send_one_test_stream(test_stream_list_addresses, sizeof(test_stream_list_addresses));
+	send_one_test_stream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
+	//send_one_test_stream(test_stream_format, sizeof(test_stream_format));
+	send_one_test_stream(test_stream_load_incorrect, sizeof(test_stream_load_incorrect));
+	send_one_test_stream(test_stream_load_correct, sizeof(test_stream_load_correct));
 
 	exit(0);
 }

@@ -45,7 +45,7 @@ static void gfdouble(u8 *op1)
 	for (i = 0; i < 16; i++)
 	{
 		temp = (u8)(op1[i] & 0x80);
-		op1[i] <<= 1;
+		op1[i] = (u8)(op1[i] << 1);
 		op1[i] |= lastbit;
 		lastbit = (u8)(temp >> 7);
 	}

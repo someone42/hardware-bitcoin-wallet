@@ -11,5 +11,6 @@
 
 extern void init_adc(void);
 extern void init_usart(void);
+extern void init_lcd_and_input(void);
 
 #endif // #ifndef HWINIT_H_INCLUDED
