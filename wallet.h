@@ -45,6 +45,7 @@ typedef enum wallet_errors_type
 
 extern wallet_errors wallet_get_last_error(void);
 extern wallet_errors init_wallet(void);
+extern wallet_errors uninit_wallet(void);
 extern wallet_errors sanitise_nv_storage(u32 start, u32 end);
 extern wallet_errors new_wallet(void);
 extern address_handle make_new_address(u8 *out);
@@ -55,6 +56,7 @@ extern address_handle is_mine(u8 *address);
 extern wallet_errors get_address(address_handle ah, u8 *out);
 extern wallet_errors get_pubkey(address_handle ah, u8 *out);
 extern wallet_errors get_privkey(address_handle ah, u8 *out);
+extern wallet_errors change_encryption_key(u8 *new_key);
 
 #ifdef TEST
 extern void wallet_test_init(void);

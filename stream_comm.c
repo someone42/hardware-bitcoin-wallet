@@ -666,7 +666,7 @@ u8 process_packet(void)
 		break;
 
 	case 0x0b:
-		// Load wallet
+		// Load wallet.
 		r = expect_length(32);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
@@ -681,6 +681,32 @@ u8 process_packet(void)
 			set_encryption_key(buffer);
 			set_tweak_key(&(buffer[16]));
 			if (translate_wallet_error (init_wallet(), 0, NULL) != 0)
+			{
+				return 1; // write error
+			}
+		} // if (r == 0)
+		break;
+
+	case 0x0c:
+		// Unload wallet.
+		r = expect_length(0);
+		if (r >= EXPECT_LENGTH_IO_ERROR)
+		{
+			return 1; // read or write error
+		}
+		if (r == 0)
+		{
+			clear_keys();
+			sanitise_ram();
+			for (i = 0; i < 32; i++)
+			{
+				buffer[i] = 0xff;
+			}
+			for (i = 0; i < 32; i++)
+			{
+				buffer[i] = 0x0;
+			}
+			if (translate_wallet_error (uninit_wallet(), 0, NULL) != 0)
 			{
 				return 1; // write error
 			}
@@ -709,6 +735,26 @@ u8 process_packet(void)
 				{
 					return 1; // write error
 				}
+			}
+		} // if (r == 0)
+		break;
+
+	case 0x0e:
+		// Change wallet encryption key.
+		r = expect_length(32);
+		if (r >= EXPECT_LENGTH_IO_ERROR)
+		{
+			return 1; // read or write error
+		}
+		if (r == 0)
+		{
+			if (read_bytes(buffer, 32) != 0)
+			{
+				return 1; // read error
+			}
+			if (translate_wallet_error (change_encryption_key(buffer), 0, NULL) != 0)
+			{
+				return 1; // write error
 			}
 		} // if (r == 0)
 		break;
@@ -1042,6 +1088,26 @@ static const u8 test_stream_load_incorrect[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+// Unload wallet
+static const u8 test_stream_unload[] = {
+0x0c, 0x00, 0x00, 0x00, 0x00};
+
+// Change encryption key
+static const u8 test_stream_change_key[] = {
+0x0e, 0x20, 0x00, 0x00, 0x00,
+0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+// Load with new encryption key
+static const u8 test_stream_load_with_changed_key[] = {
+0x0b, 0x20, 0x00, 0x00, 0x00,
+0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
 static void send_one_test_stream(const u8 *test_stream, int size)
 {
 	int r;
@@ -1076,6 +1142,9 @@ int main(int argc, char **argv)
 	//send_one_test_stream(test_stream_format, sizeof(test_stream_format));
 	send_one_test_stream(test_stream_load_incorrect, sizeof(test_stream_load_incorrect));
 	send_one_test_stream(test_stream_load_correct, sizeof(test_stream_load_correct));
+	send_one_test_stream(test_stream_change_key, sizeof(test_stream_change_key));
+	send_one_test_stream(test_stream_unload, sizeof(test_stream_unload));
+	send_one_test_stream(test_stream_load_with_changed_key, sizeof(test_stream_load_with_changed_key));
 
 	exit(0);
 }

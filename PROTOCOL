@@ -71,6 +71,11 @@ Response: 02 (length 0) or 03
 length is 0
 Response: 02 (length 0) or 03
 
+0x0E: change wallet encryption key
+length is 32
+data is the new encryption key (use all 00s if there isn't any)
+Response: 02 (length 0) or 03
+
 Flow control (for AVR only):
 
 Every n bytes, wait for an acknowledge from the other side. An acknowledge

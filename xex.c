@@ -132,6 +132,22 @@ void set_encryption_key(u8 *in)
 	}
 }
 
+// Place encryption keys in the buffer pointed to by out. out must point
+// to an array of 32 bytes. The (primary) encryption key is written to the
+// first 16 bytes and the tweak key is written to the last 16 bytes.
+void get_encryption_keys(u8 *out)
+{
+	u8 i;
+	for (i = 0; i < 16; i++)
+	{
+		out[i] = nvstorage_encrypt_key[i];
+	}
+	for (i = 0; i < 16; i++)
+	{
+		out[i + 16] = nvstorage_tweak_key[i];
+	}
+}
+
 // Clear out memory which stores encryption keys.
 // In order to be sure that keys don't remain in RAM anywhere, you may also
 // need to clear out the space between the heap and the stack.

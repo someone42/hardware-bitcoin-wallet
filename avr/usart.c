@@ -237,3 +237,57 @@ u8 stream_put_one_byte(u8 onebyte)
 	}
 	return 0;
 }
+
+extern void __bss_start;
+
+// This is a separate functionso that the saved variables in sanitise_ram()
+// won't get mangled.
+void sanitise_ram_internal(void)
+{
+	volatile u16 i;
+
+	// This is an awful abuse of C's type system.
+	// __bss_start is a symbol exported by the linker which conveniently
+	// has an address which points to the beginning of the zero-initialised
+	// data section. i, being allocated on the stack, has an address which
+	// points to the bottom of the stack.
+	// Clearing everything in-between ensures that the device is left in a
+	// state similar to after a reset, with all variables cleared and no
+	// remains of past stack variables sitting in unused memory somewhere.
+	// The beginning of non-zero-initialised data (__data_start) is not used
+	// because non-zero-initialised data is never used to store sensitive
+	// data - it's only used for lookup tables.
+	for (i = (u16)&__bss_start; i < (u16)&i; i++)
+	{
+		*((u8 *)i) = 0xff; // just to be sure
+		*((u8 *)i) = 0;
+	}
+}
+
+// This is here because the easiest way to clear everything that is
+// potentially sensitive is to clear (nearly) everything. The only bits
+// of data that aren't cleared are the serial communication acknowledgement
+// counters, because clearing those would cause them to go out of sync
+// with the host (causing one or the other to stall waiting for
+// acknowledgement).
+void sanitise_ram(void)
+{
+	u32 saved_rx_acknowledge;
+	u32 saved_tx_acknowledge;
+
+	// Wait until transmit buffer is empty.
+	while ((tx_buffer_start != tx_buffer_end) || tx_buffer_full)
+	{
+		// do nothing
+	}
+	// Receive buffer should be empty. It's probably the case if this function
+	// was called as a result of a "unload wallet" packet, since the host
+	// isn't supposed to send anything until it receives a response from
+	// here.
+
+	saved_rx_acknowledge = rx_acknowledge;
+	saved_tx_acknowledge = tx_acknowledge;
+	sanitise_ram_internal();
+	rx_acknowledge = saved_rx_acknowledge;
+	tx_acknowledge = saved_tx_acknowledge;
+}

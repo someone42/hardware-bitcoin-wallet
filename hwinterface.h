@@ -127,4 +127,12 @@ extern nonvolatile_return nonvolatile_read(u32 address, u8 *data, u8 length);
 // Ensure that all buffered writes are committed to non-volatile storage.
 extern void nonvolatile_flush(void);
 
+// Overwrite anything in RAM which could contain sensitive data. "Sensitive
+// data" includes secret things like encryption keys and wallet private keys.
+// It also includes derived things like expanded keys and intermediate results
+// from elliptic curve calculations. Even past transaction data, addresses
+// and intermediate results from hash calculations could be considered
+// sensitive and should be overwritten.
+extern void sanitise_ram(void);
+
 #endif // #ifndef HWINTERFACE_H_INCLUDED

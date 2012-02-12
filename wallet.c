@@ -122,6 +122,16 @@ wallet_errors init_wallet(void)
 	return lasterror;
 }
 
+// Unload wallet, so that it cannot be used until init_wallet() is called.
+// A return value of WALLET_NO_ERROR indicates success, anything else
+// indicates failure.
+wallet_errors uninit_wallet(void)
+{
+	wallet_loaded = 0;
+	lasterror = WALLET_NO_ERROR;
+	return lasterror;
+}
+
 // Sanitise (clear) non-volatile storage between the addresses start
 // (inclusive) and end (exclusive). start and end must be a multiple of
 // 32.
@@ -142,7 +152,7 @@ wallet_errors sanitise_nv_storage(u32 start, u32 end)
 	{
 		address = start;
 		r = NV_NO_ERROR;
-		while ((r == NV_NO_ERROR) && (address < end));
+		while ((r == NV_NO_ERROR) && (address < end))
 		{
 			if (pass == 0)
 			{
@@ -526,6 +536,53 @@ wallet_errors get_privkey(address_handle ah, u8 *out)
 	return get_field(ah, out, 32, 32);
 }
 
+// Change the encryption key for a wallet to the key specified by new_key.
+// new_key should point to an array of 32 bytes.
+wallet_errors change_encryption_key(u8 *new_key)
+{
+	u8 old_key[32];
+	u8 buffer[16];
+	nonvolatile_return r;
+	u32 address;
+	u32 end;
+
+	if (!wallet_loaded)
+	{
+		lasterror = WALLET_NOT_THERE;
+		return lasterror;
+	}
+
+	get_encryption_keys(old_key);
+	r = NV_NO_ERROR;
+	address = 0;
+	end = 0xffffffff;
+	while ((r == NV_NO_ERROR) && (address < end))
+	{
+		set_encryption_key(old_key);
+		set_tweak_key(&(old_key[16]));
+		r = encrypted_nonvolatile_read(address, buffer, 16);
+		if (r == NV_NO_ERROR)
+		{
+			set_encryption_key(new_key);
+			set_tweak_key(&(new_key[16]));
+			r = encrypted_nonvolatile_write(address, buffer, 16);
+		}
+		address += 16;
+	}
+
+	set_encryption_key(new_key);
+	set_tweak_key(&(new_key[16]));
+	if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
+	{
+		lasterror = WALLET_NO_ERROR;
+	}
+	else
+	{
+		lasterror = WALLET_WRITE_ERROR;
+	}
+	return lasterror;
+}
+
 #if defined(TEST) || defined(INTERFACE_STUBS)
 
 // Size of storage area, in bytes.
@@ -537,10 +594,17 @@ wallet_errors get_privkey(address_handle ah, u8 *out)
 
 nonvolatile_return nonvolatile_write(u32 address, u8 *data, u8 length)
 {
+	int i;
 	if ((address + (u32)length) > TEST_FILE_SIZE)
 	{
 		return NV_INVALID_ADDRESS;
 	}
+	printf("nv write, addr = 0x%08x, length = 0x%04x, data =", (int)address, (int)length);
+	for (i = 0; i < length; i++)
+	{
+		printf(" %02x", data[i]);
+	}
+	printf("\n");
 	fseek(wallet_test_file, address, SEEK_SET);
 	fwrite(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
@@ -560,6 +624,11 @@ nonvolatile_return nonvolatile_read(u32 address, u8 *data, u8 length)
 void nonvolatile_flush(void)
 {
 	fflush(wallet_test_file);
+}
+
+void sanitise_ram(void)
+{
+	// do nothing
 }
 
 #endif // #if defined(TEST) || defined(INTERFACE_STUBS)
