@@ -240,7 +240,7 @@ u8 stream_put_one_byte(u8 onebyte)
 
 extern void __bss_start;
 
-// This is a separate functionso that the saved variables in sanitise_ram()
+// This is a separate function so that the saved variables in sanitise_ram()
 // won't get mangled.
 void sanitise_ram_internal(void)
 {
@@ -257,11 +257,13 @@ void sanitise_ram_internal(void)
 	// The beginning of non-zero-initialised data (__data_start) is not used
 	// because non-zero-initialised data is never used to store sensitive
 	// data - it's only used for lookup tables.
+	cli();
 	for (i = (u16)&__bss_start; i < (u16)&i; i++)
 	{
 		*((u8 *)i) = 0xff; // just to be sure
 		*((u8 *)i) = 0;
 	}
+	sei();
 }
 
 // This is here because the easiest way to clear everything that is
@@ -276,7 +278,11 @@ void sanitise_ram(void)
 	u32 saved_tx_acknowledge;
 
 	// Wait until transmit buffer is empty.
-	while ((tx_buffer_start != tx_buffer_end) || tx_buffer_full)
+	while (tx_buffer_full)
+	{
+		// do nothing
+	}
+	while (tx_buffer_start != tx_buffer_end)
 	{
 		// do nothing
 	}

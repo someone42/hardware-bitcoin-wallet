@@ -696,15 +696,17 @@ u8 process_packet(void)
 		}
 		if (r == 0)
 		{
+			volatile u8 *buffer_alias;
 			clear_keys();
 			sanitise_ram();
+			buffer_alias = buffer;
 			for (i = 0; i < 32; i++)
 			{
-				buffer[i] = 0xff;
+				buffer_alias[i] = 0xff;
 			}
 			for (i = 0; i < 32; i++)
 			{
-				buffer[i] = 0x0;
+				buffer_alias[i] = 0x0;
 			}
 			if (translate_wallet_error (uninit_wallet(), 0, NULL) != 0)
 			{

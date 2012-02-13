@@ -4,10 +4,12 @@ by someone42, unless stated otherwise
 A minimal BitCoin (see http://bitcoin.org/ ) wallet for embedded devices. The
 wallet is responsible for parsing transactions, prompting the user and signing
 transactions. It is not aware of the blockchain and communicates with a
-BitCoin client via. a point-to-point stream-based link.
+BitCoin client ("the host" from the point of view of the code here) via. a
+point-to-point stream-based link.
 
 Everything in the top-level source directory is self-contained and should be
 platform-independent. The only platform-dependent file there is common.h,
-which should be modified if porting to other platforms.
+which should be modified if porting to other platforms. hwinterface.h
+describes what platform-dependent functions need to be implemented.
 
 Everything in the avr/ subdirectory is specific to the 8-bit AVR platform.
