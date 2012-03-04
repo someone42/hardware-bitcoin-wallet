@@ -49,10 +49,10 @@ static void gfdouble(u8 *op1)
 		op1[i] |= lastbit;
 		lastbit = (u8)(temp >> 7);
 	}
-	if (lastbit)
-	{
-		op1[0] ^= 0x87;
-	}
+	lastbit = (u8)(-(int)lastbit);
+	// lastbit is now 0 if most-significant bit is 0, 0xff if most-significant
+	// bit is 1.
+	op1[0] = (u8)(op1[0] ^ (0x87 & lastbit));
 }
 
 // Combined XEX mode encrypt/decrypt, since they're almost the same.
