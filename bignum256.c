@@ -5,6 +5,13 @@
 // Containes functions which perform modular arithmetic operations on
 // 256-bit wide numbers. These include: addition, subtraction, multiplication,
 // and inversion.
+// All computation functions have been written in a way so that their
+// execution time is independent of the data they are processing. However, the
+// compiler may use optimisations which destroy this property; inspection of
+// the generated assembly code is the only way to check. The advantage of
+// data-independent timing is that implementations of cryptography based on
+// this code should be more timing attack resistant. The main disadvantage is
+// that the code is relatively inefficient.
 // All functions here expect 256-bit numbers to be an array of 32 bytes, with
 // the least significant byte first.
 // To use the exported functions here, you must call bigsetfield() first to
@@ -40,6 +47,9 @@
 static bignum256 n;
 static bignum256 compn;
 static u8 sizecompn;
+
+// C specification says that all remaining initialisers will be 0.
+static const u8 zero[32] = {0};
 
 #ifdef TEST
 static void bigprint(bignum256 number)
@@ -81,6 +91,8 @@ u8 bigcmp_varsize(u8 *op1, u8 *op2, u8 size)
 		//     }
 		// }
 		// Note that it relies on BIGCMP_EQUAL having the value 0.
+		// It inspired by the code at:
+		// http://aggregate.ee.engr.uky.edu/MAGIC/#Integer%20Selection
 		cmp = (u8)((((u16)((int)op2[i] - (int)op1[i])) >> 8) & BIGCMP_GREATER);
 		r = (u8)(((((u16)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
 		cmp = (u8)((((u16)((int)op1[i] - (int)op2[i])) >> 8) & BIGCMP_LESS);
@@ -102,14 +114,15 @@ u8 bigcmp(bignum256 op1, bignum256 op2)
 u8 bigiszero_varsize(u8 *op1, u8 size)
 {
 	u8 i;
+	u8 r;
+
+	r = 0;
 	for (i = 0; i < size; i++)
 	{
-		if (op1[i] != 0)
-		{
-			return 0;
-		}
+		r |= op1[i];
 	}
-	return 1;
+	// The following line does: "return r ? 0 : 1;"
+	return (u8)((((u16)(-(int)r)) >> 8) + 1);
 }
 
 // Returns 1 if op1 is zero, returns 0 otherwise.
@@ -196,14 +209,15 @@ static u8 bigsubtract_internal(bignum256 r, bignum256 op1, bignum256 op2)
 // r may alias op1.
 void bigmod(bignum256 r, bignum256 op1)
 {
-	if (bigcmp(op1, n) == BIGCMP_LESS)
-	{
-		bigassign(r, op1);
-	}
-	else
-	{
-		bigsubtract_internal(r, op1, n);
-	}
+	u8 cmp;
+	u8 *lookup[2];
+
+	// The following 2 lines do: cmp = "bigcmp(op1, n) == BIGCMP_LESS ? 1 : 0"
+	cmp = (u8)(bigcmp(op1, n) ^ BIGCMP_LESS);
+	cmp = (u8)((((u16)(-(int)cmp)) >> 8) + 1);
+	lookup[0] = n;
+	lookup[1] = (u8 *)zero;
+	bigsubtract_internal(r, op1, lookup[cmp]);
 }
 
 // Computes op1 + op2 modulo n and places result into r.
@@ -211,17 +225,21 @@ void bigmod(bignum256 r, bignum256 op1)
 // r may alias op1 or op2. op1 may alias op2.
 void bigadd(bignum256 r, bignum256 op1, bignum256 op2)
 {
-	u8 carry;
+	u8 too_big;
+	u8 cmp;
+	u8 *lookup[2];
 
 #ifdef _DEBUG
 	assert(bigcmp(op1, n) == BIGCMP_LESS);
 	assert(bigcmp(op2, n) == BIGCMP_LESS);
 #endif // #ifdef _DEBUG
-	carry = bigadd_internal(r, op1, op2, 32);
-	if ((carry != 0) || (bigcmp(r, n) != BIGCMP_LESS))
-	{
-		bigsubtract_internal(r, r, n);
-	}
+	too_big = bigadd_internal(r, op1, op2, 32);
+	cmp = (u8)(bigcmp(r, n) ^ BIGCMP_LESS);
+	cmp = (u8)((((u16)(-(int)cmp)) >> 8) & 1);
+	too_big |= cmp;
+	lookup[0] = (u8 *)zero;
+	lookup[1] = n;
+	bigsubtract_internal(r, r, lookup[too_big]);
 }
 
 // Computes op1 - op2 modulo n and places result into r.
@@ -229,14 +247,17 @@ void bigadd(bignum256 r, bignum256 op1, bignum256 op2)
 // r may alias op1 or op2. op1 may alias op2.
 void bigsubtract(bignum256 r, bignum256 op1, bignum256 op2)
 {
+	u8 *lookup[2];
+	u8 too_small;
+
 #ifdef _DEBUG
 	assert(bigcmp(op1, n) == BIGCMP_LESS);
 	assert(bigcmp(op2, n) == BIGCMP_LESS);
 #endif // #ifdef _DEBUG
-	if (bigsubtract_internal(r, op1, op2) != 0)
-	{
-		bigadd_internal(r, r, n, 32);
-	}
+	too_small = bigsubtract_internal(r, op1, op2);
+	lookup[0] = (u8 *)zero;
+	lookup[1] = n;
+	bigadd_internal(r, r, lookup[too_small], 32);
 }
 
 // Computes op1 * op2 and places result into r. op1size is the size
@@ -288,6 +309,7 @@ void bigmultiply(bignum256 r, bignum256 op1, bignum256 op2)
 	u8 temp[64];
 	u8 fullr[64];
 	u8 i;
+	u8 remaining;
 
 	bigmultiply_internal(fullr, op1, 32, op2, 32);
 	// The modular reduction is done by subtracting off some multiple of
@@ -296,29 +318,31 @@ void bigmultiply(bignum256 r, bignum256 op1, bignum256 op2)
 	// However, since n < 2 ^ 256, the estimate will always be an
 	// underestimate. That's okay, because the algorithm can be applied
 	// repeatedly, until the upper 256 bits of r are zero.
-	for (i = 0; i < 64; i++)
+	// remaining denotes the maximum number of possible non-zero bytes left in
+	// the result.
+	remaining = 64;
+	while (remaining > 32)
 	{
-		temp[i] = 0;
-	}
-	while (bigiszero(&(fullr[32])) == 0)
-	{
+		for (i = 0; i < 64; i++)
+		{
+			temp[i] = 0;
+		}
 		// n should be equal to 2 ^ 256 - compn. Therefore, subtracting
 		// off (upper 256 bits of r) * n is equivalent to setting the
 		// upper 256 bits of r to 0 and adding (upper 256 bits of r) * compn.
-		bigmultiply_internal(temp, compn, sizecompn, &(fullr[32]), 32);
+		bigmultiply_internal(temp, compn, sizecompn, &(fullr[32]), (u8)(remaining - 32));
 		for (i = 32; i < 64; i++)
 		{
 			fullr[i] = 0;
 		}
-		bigadd_internal(fullr, fullr, temp, 64);
+		bigadd_internal(fullr, fullr, temp, remaining);
+		// This update of the bound is only valid for remaining > 32.
+		remaining = (u8)(remaining - 32 + sizecompn);
 	}
 	// The upper 256 bits of r should now be 0. But r could still be >= n.
 	// As long as n > 2 ^ 255, at most one subtraction is
 	// required to ensure that r < n.
-	if (bigcmp(fullr, n) != BIGCMP_LESS)
-	{
-		bigsubtract_internal(fullr, fullr, n);
-	}
+	bigmod(fullr, fullr);
 	bigassign(r, fullr);
 }
 
@@ -332,14 +356,17 @@ void biginvert(bignum256 r, bignum256 op1)
 	u8 j;
 	u8 byteofnminus2;
 	u8 bitofnminus2;
+	u8 *lookup[2];
 
 	// This uses Fermat's Little Theorem, of which an immediate corollary is:
 	// a ^ (p - 2) = a ^ (-1) modulo n.
-	// The exponentiation algorithm used here is binary exponentiation.
+	// The Montgomery ladder method is used to perform the exponentiation.
 	bigassign(temp, op1);
 	bigsetzero(r);
 	r[0] = 1;
-	for (i = 0; i < 32; i++)
+	lookup[0] = r;
+	lookup[1] = temp;
+	for (i = 31; i < 32; i--)
 	{
 		byteofnminus2 = n[i];
 		if (i == 0)
@@ -348,13 +375,21 @@ void biginvert(bignum256 r, bignum256 op1)
 		}
 		for (j = 0; j < 8; j++)
 		{
-			bitofnminus2 = (u8)(byteofnminus2 & 1);
-			byteofnminus2 = (u8)(byteofnminus2 >> 1);
-			if (bitofnminus2 != 0)
-			{
-				bigmultiply(r, r, temp);
-			}
-			bigmultiply(temp, temp, temp);
+			bitofnminus2 = (u8)((byteofnminus2 & 0x80) >> 7);
+			byteofnminus2 = (u8)(byteofnminus2 << 1);
+			// The next two lines do the following:
+			// if (bitofnminus2)
+			// {
+			//     bigmultiply(r, r, temp);
+			//     bigmultiply(temp, temp, temp);
+			// }
+			// else
+			// {
+			//     bigmultiply(temp, r, temp);
+			//     bigmultiply(r, r, r);
+			// }
+			bigmultiply(lookup[1 - bitofnminus2], r, temp);
+			bigmultiply(lookup[bitofnminus2], lookup[bitofnminus2], lookup[bitofnminus2]);
 		}
 	}
 }
@@ -372,12 +407,6 @@ void biginvert(bignum256 r, bignum256 op1)
 
 static u8 one[32] = {
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-
-static const u8 zero[32] = {
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
@@ -516,6 +545,89 @@ int main(int argc, char **argv)
 	srand(42);
 	succeeded = 0;
 	failed = 0;
+
+	// Test bigcmp, since many other functions rely on it.
+	op1[0] = 10;
+	op2[0] = 2;
+	op1[1] = 5;
+	op2[1] = 5;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_GREATER)
+	{
+		printf("bigcmp doesn't recognise when op1 > op2\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	op1[0] = 1;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_LESS)
+	{
+		printf("bigcmp doesn't recognise when op1 < op2\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	op1[0] = 2;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_EQUAL)
+	{
+		printf("bigcmp doesn't recognise when op1 == op2\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	op1[0] = 255;
+	op2[0] = 254;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_GREATER)
+	{
+		printf("bigcmp doesn't recognise when op1 > op2, possibly a signed/unsigned thing\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	op1[0] = 254;
+	op2[0] = 255;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_LESS)
+	{
+		printf("bigcmp doesn't recognise when op1 < op2, possibly a signed/unsigned thing\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	op1[0] = 1;
+	op2[0] = 2;
+	op1[1] = 4;
+	op2[1] = 3;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_GREATER)
+	{
+		printf("bigcmp doesn't recognise when op1 > op2, possibly a endian thing\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	op1[0] = 2;
+	op2[0] = 1;
+	op1[1] = 3;
+	op2[1] = 4;
+	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_LESS)
+	{
+		printf("bigcmp doesn't recognise when op1 < op2, possibly a endian thing\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
 
 	// Test internal functions, which don't do modular reduction (hence
 	// max is 2 ^ 256).
