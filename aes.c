@@ -81,7 +81,9 @@ static const u8 InvSbox[256] PROGMEM = {
 
 static u8 Xtimes2fn(u8 x)
 {
-	return (u8)((x & 0x80 ? 0x1b : 0) ^ (x + x));
+	// ((unsigned int)(-(int)(x >> 7)) & 0x1b) is equivalent to
+	// (x & 0x80 ? 0x1b : 0) but is more timing attack resistant.
+	return (u8)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (x + x));
 }
 
 static u8 Xtimes3fn(u8 x)

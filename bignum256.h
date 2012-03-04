@@ -20,6 +20,7 @@
 typedef u8 *bignum256;
 
 // Return values for bigcmp(). These all must be unsigned and <= 127.
+// Also, BIGCMP_EQUAL must be 0 or some hacks in bigcmp_varsize won't work.
 #define BIGCMP_LESS			2
 #define BIGCMP_EQUAL		0
 #define BIGCMP_GREATER		1

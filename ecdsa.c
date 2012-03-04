@@ -10,6 +10,15 @@
 // research, obtained 11-August-2011 from:
 // http://www.secg.org/collateral/sec2_final.pdf
 //
+// The operations here are written in a way as to encourage them to run in
+// constant time. This provides some resistance against timing attacks.
+// However, the compiler may use optimisations which destroy this property;
+// inspection of the generated assembly code is the only way to check. A
+// disadvantage of this code is that point multiplication is slower than
+// it could be.
+// There are some data-dependent branches in here, but they're expected to
+// only make a difference (in timing) in exceptional cases.
+//
 // This file is licensed as described by the file LICENCE.
 
 // Defining this will facilitate testing
@@ -103,13 +112,12 @@ static void bigprint(bignum256 number)
 static void affine_to_jacobian(point_affine *in, point_jacobian *out)
 {
 	out->is_point_at_infinity = in->is_point_at_infinity;
-	if (out->is_point_at_infinity == 0)
-	{
-		bigassign(out->x, in->x);
-		bigassign(out->y, in->y);
-		bigsetzero(out->z);
-		out->z[0] = 1;
-	}
+	// If out->is_point_at_infinity != 0, the rest of this function consists
+	// of dummy operations.
+	bigassign(out->x, in->x);
+	bigassign(out->y, in->y);
+	bigsetzero(out->z);
+	out->z[0] = 1;
 }
 
 // Convert a point from Jacobian coordinates to affine coordinates. This
@@ -120,16 +128,15 @@ static void jacobian_to_affine(point_jacobian *in, point_affine *out)
 	u8 t[32];
 
 	out->is_point_at_infinity = in->is_point_at_infinity;
-	if (out->is_point_at_infinity == 0)
-	{
-		bigmultiply(s, in->z, in->z);
-		bigmultiply(t, s, in->z);
-		// Now s = z ^ 2 and t = z ^ 3
-		biginvert(s, s);
-		biginvert(t, t);
-		bigmultiply(out->x, in->x, s);
-		bigmultiply(out->y, in->y, t);
-	}
+	// If out->is_point_at_infinity != 0, the rest of this function consists
+	// of dummy operations.
+	bigmultiply(s, in->z, in->z);
+	bigmultiply(t, s, in->z);
+	// Now s = z ^ 2 and t = z ^ 3
+	biginvert(s, s);
+	biginvert(t, t);
+	bigmultiply(out->x, in->x, s);
+	bigmultiply(out->y, in->y, t);
 }
 
 // Double the point p (which is in Jacobian coordinates), placing the
@@ -145,18 +152,15 @@ static void point_double(point_jacobian *p)
 	u8 t[32];
 	u8 u[32];
 
-	if (p->is_point_at_infinity != 0)
-	{
-		// 2O = O
-		return;
-	}
+	// If p->is_point_at_infinity != 0, then the rest of this function will
+	// consist of dummy operations. Nothing else needs to be done since
+	// 2O = O.
 
-	if (bigiszero(p->y) != 0)
-	{
-		// Tangent line is vertical and never hits curve
-		p->is_point_at_infinity = 1;
-		return;
-	}
+	// If y is zero then the tangent line is vertical and never hits the
+	// curve, therefore the result should be O. If y is zero, the rest of this
+	// function will consist of dummy operations.
+	p->is_point_at_infinity |= bigiszero(p->y);
+
 	bigmultiply(p->z, p->z, p->y);
 	bigadd(p->z, p->z, p->z);
 	bigmultiply(p->y, p->y, p->y);
@@ -190,44 +194,61 @@ static void point_double(point_jacobian *p)
 // multiplications from 16 to 11.
 // See equations (3) ("addition in mixed Jacobian-affine coordinates") from
 // section 4 of that article described in the comments to point_double().
-static void point_add(point_jacobian *p1, point_affine *p2)
+// junk must point at some memory area to redirect dummy writes to.
+static void point_add(point_jacobian *p1, point_affine *p2, point_jacobian *junk)
 {
 	u8 s[32];
 	u8 t[32];
 	u8 u[32];
 	u8 v[32];
+	u8 is_O;
+	u8 is_O2;
+	u8 cmp_xs;
+	u8 cmp_yt;
+	point_jacobian *lookup[2];
 
-	if (p1->is_point_at_infinity != 0)
-	{
-		// O + p2 == p2
-		affine_to_jacobian(p2, p1);
-		return;
-	}
-	else if(p2->is_point_at_infinity != 0)
-	{
-		// p1 + O == p1
-		return;
-	}
+	lookup[0] = p1;
+	lookup[1] = junk;
+
+	// O + p2 == p2
+	// If p1 is O, then copy p2 into p1 and redirect all writes to the dummy
+	// write area.
+	// The following line does: "is_O = p1->is_point_at_infinity ? 1 : 0;"
+	is_O = (u8)((((u16)(-(int)p1->is_point_at_infinity)) >> 8) & 1);
+	affine_to_jacobian(p2, lookup[1 - is_O]);
+	p1 = lookup[is_O];
+	lookup[0] = p1; // p1 might have changed
+
+	// p1 + O == p1
+	// If p2 is O, then redirect all writes to the dummy write area. This
+	// preserves the value of p1.
+	// The following line does: "is_O2 = p2->is_point_at_infinity ? 1 : 0;"
+	is_O2 = (u8)((((u16)(-(int)p2->is_point_at_infinity)) >> 8) & 1);
+	p1 = lookup[is_O2];
+	lookup[0] = p1; // p1 might have changed
 
 	bigmultiply(s, p1->z, p1->z);
 	bigmultiply(t, s, p1->z);
 	bigmultiply(t, t, p2->y);
 	bigmultiply(s, s, p2->x);
-	if (bigcmp(p1->x, s) == BIGCMP_EQUAL)
+	// The following two lines do: "cmp_xs = bigcmp(p1->x, s) == BIGCMP_EQUAL ? 0 : 0xff;"
+	cmp_xs = (u8)(bigcmp(p1->x, s) ^ BIGCMP_EQUAL);
+	cmp_xs = (u8)(((u16)(-(int)cmp_xs)) >> 8);
+	// The following two lines do: "cmp_yt = bigcmp(p1->y, t) == BIGCMP_EQUAL ? 0 : 0xff;"
+	cmp_yt = (u8)(bigcmp(p1->y, t) ^ BIGCMP_EQUAL);
+	cmp_yt = (u8)(((u16)(-(int)cmp_yt)) >> 8);
+	// The following branch can never be taken when calling point_multiply(),
+	// so its existence doesn't compromise timing regularity.
+	if ((cmp_xs | cmp_yt | is_O | is_O2) == 0)
 	{
-		if (bigcmp(p1->y, t) == BIGCMP_EQUAL)
-		{
-			// Points are actually the same; use point doubling
-			point_double(p1);
-			return;
-		}
-		else
-		{
-			// p2 == -p1
-			p1->is_point_at_infinity = 1;
-			return;
-		}
+		// Points are actually the same; use point doubling
+		point_double(p1);
+		return;
 	}
+	// p2 == -p1 when p1->x == s and p1->y != t.
+	// If p1->is_point_at_infinity is set, then all subsequent operations in
+	// this function become dummy operations.
+	p1->is_point_at_infinity = (u8)(p1->is_point_at_infinity | (~cmp_xs & cmp_yt & 1));
 	bigsubtract(s, s, p1->x);
 	// s now contains p2->x * p1->z ^ 2 - p1->x
 	bigsubtract(t, t, p1->y);
@@ -253,21 +274,26 @@ static void point_add(point_jacobian *p1, point_affine *p2)
 void point_multiply(point_affine *p, bignum256 k)
 {
 	point_jacobian accumulator;
+	point_jacobian junk;
+	point_affine always_point_at_infinity;
 	u8 i;
 	u8 j;
 	u8 onebyte;
+	u8 onebit;
+	point_affine *lookup_affine[2];
 
 	accumulator.is_point_at_infinity = 1;
+	always_point_at_infinity.is_point_at_infinity = 1;
+	lookup_affine[1] = p;
+	lookup_affine[0] = &always_point_at_infinity;
 	for (i = 31; i < 32; i--)
 	{
 		onebyte = k[i];
 		for (j = 0; j < 8; j++)
 		{
 			point_double(&accumulator);
-			if ((u8)(onebyte & 0x80) != 0)
-			{
-				point_add(&accumulator, p);
-			}
+			onebit = (u8)((onebyte & 0x80) >> 7);
+			point_add(&accumulator, lookup_affine[onebit], &junk);
 			onebyte = (u8)(onebyte << 1);
 		}
 	}
@@ -319,6 +345,9 @@ u8 ecdsa_sign(bignum256 r, bignum256 s, bignum256 hash, bignum256 privatekey, bi
 {
 	point_affine bigR;
 
+	// This is one of many data-dependent branches in this function. They do
+	// not compromise timing attack resistance because these branches are
+	// expected to occur extremely infrequently.
 	if (bigiszero(k) != 0)
 	{
 		return 0;
@@ -431,6 +460,7 @@ static int crappy_verify_signature(bignum256 r, bignum256 s, bignum256 hash, big
 	point_affine p;
 	point_affine p2;
 	point_jacobian pj;
+	point_jacobian junk;
 	point_affine result;
 	u8 temp1[32];
 	u8 temp2[32];
@@ -452,7 +482,7 @@ static int crappy_verify_signature(bignum256 r, bignum256 s, bignum256 hash, big
 	bigassign(p2.y, pubkey_y);
 	point_multiply(&p2, k2);
 	affine_to_jacobian(&p, &pj);
-	point_add(&pj, &p2);
+	point_add(&pj, &p2, &junk);
 	jacobian_to_affine(&pj, &result);
 	bigsetfield(secp256k1_n, secp256k1_compn, sizeof(secp256k1_compn));
 	bigmod(result.x, result.x);
@@ -470,6 +500,7 @@ int main(int argc, char **argv)
 {
 	point_affine p;
 	point_jacobian p2;
+	point_jacobian junk;
 	point_affine compare;
 	u8 temp[32];
 	u8 r[32];
@@ -512,7 +543,7 @@ int main(int argc, char **argv)
 	}
 	// O + O = O
 	p.is_point_at_infinity = 1;
-	point_add(&p2, &p);
+	point_add(&p2, &p, &junk);
 	if (p2.is_point_at_infinity == 0)
 	{
 		printf("Point add doesn't handle O + O properly\n");
@@ -526,7 +557,7 @@ int main(int argc, char **argv)
 	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
 	p.is_point_at_infinity = 1;
-	point_add(&p2, &p);
+	point_add(&p2, &p, &junk);
 	jacobian_to_affine(&p2, &p);
 	if ((p.is_point_at_infinity != 0) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
@@ -542,7 +573,7 @@ int main(int argc, char **argv)
 	// O + P = P
 	p2.is_point_at_infinity = 1;
 	set_to_G(&p);
-	point_add(&p2, &p);
+	point_add(&p2, &p, &junk);
 	jacobian_to_affine(&p2, &p);
 	if ((p.is_point_at_infinity != 0) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
@@ -559,7 +590,7 @@ int main(int argc, char **argv)
 	// Test that P + P produces the same result as 2P
 	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
-	point_add(&p2, &p);
+	point_add(&p2, &p, &junk);
 	jacobian_to_affine(&p2, &compare);
 	affine_to_jacobian(&p, &p2);
 	point_double(&p2);
@@ -583,7 +614,7 @@ int main(int argc, char **argv)
 	bigsetzero(temp);
 	bigsubtract(p.y, temp, p.y);
 	check_point_is_on_curve(&p);
-	point_add(&p2, &p);
+	point_add(&p2, &p, &junk);
 	if (p2.is_point_at_infinity == 0) 
 	{
 		printf("P + -P != O\n");
@@ -598,7 +629,7 @@ int main(int argc, char **argv)
 	set_to_G(&p);
 	affine_to_jacobian(&p, &p2);
 	point_double(&p2);
-	point_add(&p2, &p);
+	point_add(&p2, &p, &junk);
 	jacobian_to_affine(&p2, &p);
 	check_point_is_on_curve(&p);
 

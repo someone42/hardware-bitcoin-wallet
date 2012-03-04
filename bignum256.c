@@ -59,19 +59,34 @@ static void bigprint(bignum256 number)
 u8 bigcmp_varsize(u8 *op1, u8 *op2, u8 size)
 {
 	u8 i;
+	u8 r;
+	u8 cmp;
 
+	r = BIGCMP_EQUAL;
 	for (i = (u8)(size - 1); i < size; i--)
 	{
-		if (op1[i] > op2[i])
-		{
-			return BIGCMP_GREATER; // definately larger
-		}
-		else if (op1[i] < op2[i])
-		{
-			return BIGCMP_LESS; // definately smaller
-		}
+		// The following code is a branch free way of doing:
+		// if (r == BIGCMP_EQUAL)
+		// {
+		//     if (op1[i] > op2[i])
+		//     {
+		//         r = BIGCMP_GREATER;
+		//     }
+		// }
+		// if (r == BIGCMP_EQUAL)
+		// {
+		//     if (op2[i] > op1[i])
+		//     {
+		//         r = BIGCMP_LESS;
+		//     }
+		// }
+		// Note that it relies on BIGCMP_EQUAL having the value 0.
+		cmp = (u8)((((u16)((int)op2[i] - (int)op1[i])) >> 8) & BIGCMP_GREATER);
+		r = (u8)(((((u16)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
+		cmp = (u8)((((u16)((int)op1[i] - (int)op2[i])) >> 8) & BIGCMP_LESS);
+		r = (u8)(((((u16)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
 	}
-	return BIGCMP_EQUAL; // equal
+	return r;
 }
 
 // Returns BIGCMP_GREATER if op1 > op2, BIGCMP_EQUAL if they're equal and
@@ -248,20 +263,17 @@ static void bigmultiply_internal(u8 *r, u8 *op1, u8 op1size, u8 *op2, u8 op2size
 	{
 		partialop1 = op1[i];
 		hicarry = 0;
-		if (partialop1 != 0)
+		for (j = 0; j < op2size; j++)
 		{
-			for (j = 0; j < op2size; j++)
-			{
-				multiplyresult16 = (u16)((u16)partialop1 * (u16)op2[j]);
-				multiplyresultlo8 = (u8)multiplyresult16;
-				multiplyresulthi8 = (u8)(multiplyresult16 >> 8);
-				partialsum = (u16)((u16)r[i + j] + (u16)multiplyresultlo8);
-				r[i + j] = (u8)partialsum;
-				locarry = (u8)(partialsum >> 8);
-				partialsum = (u16)((u16)r[i + j + 1] + (u16)multiplyresulthi8 + (u16)locarry + (u16)hicarry);
-				r[i + j + 1] = (u8)partialsum;
-				hicarry = (u8)(partialsum >> 8);
-			}
+			multiplyresult16 = (u16)((u16)partialop1 * (u16)op2[j]);
+			multiplyresultlo8 = (u8)multiplyresult16;
+			multiplyresulthi8 = (u8)(multiplyresult16 >> 8);
+			partialsum = (u16)((u16)r[i + j] + (u16)multiplyresultlo8);
+			r[i + j] = (u8)partialsum;
+			locarry = (u8)(partialsum >> 8);
+			partialsum = (u16)((u16)r[i + j + 1] + (u16)multiplyresulthi8 + (u16)locarry + (u16)hicarry);
+			r[i + j + 1] = (u8)partialsum;
+			hicarry = (u8)(partialsum >> 8);
 		}
 #ifdef _DEBUG
 		assert(hicarry == 0);
