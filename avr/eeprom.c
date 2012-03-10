@@ -20,7 +20,7 @@
 // in non-volatile storage to start writing to. data is a pointer to the
 // data to be written and length is the number of bytes to write. See
 // nonvolatile_return for return values.
-nonvolatile_return nonvolatile_write(u32 address, u8 *data, u8 length)
+nonvolatile_return nonvolatile_write(u8 *data, u32 address, u8 length)
 {
 	if ((address > EEPROM_SIZE)
 		|| ((address + (u32)length) > EEPROM_SIZE))
@@ -39,7 +39,7 @@ nonvolatile_return nonvolatile_write(u32 address, u8 *data, u8 length)
 // in non-volatile storage to start reading from. data is a pointer to the
 // buffer which will receive the data and length is the number of bytes to
 // read. See nonvolatile_return for return values.
-nonvolatile_return nonvolatile_read(u32 address, u8 *data, u8 length)
+nonvolatile_return nonvolatile_read(u8 *data, u32 address, u8 length)
 {
 	if ((address > EEPROM_SIZE)
 		|| ((address + (u32)length) > EEPROM_SIZE))

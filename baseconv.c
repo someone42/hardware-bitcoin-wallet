@@ -81,7 +81,7 @@ static void bigprint_varsize(u8 *number, u8 size, u8 bigendian)
 // op1 and temp must be an array of size + 1 bytes. r only needs to be an
 // array of size bytes.
 // r, op1 and temp cannot alias each other.
-static void bigdivide(u8 *r, u8 *op1, u8 size, u8 *temp, const u8 *shiftlist)
+static void bigdivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shiftlist)
 {
 	u8 i;
 	u8 j;
@@ -139,7 +139,7 @@ void amount_to_text(char *out, u8 *in)
 		{
 			op1[j] = r[j];
 		}
-		bigdivide(r, op1, 8, temp, base10_shiftlist);
+		bigdivide(r, op1, temp, 8, base10_shiftlist);
 		if (i == 8)
 		{
 			out[index--] = '.';
@@ -229,7 +229,7 @@ void hash_to_addr(char *out, u8 *in)
 		{
 			op1[j] = r[j];
 		}
-		bigdivide(r, op1, 25, temp, base58_shiftlist);
+		bigdivide(r, op1, temp, 25, base58_shiftlist);
 		out[index--] = LOOKUP_BYTE(&(base58_charlist[op1[0]]));
 	}
 	out[35] = '\0';

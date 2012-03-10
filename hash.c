@@ -117,7 +117,7 @@ void hash_finish(hash_state *hs)
 // big-endian way (useful for computing the first hash of a double
 // SHA-256 hash). If bigendian is zero, then the hash will be written in
 // little-endian way (useful for sending off to a signing function).
-void convertHtobytearray(hash_state *hs, u8 *out, u8 bigendian)
+void convertHtobytearray(u8 *out, hash_state *hs, u8 bigendian)
 {
 	u8 i;
 

@@ -18,8 +18,8 @@
 // Size of expanded key, in bytes
 #define EXPKEY_SIZE	176
 
-extern void aes_expand_key(u8 *key, u8 *expkey);
-extern void aes_encrypt(u8 *in, u8 *expkey, u8 *out);
-extern void aes_decrypt(u8 *in, u8 *expkey, u8 *out);
+extern void aes_expand_key(u8 *expkey, u8 *key);
+extern void aes_encrypt(u8 *out, u8 *in, u8 *expkey);
+extern void aes_decrypt(u8 *out, u8 *in, u8 *expkey);
 
 #endif // #ifndef AES_H_INCLUDED

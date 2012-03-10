@@ -486,7 +486,7 @@ static void generate_test_cases(const u8 *max)
 
 // Convert number from byte array format to GMP limb array
 // format. n is the number of limbs in GMP limb array.
-static void byte_to_mpn(bignum256 in, mp_limb_t *out, int n)
+static void byte_to_mpn(mp_limb_t *out, bignum256 in, int n)
 {
 	int i;
 
@@ -498,7 +498,7 @@ static void byte_to_mpn(bignum256 in, mp_limb_t *out, int n)
 
 // Convert number from GMP limb array format to byte array format.
 // n is the number of limbs in GMP limb array.
-static void mpn_to_byte(mp_limb_t *in, bignum256 out, int n)
+static void mpn_to_byte(bignum256 out, mp_limb_t *in, int n)
 {
 	int i;
 
@@ -660,8 +660,8 @@ int main(int argc, char **argv)
 				}
 
 				// Calculate result using GMP
-				byte_to_mpn(op1, mpn_op1, 8);
-				byte_to_mpn(op2, mpn_op2, 8);
+				byte_to_mpn(mpn_op1, op1, 8);
+				byte_to_mpn(mpn_op2, op2, 8);
 				if (operation == 0)
 				{
 					compare_returned = mpn_add_n(mpn_result, mpn_op1, mpn_op2, 8);
@@ -677,7 +677,7 @@ int main(int argc, char **argv)
 				}
 
 				// Compare results
-				mpn_to_byte(mpn_result, result_compare, result_size);
+				mpn_to_byte(result_compare, mpn_result, result_size);
 				if ((memcmp(result, result_compare, result_size * 4) != 0)
 					|| (returned != compare_returned))
 				{
@@ -729,13 +729,13 @@ int main(int argc, char **argv)
 		if (divisor_select == 0)
 		{
 			generate_test_cases(secp256k1_p);
-			byte_to_mpn((bignum256)secp256k1_p, mpn_divisor, 8);
+			byte_to_mpn(mpn_divisor, (bignum256)secp256k1_p, 8);
 			bigsetfield(secp256k1_p, secp256k1_compp, sizeof(secp256k1_compp));
 		}
 		else
 		{
 			generate_test_cases(secp256k1_n);
-			byte_to_mpn((bignum256)secp256k1_n, mpn_divisor, 8);
+			byte_to_mpn(mpn_divisor, (bignum256)secp256k1_n, 8);
 			bigsetfield(secp256k1_n, secp256k1_compn, sizeof(secp256k1_compn));
 		}
 		for (operation = 0; operation < 4; operation++)
@@ -764,8 +764,8 @@ int main(int argc, char **argv)
 						}
 
 						// Calculate result using GMP
-						byte_to_mpn(op1, mpn_op1, 8);
-						byte_to_mpn(op2, mpn_op2, 8);
+						byte_to_mpn(mpn_op1, op1, 8);
+						byte_to_mpn(mpn_op2, op2, 8);
 						if (operation == 0)
 						{
 							compare_returned = mpn_add_n(mpn_result, mpn_op1, mpn_op2, 8);
@@ -805,7 +805,7 @@ int main(int argc, char **argv)
 						// Compare results
 						// Now that we're doing modular arithmetic, the
 						// results are always 256 bits (8 GMP limbs).
-						mpn_to_byte(mpn_remainder, result_compare, 8);
+						mpn_to_byte(result_compare, mpn_remainder, 8);
 						if (bigcmp(result, result_compare) != BIGCMP_EQUAL)
 						{
 							if (operation == 0)

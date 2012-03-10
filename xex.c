@@ -58,15 +58,15 @@ static void gfdouble(u8 *op1)
 // Combined XEX mode encrypt/decrypt, since they're almost the same.
 // See xex_encrypt() for what description of what this does and what each
 // argument refers to.
-static void xex_endecrypt(u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key, u8 *out, u8 isdecrypt)
+static void xex_endecrypt(u8 *out, u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key, u8 isdecrypt)
 {
 	u8 expkey[EXPKEY_SIZE];
 	u8 delta[16];
 	u8 buffer[16];
 	u8 i;
 
-	aes_expand_key(tweak_key, expkey);
-	aes_encrypt(n, expkey, delta);
+	aes_expand_key(expkey, tweak_key);
+	aes_encrypt(delta, n, expkey);
 	for (i = 0; i < seq; i++)
 	{
 		gfdouble(delta);
@@ -76,14 +76,14 @@ static void xex_endecrypt(u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key,
 		buffer[i] = in[i];
 	}
 	xor16bytes(buffer, delta);
-	aes_expand_key(encrypt_key, expkey);
+	aes_expand_key(expkey, encrypt_key);
 	if (isdecrypt)
 	{
-		aes_decrypt(buffer, expkey, out);
+		aes_decrypt(out, buffer, expkey);
 	}
 	else
 	{
-		aes_encrypt(buffer, expkey, out);
+		aes_encrypt(out, buffer, expkey);
 	}
 	xor16bytes(out, delta);
 }
@@ -97,18 +97,18 @@ static void xex_endecrypt(u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key,
 // Rogaway's paper (reference at the top of this file).
 // n and seq don't need to be secret. tweak_key and encrypt_key are two
 // independent 128-bit AES keys.
-static void xex_encrypt(u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key, u8 *out)
+static void xex_encrypt(u8 *out, u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key)
 {
-	xex_endecrypt(in, n, seq, tweak_key, encrypt_key, out, 0);
+	xex_endecrypt(out, in, n, seq, tweak_key, encrypt_key, 0);
 }
 
 // Decrypt the 16-byte block specified by in using AES in XEX mode. The
 // plaintext will be placed in out.
 // See xex_encrypt() for what description of what this does and what each
 // argument refers to.
-static void xex_decrypt(u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key, u8 *out)
+static void xex_decrypt(u8 *out, u8 *in, u8 *n, u8 seq, u8 *tweak_key, u8 *encrypt_key)
 {
-	xex_endecrypt(in, n, seq, tweak_key, encrypt_key, out, 1);
+	xex_endecrypt(out, in, n, seq, tweak_key, encrypt_key, 1);
 }
 
 // Set the 128-bit tweak key to the contents of in.
@@ -169,7 +169,7 @@ void clear_keys(void)
 
 // Wrapper around nonvolatile_write() which also encrypts using the
 // nvstorage_tweak_key/nvstorage_encrypt_key encryption keys.
-nonvolatile_return encrypted_nonvolatile_write(u32 address, u8 *data, u8 length)
+nonvolatile_return encrypted_nonvolatile_write(u8 *data, u32 address, u8 length)
 {
 	u32 block_start;
 	u32 block_end;
@@ -190,21 +190,21 @@ nonvolatile_return encrypted_nonvolatile_write(u32 address, u8 *data, u8 length)
 	}
 	for (; block_start <= block_end; block_start += 16)
 	{
-		r = nonvolatile_read(block_start, ciphertext, 16);
+		r = nonvolatile_read(ciphertext, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
 			return r;
 		}
 		write_u32_littleendian(n, block_start);
-		xex_decrypt(ciphertext, n, 1, nvstorage_tweak_key, nvstorage_encrypt_key, plaintext);
+		xex_decrypt(plaintext, ciphertext, n, 1, nvstorage_tweak_key, nvstorage_encrypt_key);
 		while (length && block_offset < 16)
 		{
 			plaintext[block_offset++] = *data++;
 			length--;
 		}
 		block_offset = 0;
-		xex_encrypt(plaintext, n, 1, nvstorage_tweak_key, nvstorage_encrypt_key, ciphertext);
-		r = nonvolatile_write(block_start, ciphertext, 16);
+		xex_encrypt(ciphertext, plaintext, n, 1, nvstorage_tweak_key, nvstorage_encrypt_key);
+		r = nonvolatile_write(ciphertext, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
 			return r;
@@ -216,7 +216,7 @@ nonvolatile_return encrypted_nonvolatile_write(u32 address, u8 *data, u8 length)
 
 // Wrapper around nonvolatile_read() which also decrypts using the
 // nvstorage_tweak_key/nvstorage_encrypt_key encryption keys.
-nonvolatile_return encrypted_nonvolatile_read(u32 address, u8 *data, u8 length)
+nonvolatile_return encrypted_nonvolatile_read(u8 *data, u32 address, u8 length)
 {
 	u32 block_start;
 	u32 block_end;
@@ -237,13 +237,13 @@ nonvolatile_return encrypted_nonvolatile_read(u32 address, u8 *data, u8 length)
 	}
 	for (; block_start <= block_end; block_start += 16)
 	{
-		r = nonvolatile_read(block_start, ciphertext, 16);
+		r = nonvolatile_read(ciphertext, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
 			return r;
 		}
 		write_u32_littleendian(n, block_start);
-		xex_decrypt(ciphertext, n, 1, nvstorage_tweak_key, nvstorage_encrypt_key, plaintext);
+		xex_decrypt(plaintext, ciphertext, n, 1, nvstorage_tweak_key, nvstorage_encrypt_key);
 		while (length && block_offset < 16)
 		{
 			*data++ = plaintext[block_offset++];
@@ -479,7 +479,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			{
 				for (i = 0; i < dataunitlength; i += 16)
 				{
-					xex_encrypt(&(plaintext[i]), tweak_value, (u8)(i >> 4), tweak_key, encrypt_key, &(compare[i]));
+					xex_encrypt(&(compare[i]), &(plaintext[i]), tweak_value, (u8)(i >> 4), tweak_key, encrypt_key);
 					if (memcmp(&(compare[i]), &(ciphertext[i]), 16) != 0)
 					{
 						testfailed = 1;
@@ -491,7 +491,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			{
 				for (i = 0; i < dataunitlength; i += 16)
 				{
-					xex_decrypt(&(ciphertext[i]), tweak_value, (u8)(i >> 4), tweak_key, encrypt_key, &(compare[i]));
+					xex_decrypt(&(compare[i]), &(ciphertext[i]), tweak_value, (u8)(i >> 4), tweak_key, encrypt_key);
 					if (memcmp(&(compare[i]), &(plaintext[i]), 16) != 0)
 					{
 						testfailed = 1;
@@ -561,11 +561,11 @@ int main(int argc, char **argv)
 	}
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encrypted_nonvolatile_write(i, &(what_storage_should_be[i]), 128);
+		encrypted_nonvolatile_write(&(what_storage_should_be[i]), i, 128);
 	}
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encrypted_nonvolatile_read(i, buffer, 128);
+		encrypted_nonvolatile_read(buffer, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			printf("Storage mismatch in encrypted_nonvolatile_read()\n");
@@ -598,7 +598,7 @@ int main(int argc, char **argv)
 				buffer[j] = (u8)rand();
 			}
 			memcpy(&(what_storage_should_be[address]), buffer, length);
-			if (encrypted_nonvolatile_write(address, buffer, length) != NV_NO_ERROR)
+			if (encrypted_nonvolatile_write(buffer, address, length) != NV_NO_ERROR)
 			{
 				printf("encrypted_nonvolatile_write() failed\n");
 				printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
@@ -612,7 +612,7 @@ int main(int argc, char **argv)
 		else
 		{
 			// Read 50% of the time
-			if (encrypted_nonvolatile_read(address, buffer, length) != NV_NO_ERROR)
+			if (encrypted_nonvolatile_read(buffer, address, length) != NV_NO_ERROR)
 			{
 				printf("encrypted_nonvolatile_read() failed\n");
 				printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
@@ -646,7 +646,7 @@ int main(int argc, char **argv)
 	set_tweak_key(onekey);
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encrypted_nonvolatile_read(i, buffer, 128);
+		encrypted_nonvolatile_read(buffer, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			succeeded++;
@@ -664,7 +664,7 @@ int main(int argc, char **argv)
 	set_encryption_key(onekey);
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encrypted_nonvolatile_read(i, buffer, 128);
+		encrypted_nonvolatile_read(buffer, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			succeeded++;
@@ -681,7 +681,7 @@ int main(int argc, char **argv)
 	clear_keys();
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encrypted_nonvolatile_read(i, buffer, 128);
+		encrypted_nonvolatile_read(buffer, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			printf("Storage mismatch in encrypted_nonvolatile_read() when keys are okay\n");

@@ -263,7 +263,7 @@ static const u8 Rcon[11] = {
 // Expand the key by 16 bytes for each round.
 // Input (key): 16 bytes
 // Output (expkey): 176 bytes
-void aes_expand_key(u8 *key, u8 *expkey)
+void aes_expand_key(u8 *expkey, u8 *key)
 {
 	u8 tmp0, tmp1, tmp2, tmp3, tmp4;
 	u8 idx;
@@ -296,7 +296,7 @@ void aes_expand_key(u8 *key, u8 *expkey)
 // in is the plaintext, a 16-byte array. The ciphertext will be placed in
 // out, which should also be a 16-byte array. expkey should point to a
 // 176-byte array containing the expanded key (see aes_expand_key()).
-void aes_encrypt(u8 *in, u8 *expkey, u8 *out)
+void aes_encrypt(u8 *out, u8 *in, u8 *expkey)
 {
 	u8 round;
 
@@ -323,7 +323,7 @@ void aes_encrypt(u8 *in, u8 *expkey, u8 *out)
 // in is the ciphertext, a 16-byte array. The plaintext will be placed in
 // out, which should also be a 16-byte array. expkey should point to a
 // 176-byte array containing the expanded key (see aes_expand_key()).
-void aes_decrypt(u8 *in, u8 *expkey, u8 *out)
+void aes_decrypt(u8 *out, u8 *in, u8 *expkey)
 {
 	u8 round;
 
@@ -482,11 +482,11 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			skipwhitespace(f);
 		} // end for (j = 0; j < 2; j++)
 		// Do encryption/decryption and compare
-		aes_expand_key(key, expkey);
+		aes_expand_key(expkey, key);
 		testfailed = 0;
 		if (isencrypt != 0)
 		{
-			aes_encrypt(plaintext, expkey, compare);
+			aes_encrypt(compare, plaintext, expkey);
 			if (memcmp(compare, ciphertext, 16) != 0)
 			{
 				testfailed = 1;
@@ -494,7 +494,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		}
 		else
 		{
-			aes_decrypt(ciphertext, expkey, compare);
+			aes_decrypt(compare, ciphertext, expkey);
 			if (memcmp(compare, plaintext, 16) != 0)
 			{
 				testfailed = 1;

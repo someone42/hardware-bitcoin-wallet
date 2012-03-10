@@ -31,7 +31,7 @@ typedef enum tx_errors_type
 } tx_errors;
 
 extern u16 get_transaction_num_inputs(void);
-extern tx_errors parse_transaction(u32 length, bignum256 sighash, bignum256 txhash);
+extern tx_errors parse_transaction(bignum256 sighash, bignum256 txhash, u32 length);
 extern u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey);
 
 #endif // #ifndef TRANSACTION_H_INCLUDED

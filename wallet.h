@@ -53,9 +53,9 @@ extern u32 get_num_addresses(void);
 extern address_handle list_first_address(u8 *out);
 extern address_handle list_next_address(u8 *out);
 extern address_handle is_mine(u8 *address);
-extern wallet_errors get_address(address_handle ah, u8 *out);
-extern wallet_errors get_pubkey(address_handle ah, u8 *out);
-extern wallet_errors get_privkey(address_handle ah, u8 *out);
+extern wallet_errors get_address(u8 *out, address_handle ah);
+extern wallet_errors get_pubkey(u8 *out, address_handle ah);
+extern wallet_errors get_privkey(u8 *out, address_handle ah);
 extern wallet_errors change_encryption_key(u8 *new_key);
 
 #ifdef TEST

@@ -164,7 +164,7 @@ u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 	u8 signature_length;
 
 	signature_length = 0;
-	if (get_privkey(ah, privkey) == WALLET_NO_ERROR)
+	if (get_privkey(privkey, ah) == WALLET_NO_ERROR)
 	{
 		// Note: sign_transaction() cannot fail.
 		signature_length = sign_transaction(signature, sighash, privkey);
@@ -180,7 +180,7 @@ u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 // if they accept it. A non-zero value will be written to *out_confirmed if
 // the user accepted it, otherwise a zero value will be written.
 // This has the same return values as check_and_sign_by_address().
-u8 parse_and_ask_transaction(u32 txlength, u8 *sighash, u8 *out_confirmed)
+u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 {
 	u8 confirmed;
 	u8 i;
@@ -190,7 +190,7 @@ u8 parse_and_ask_transaction(u32 txlength, u8 *sighash, u8 *out_confirmed)
 	// Validate transaction and calculate hashes of it.
 	*out_confirmed = 0;
 	clear_outputs_seen();
-	r = parse_transaction(txlength, sighash, txhash);
+	r = parse_transaction(sighash, txhash, txlength);
 	if (r == TX_READ_ERROR)
 	{
 		return 2; // read error
@@ -303,7 +303,7 @@ u8 check_and_sign_by_address(u8 *address, u32 txlength)
 		}
 	}
 
-	r = parse_and_ask_transaction(txlength, sighash, &confirmed);
+	r = parse_and_ask_transaction(&confirmed, sighash, txlength);
 	if (r)
 	{
 		return r;
@@ -339,7 +339,7 @@ u8 get_and_send_public_key(void)
 	if (ah != BAD_ADDRESS_HANDLE)
 	{
 		pubkey[0] = 0x04;
-		get_pubkey(ah, &(pubkey[1]));
+		get_pubkey(&(pubkey[1]), ah);
 	}
 	if (translate_wallet_error (wallet_get_last_error(), 65, pubkey) != 0)
 	{

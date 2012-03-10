@@ -118,12 +118,12 @@ extern u16 hardware_random_bytes(u8 *buffer, u8 n);
 // nonvolatile_return for return values.
 // Warning: writes may be buffered; use nonvolatile_flush() to be sure that
 // data is actually written to non-volatile storage.
-extern nonvolatile_return nonvolatile_write(u32 address, u8 *data, u8 length);
+extern nonvolatile_return nonvolatile_write(u8 *data, u32 address, u8 length);
 // Read from non-volatile storage. address is a byte offset specifying where
 // in non-volatile storage to start reading from. data is a pointer to the
 // buffer which will receive the data and length is the number of bytes to
 // read. See nonvolatile_return for return values.
-extern nonvolatile_return nonvolatile_read(u32 address, u8 *data, u8 length);
+extern nonvolatile_return nonvolatile_read(u8 *data, u32 address, u8 length);
 // Ensure that all buffered writes are committed to non-volatile storage.
 extern void nonvolatile_flush(void);
 

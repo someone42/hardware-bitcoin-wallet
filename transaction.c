@@ -139,7 +139,7 @@ static u8 getvarint(u32 *out)
 
 // See comments for parse_transaction() for description of what this does
 // and return values.
-static tx_errors parse_transaction_internal(u32 length, bignum256 sighash, bignum256 txhash)
+static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash, u32 length)
 {
 	u8 temp[20];
 	u32 numinputs;
@@ -314,8 +314,8 @@ static tx_errors parse_transaction_internal(u32 length, bignum256 sighash, bignu
 
 	sha256_finishdouble(&sighash_hs);
 	sha256_finish(&txhash_hs);
-	convertHtobytearray(&sighash_hs, sighash, 0);
-	convertHtobytearray(&txhash_hs, txhash, 0);
+	convertHtobytearray(sighash, &sighash_hs, 0);
+	convertHtobytearray(txhash, &txhash_hs, 0);
 
 	return 0;
 }
@@ -337,12 +337,12 @@ static tx_errors parse_transaction_internal(u32 length, bignum256 sighash, bignu
 // Returns one of the values in tx_errors.
 // This will always read the number of bytes specified by length from the
 // input stream, even in the case of an invalid transaction.
-tx_errors parse_transaction(u32 length, bignum256 sighash, bignum256 txhash)
+tx_errors parse_transaction(bignum256 sighash, bignum256 txhash, u32 length)
 {
 	tx_errors r;
 	u8 junk;
 
-	r = parse_transaction_internal(length, sighash, txhash);
+	r = parse_transaction_internal(sighash, txhash, length);
 	if (read_error_occurred == 0)
 	{
 		// Always try to consume the entire stream.
@@ -561,7 +561,7 @@ int main(int argc, char **argv)
 	txsize = sizeof(test_tx1);
 	transaction_data = malloc(txsize);
 	memcpy(transaction_data, test_tx1, txsize);
-	printf("parse_transaction() returned: %d\n", (int)parse_transaction(txsize, sighash, txhash));
+	printf("parse_transaction() returned: %d\n", (int)parse_transaction(sighash, txhash, txsize));
 	printf("Signature hash: ");
 	for (i = 0; i < 32; i++)
 	{

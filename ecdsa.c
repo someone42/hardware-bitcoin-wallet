@@ -109,7 +109,7 @@ static void bigprint(bignum256 number)
 
 // Convert a point from affine coordinates to Jacobian coordinates. This
 // is very fast.
-static void affine_to_jacobian(point_affine *in, point_jacobian *out)
+static void affine_to_jacobian(point_jacobian *out, point_affine *in)
 {
 	out->is_point_at_infinity = in->is_point_at_infinity;
 	// If out->is_point_at_infinity != 0, the rest of this function consists
@@ -122,7 +122,7 @@ static void affine_to_jacobian(point_affine *in, point_jacobian *out)
 
 // Convert a point from Jacobian coordinates to affine coordinates. This
 // is very slow because it involves inversion (division).
-static void jacobian_to_affine(point_jacobian *in, point_affine *out)
+static void jacobian_to_affine(point_affine *out, point_jacobian *in)
 {
 	u8 s[32];
 	u8 t[32];
@@ -195,7 +195,7 @@ static void point_double(point_jacobian *p)
 // See equations (3) ("addition in mixed Jacobian-affine coordinates") from
 // section 4 of that article described in the comments to point_double().
 // junk must point at some memory area to redirect dummy writes to.
-static void point_add(point_jacobian *p1, point_affine *p2, point_jacobian *junk)
+static void point_add(point_jacobian *p1, point_jacobian *junk, point_affine *p2)
 {
 	u8 s[32];
 	u8 t[32];
@@ -215,7 +215,7 @@ static void point_add(point_jacobian *p1, point_affine *p2, point_jacobian *junk
 	// write area.
 	// The following line does: "is_O = p1->is_point_at_infinity ? 1 : 0;"
 	is_O = (u8)((((u16)(-(int)p1->is_point_at_infinity)) >> 8) & 1);
-	affine_to_jacobian(p2, lookup[1 - is_O]);
+	affine_to_jacobian(lookup[1 - is_O], p2);
 	p1 = lookup[is_O];
 	lookup[0] = p1; // p1 might have changed
 
@@ -293,11 +293,11 @@ void point_multiply(point_affine *p, bignum256 k)
 		{
 			point_double(&accumulator);
 			onebit = (u8)((onebyte & 0x80) >> 7);
-			point_add(&accumulator, lookup_affine[onebit], &junk);
+			point_add(&accumulator, &junk, lookup_affine[onebit]);
 			onebyte = (u8)(onebyte << 1);
 		}
 	}
-	jacobian_to_affine(&accumulator, p);
+	jacobian_to_affine(p, &accumulator);
 }
 
 // Set the point p to the base point of secp256k1.
@@ -428,7 +428,7 @@ static void check_point_is_on_curve(point_affine *p)
 }
 
 // Read little-endian hex string containing 256-bit integer and store into r
-static void bigfread(FILE *f, bignum256 r)
+static void bigfread(bignum256 r, FILE *f)
 {
 	int i;
 	int val;
@@ -481,9 +481,9 @@ static int crappy_verify_signature(bignum256 r, bignum256 s, bignum256 hash, big
 	bigassign(p2.x, pubkey_x);
 	bigassign(p2.y, pubkey_y);
 	point_multiply(&p2, k2);
-	affine_to_jacobian(&p, &pj);
-	point_add(&pj, &p2, &junk);
-	jacobian_to_affine(&pj, &result);
+	affine_to_jacobian(&pj, &p);
+	point_add(&pj, &junk, &p2);
+	jacobian_to_affine(&result, &pj);
 	bigsetfield(secp256k1_n, secp256k1_compn, sizeof(secp256k1_compn));
 	bigmod(result.x, result.x);
 	if (bigcmp(result.x, r) == BIGCMP_EQUAL)
@@ -543,7 +543,7 @@ int main(int argc, char **argv)
 	}
 	// O + O = O
 	p.is_point_at_infinity = 1;
-	point_add(&p2, &p, &junk);
+	point_add(&p2, &junk, &p);
 	if (p2.is_point_at_infinity == 0)
 	{
 		printf("Point add doesn't handle O + O properly\n");
@@ -555,10 +555,10 @@ int main(int argc, char **argv)
 	}
 	// P + O = P
 	set_to_G(&p);
-	affine_to_jacobian(&p, &p2);
+	affine_to_jacobian(&p2, &p);
 	p.is_point_at_infinity = 1;
-	point_add(&p2, &p, &junk);
-	jacobian_to_affine(&p2, &p);
+	point_add(&p2, &junk, &p);
+	jacobian_to_affine(&p, &p2);
 	if ((p.is_point_at_infinity != 0) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, (bignum256)secp256k1_Gy) != BIGCMP_EQUAL))
@@ -573,8 +573,8 @@ int main(int argc, char **argv)
 	// O + P = P
 	p2.is_point_at_infinity = 1;
 	set_to_G(&p);
-	point_add(&p2, &p, &junk);
-	jacobian_to_affine(&p2, &p);
+	point_add(&p2, &junk, &p);
+	jacobian_to_affine(&p, &p2);
 	if ((p.is_point_at_infinity != 0) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, (bignum256)secp256k1_Gy) != BIGCMP_EQUAL))
@@ -589,12 +589,12 @@ int main(int argc, char **argv)
 
 	// Test that P + P produces the same result as 2P
 	set_to_G(&p);
-	affine_to_jacobian(&p, &p2);
-	point_add(&p2, &p, &junk);
-	jacobian_to_affine(&p2, &compare);
-	affine_to_jacobian(&p, &p2);
+	affine_to_jacobian(&p2, &p);
+	point_add(&p2, &junk, &p);
+	jacobian_to_affine(&compare, &p2);
+	affine_to_jacobian(&p2, &p);
 	point_double(&p2);
-	jacobian_to_affine(&p2, &p);
+	jacobian_to_affine(&p, &p2);
 	if ((p.is_point_at_infinity != compare.is_point_at_infinity) 
 		|| (bigcmp(p.x, compare.x) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, compare.y) != BIGCMP_EQUAL))
@@ -610,11 +610,11 @@ int main(int argc, char **argv)
 
 	// Test that P + -P = O
 	set_to_G(&p);
-	affine_to_jacobian(&p, &p2);
+	affine_to_jacobian(&p2, &p);
 	bigsetzero(temp);
 	bigsubtract(p.y, temp, p.y);
 	check_point_is_on_curve(&p);
-	point_add(&p2, &p, &junk);
+	point_add(&p2, &junk, &p);
 	if (p2.is_point_at_infinity == 0) 
 	{
 		printf("P + -P != O\n");
@@ -627,10 +627,10 @@ int main(int argc, char **argv)
 
 	// Test that 2P + P gives a point on curve
 	set_to_G(&p);
-	affine_to_jacobian(&p, &p2);
+	affine_to_jacobian(&p2, &p);
 	point_double(&p2);
-	point_add(&p2, &p, &junk);
-	jacobian_to_affine(&p2, &p);
+	point_add(&p2, &junk, &p);
+	jacobian_to_affine(&p, &p2);
 	check_point_is_on_curve(&p);
 
 	// Test that point_multiply by 0 gives O
@@ -670,9 +670,9 @@ int main(int argc, char **argv)
 	temp[0] = 2;
 	point_multiply(&p, temp);
 	set_to_G(&compare);
-	affine_to_jacobian(&compare, &p2);
+	affine_to_jacobian(&p2, &compare);
 	point_double(&p2);
-	jacobian_to_affine(&p2, &compare);
+	jacobian_to_affine(&compare, &p2);
 	if ((p.is_point_at_infinity != compare.is_point_at_infinity) 
 		|| (bigcmp(p.x, compare.x) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, compare.y) != BIGCMP_EQUAL))
@@ -740,11 +740,11 @@ int main(int argc, char **argv)
 	for (i = 0; i < 300; i++)
 	{
 		skipwhitespace(f);
-		bigfread(f, temp);
+		bigfread(temp, f);
 		skipwhitespace(f);
-		bigfread(f, compare.x);
+		bigfread(compare.x, f);
 		skipwhitespace(f);
-		bigfread(f, compare.y);
+		bigfread(compare.y, f);
 		skipwhitespace(f);
 		set_to_G(&p);
 		point_multiply(&p, temp);
@@ -848,11 +848,11 @@ int main(int argc, char **argv)
 			}
 		}
 		skipwhitespace(f);
-		bigfread(f, privkey);
+		bigfread(privkey, f);
 		skipwhitespace(f);
-		bigfread(f, pubkey_x);
+		bigfread(pubkey_x, f);
 		skipwhitespace(f);
-		bigfread(f, pubkey_y);
+		bigfread(pubkey_y, f);
 		skipwhitespace(f);
 		do
 		{

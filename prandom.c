@@ -67,11 +67,11 @@ void get_random_256(bignum256 n)
 		totalentropy = (u16)(totalentropy + hardware_random_bytes(randbytes, 32));
 		// Mix plaintext with output of previous round.
 		xor16bytes(n, randbytes);
-		aes_expand_key(&(key[0]), expkey);
-		aes_encrypt(&(n[0]), expkey, &(n[16]));
+		aes_expand_key(expkey, &(key[0]));
+		aes_encrypt(&(n[16]), &(n[0]), expkey);
 		xor16bytes(&(n[16]), &(randbytes[16]));
-		aes_expand_key(&(key[16]), expkey);
-		aes_encrypt(&(n[16]), expkey, &(n[0]));
+		aes_expand_key(expkey, &(key[16]));
+		aes_encrypt(&(n[0]), &(n[16]), expkey);
 	}
 }
 
@@ -115,11 +115,11 @@ void generate_deterministic_256(bignum256 out, u8 *seed, u32 num)
 	sha256_writebyte(&hs, (u8)(num >> 8));
 	sha256_writebyte(&hs, (u8)num);
 	sha256_finish(&hs);
-	convertHtobytearray(&hs, hash, 1);
-	aes_expand_key(&(seed[0]), expkey);
-	aes_encrypt(&(hash[0]), expkey, &(out[0]));
-	aes_expand_key(&(seed[16]), expkey);
-	aes_encrypt(&(hash[16]), expkey, &(out[16]));
+	convertHtobytearray(hash, &hs, 1);
+	aes_expand_key(expkey, &(seed[0]));
+	aes_encrypt(&(out[0]), &(hash[0]), expkey);
+	aes_expand_key(expkey, &(seed[16]));
+	aes_encrypt(&(out[16]), &(hash[16]), expkey);
 }
 
 #ifdef INTERFACE_STUBS

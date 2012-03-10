@@ -39,6 +39,6 @@ extern void clearM(hash_state *hs);
 extern void hash_writebyte(hash_state *hs, u8 byte);
 extern void write_u32_littleendian(u8 *out, u32 in);
 extern void hash_finish(hash_state *hs);
-extern void convertHtobytearray(hash_state *hs, u8 *out, u8 bigendian);
+extern void convertHtobytearray(u8 *out, hash_state *hs, u8 bigendian);
 
 #endif // #ifndef HASH_H_INCLUDED

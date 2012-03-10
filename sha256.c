@@ -171,7 +171,7 @@ void sha256_finishdouble(hash_state *hs)
 	u8 i;
 
 	sha256_finish(hs);
-	convertHtobytearray(hs, temp, 1);
+	convertHtobytearray(temp, hs, 1);
 	sha256_begin(hs);
 	for (i = 0; i < 32; i++)
 	{
