@@ -253,7 +253,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 	while (!feof(f))
 	{
 		// Get length of message
-		if (fscanf(f, "Len = %d", &length) == 0)
+		if (!fscanf(f, "Len = %d", &length))
 		{
 			printf("fscanf error when reading length\n");
 			exit(1);
@@ -269,7 +269,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 		skipwhitespace(f);
 		// Get message itself
 		fgets(buffer, 7, f);
-		if (strcmp(buffer, "Msg = ") != 0)
+		if (strcmp(buffer, "Msg = "))
 		{
 			printf("Parse error; expected \"Msg = \"\n");
 			exit(1);
@@ -285,7 +285,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 		free(message);
 		// Get expected message digest
 		fgets(buffer, 6, f);
-		if (strcmp(buffer, "MD = ") != 0)
+		if (strcmp(buffer, "MD = "))
 		{
 			printf("Parse error; expected \"MD = \"\n");
 			exit(1);

@@ -55,7 +55,7 @@ static const char base58_charlist[58] PROGMEM = {
 static void bigprint_varsize(u8 *number, u8 size, u8 bigendian)
 {
 	u8 i;
-	if (bigendian != 0)
+	if (bigendian)
 	{
 		for (i = 0; i < size; i++)
 		{
@@ -388,7 +388,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < numtests; i++)
 	{
 		amount_to_text(text, (u8 *)base10tests[i].value);
-		if (strcmp(base10tests[i].text, text) != 0)
+		if (strcmp(base10tests[i].text, text))
 		{
 			printf("Base10 test number %d failed\n", i);
 			printf("Input: ");
@@ -409,7 +409,7 @@ int main(int argc, char **argv)
 	for (i = 0; i < numtests; i++)
 	{
 		hash_to_addr(addr, (u8 *)base58tests[i].hash);
-		if (strcmp(base58tests[i].addr, addr) != 0)
+		if (strcmp(base58tests[i].addr, addr))
 		{
 			printf("Base58 test number %d failed\n", i);
 			printf("Input: ");

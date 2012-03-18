@@ -64,16 +64,16 @@ static u8 get_tx_bytes(u8 *buffer, u8 length)
 	{
 		for (i = 0; i < length; i++)
 		{
-			if (stream_get_one_byte(&onebyte) != 0)
+			if (stream_get_one_byte(&onebyte))
 			{
 				read_error_occurred = 1;
 				return 1; // error while trying to get byte from stream
 			}
 			buffer[i] = onebyte;
-			if (suppress_bothhash == 0)
+			if (!suppress_bothhash)
 			{
 				sha256_writebyte(&sighash_hs, onebyte);
-				if (suppress_txhash == 0)
+				if (!suppress_txhash)
 				{
 					sha256_writebyte(&txhash_hs, onebyte);
 				}
@@ -106,7 +106,7 @@ static u8 getvarint(u32 *out)
 {
 	u8 temp[4];
 
-	if (get_tx_bytes(temp, 1) != 0)
+	if (get_tx_bytes(temp, 1))
 	{
 		return 1; // unexpected end of transaction data
 	}
@@ -116,7 +116,7 @@ static u8 getvarint(u32 *out)
 	}
 	else if (temp[0] == 0xfd)
 	{
-		if (get_tx_bytes(temp, 2) != 0)
+		if (get_tx_bytes(temp, 2))
 		{
 			return 1; // unexpected end of transaction data
 		}
@@ -124,7 +124,7 @@ static u8 getvarint(u32 *out)
 	}
 	else if (temp[0] == 0xfe)
 	{
-		if (get_tx_bytes(temp, 4) != 0)
+		if (get_tx_bytes(temp, 4))
 		{
 			return 1; // unexpected end of transaction data
 		}
@@ -166,7 +166,7 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 	suppress_txhash = 0;
 
 	// version
-	if (get_tx_bytes(temp, 4) != 0)
+	if (get_tx_bytes(temp, 4))
 	{
 		return TX_INVALID_FORMAT; // transaction truncated
 	}
@@ -177,7 +177,7 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 	}
 
 	// number of inputs
-	if (getvarint(&numinputs) != 0)
+	if (getvarint(&numinputs))
 	{
 		return TX_INVALID_FORMAT; // transaction truncated or varint too big
 	}
@@ -198,34 +198,34 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 		// skip transaction reference (hash and output number)
 		for (j = 0; j < 9; j++)
 		{
-			if (get_tx_bytes(temp, 4) != 0)
+			if (get_tx_bytes(temp, 4))
 			{
 				return TX_INVALID_FORMAT; // transaction truncated
 			}
 		}
 		// input script length
-		if (getvarint(&scriptlength) != 0)
+		if (getvarint(&scriptlength))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated or varint too big
 		}
 		// skip the script
 		for (i32 = 0; i32 < scriptlength; i32++)
 		{
-			if (get_tx_bytes(temp, 1) != 0)
+			if (get_tx_bytes(temp, 1))
 			{
 				return TX_INVALID_FORMAT; // transaction truncated
 			}
 		}
 		suppress_txhash = 0;
 		// skip sequence
-		if (get_tx_bytes(temp, 4) != 0)
+		if (get_tx_bytes(temp, 4))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated
 		}
 	}
 
 	// number of outputs
-	if (get_tx_bytes(&numoutputs, 1) != 0)
+	if (get_tx_bytes(&numoutputs, 1))
 	{
 		return TX_INVALID_FORMAT; // transaction truncated
 	}
@@ -242,13 +242,13 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 	for (i = 0; i < numoutputs; i++)
 	{
 		// amount
-		if (get_tx_bytes(temp, 8) != 0)
+		if (get_tx_bytes(temp, 8))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated
 		}
 		amount_to_text(textamount, temp);
 		// output script length
-		if (getvarint(&scriptlength) != 0)
+		if (getvarint(&scriptlength))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated or varint too big
 		}
@@ -257,7 +257,7 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 			return TX_NONSTANDARD; // nonstandard transaction
 		}
 		// look for: OP_DUP, OP_HASH160, (20 bytes of data)
-		if (get_tx_bytes(temp, 3) != 0)
+		if (get_tx_bytes(temp, 3))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated
 		}
@@ -265,13 +265,13 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 		{
 			return TX_NONSTANDARD; // nonstandard transaction
 		}
-		if (get_tx_bytes(temp, 20) != 0)
+		if (get_tx_bytes(temp, 20))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated
 		}
 		hash_to_addr(textaddress, temp);
 		// look for: OP_EQUALVERIFY OP_CHECKSIG
-		if (get_tx_bytes(temp, 2) != 0)
+		if (get_tx_bytes(temp, 2))
 		{
 			return TX_INVALID_FORMAT; // transaction truncated
 		}
@@ -279,14 +279,14 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 		{
 			return TX_NONSTANDARD; // nonstandard transaction
 		}
-		if (new_output_seen(textamount, textaddress) != 0)
+		if (new_output_seen(textamount, textaddress))
 		{
 			return TX_TOO_MANY_OUTPUTS; // too many outputs
 		}
 	}
 
 	// locktime
-	if (get_tx_bytes(temp, 4) != 0)
+	if (get_tx_bytes(temp, 4))
 	{
 		return TX_INVALID_FORMAT; // transaction truncated
 	}
@@ -297,7 +297,7 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 	}
 
 	// hashtype
-	if (get_tx_bytes(temp, 4) != 0)
+	if (get_tx_bytes(temp, 4))
 	{
 		return TX_INVALID_FORMAT; // transaction truncated
 	}
@@ -307,7 +307,7 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 		return TX_NONSTANDARD; // nonstandard transaction
 	}
 
-	if (is_end_of_transaction_data() == 0)
+	if (!is_end_of_transaction_data())
 	{
 		return TX_INVALID_FORMAT; // junk at end of transaction data
 	}
@@ -343,13 +343,13 @@ tx_errors parse_transaction(bignum256 sighash, bignum256 txhash, u32 length)
 	u8 junk;
 
 	r = parse_transaction_internal(sighash, txhash, length);
-	if (read_error_occurred == 0)
+	if (!read_error_occurred)
 	{
 		// Always try to consume the entire stream.
 		suppress_bothhash = 1;
-		while (is_end_of_transaction_data() == 0)
+		while (!is_end_of_transaction_data())
 		{
-			if (get_tx_bytes(&junk, 1) != 0)
+			if (get_tx_bytes(&junk, 1))
 			{
 				break;
 			}
@@ -416,7 +416,7 @@ u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey)
 		(bignum256)(&(signature[S_OFFSET + 1])),
 		sighash,
 		privatekey,
-		k) == 0);
+		k));
 	swap_endian256(&(signature[R_OFFSET + 1]));
 	swap_endian256(&(signature[S_OFFSET + 1]));
 

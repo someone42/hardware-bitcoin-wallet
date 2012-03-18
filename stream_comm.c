@@ -56,7 +56,7 @@ static u8 write_bytes(u8 *buffer, u16 length)
 
 	for (i = 0; i < length; i++)
 	{
-		if (stream_put_one_byte(buffer[i]) != 0)
+		if (stream_put_one_byte(buffer[i]))
 		{
 			return 1; // write error
 		}
@@ -76,13 +76,13 @@ static u8 put_string(string_set set, u8 spec, u8 command)
 	buffer[0] = command;
 	length = get_string_length(set, spec);
 	write_u32_littleendian(&(buffer[1]), length);
-	if (write_bytes(buffer, 5) != 0)
+	if (write_bytes(buffer, 5))
 	{
 		return 1; // write error
 	}
 	for (i = 0; i < length; i++)
 	{
-		if (stream_put_one_byte((u8)get_string(set, spec, i)) != 0)
+		if (stream_put_one_byte((u8)get_string(set, spec, i)))
 		{
 			return 1; // write error
 		}
@@ -104,11 +104,11 @@ static u8 translate_wallet_error(wallet_errors r, u8 length, u8 *data)
 	{
 		buffer[0] = 0x02;
 		write_u32_littleendian(&(buffer[1]), length);
-		if (write_bytes(buffer, 5) != 0)
+		if (write_bytes(buffer, 5))
 		{
 			return 1; // write error
 		}
-		if (write_bytes(data, length) != 0)
+		if (write_bytes(data, length))
 		{
 			return 1; // write error
 		}
@@ -130,7 +130,7 @@ static u8 read_bytes(u8 *buffer, u8 length)
 
 	for (i = 0; i < length; i++)
 	{
-		if (stream_get_one_byte(&(buffer[i])) != 0)
+		if (stream_get_one_byte(&(buffer[i])))
 		{
 			return 1; // read error
 		}
@@ -144,7 +144,7 @@ static u8 read_bytes(u8 *buffer, u8 length)
 // This returns 0 on success or non-zero if there was a write error.
 u8 format_storage(void)
 {
-	if (translate_wallet_error(sanitise_nv_storage(0, 0xffffffff), 0, NULL) != 0)
+	if (translate_wallet_error(sanitise_nv_storage(0, 0xffffffff), 0, NULL))
 	{
 		return 1; // write error
 	}
@@ -169,7 +169,7 @@ u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 		// Note: sign_transaction() cannot fail.
 		signature_length = sign_transaction(signature, sighash, privkey);
 	}
-	if (translate_wallet_error (wallet_get_last_error(), signature_length, signature) != 0)
+	if (translate_wallet_error (wallet_get_last_error(), signature_length, signature))
 	{
 		return 1; // write error
 	}
@@ -197,7 +197,7 @@ u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 	}
 	if (r != TX_NO_ERROR)
 	{
-		if (put_string(STRINGSET_TRANSACTION, (u8)r, 0x03) != 0)
+		if (put_string(STRINGSET_TRANSACTION, (u8)r, 0x03))
 		{
 			return 1; // write error
 		}
@@ -223,9 +223,9 @@ u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 		// Need to explicitly get permission from user.
 		// The call to parse_transaction should have logged all the outputs
 		// to the user interface.
-		if (ask_user(ASKUSER_SIGN_TRANSACTION) != 0)
+		if (ask_user(ASKUSER_SIGN_TRANSACTION))
 		{
-			if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03) != 0)
+			if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 			{
 				return 1; // write error
 			}
@@ -288,12 +288,12 @@ u8 check_and_sign_by_address(u8 *address, u32 txlength)
 		// input streams, it must be done explicitly here.
 		for (; txlength--; )
 		{
-			if (stream_get_one_byte(&junk) != 0)
+			if (stream_get_one_byte(&junk))
 			{
 				return 2; // read error
 			}
 		}
-		if (translate_wallet_error (wallet_get_last_error(), 0, NULL) != 0)
+		if (translate_wallet_error (wallet_get_last_error(), 0, NULL))
 		{
 			return 1; // write error
 		}
@@ -331,7 +331,7 @@ u8 get_and_send_public_key(void)
 	u8 pubkey[65];
 	u8 address[20];
 
-	if (read_bytes(address, 20) != 0)
+	if (read_bytes(address, 20))
 	{
 		return 1; // read error
 	}
@@ -341,7 +341,7 @@ u8 get_and_send_public_key(void)
 		pubkey[0] = 0x04;
 		get_pubkey(&(pubkey[1]), ah);
 	}
-	if (translate_wallet_error (wallet_get_last_error(), 65, pubkey) != 0)
+	if (translate_wallet_error (wallet_get_last_error(), 65, pubkey))
 	{
 		return 1; // write error
 	}
@@ -359,7 +359,7 @@ static u8 read_and_ignore_input(void)
 	{
 		for (; payload_length--; )
 		{
-			if (stream_get_one_byte(&junk) != 0)
+			if (stream_get_one_byte(&junk))
 			{
 				return 1; // read error
 			}
@@ -382,11 +382,11 @@ static u8 expect_length(const u8 desired_length)
 {
 	if (payload_length != desired_length)
 	{
-		if (read_and_ignore_input() != 0)
+		if (read_and_ignore_input())
 		{
 			return EXPECT_LENGTH_IO_ERROR; // read error
 		}
-		if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03) != 0)
+		if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
 		{
 			return EXPECT_LENGTH_IO_ERROR + 1; // write error
 		}
@@ -415,13 +415,13 @@ u8 process_packet(void)
 	u8 i;
 	u8 r;
 
-	if (stream_get_one_byte(&command) != 0)
+	if (stream_get_one_byte(&command))
 	{
 		return 1; // read error
 	}
 	for (i = 0; i < 4; i++)
 	{
-		if (stream_get_one_byte(&(buffer[i])) != 0)
+		if (stream_get_one_byte(&(buffer[i])))
 		{
 			return 1; // read error
 		}
@@ -444,11 +444,11 @@ u8 process_packet(void)
 	case 0x00:
 		// Ping request.
 		// Just throw away the data and then send response.
-		if (read_and_ignore_input() != 0)
+		if (read_and_ignore_input())
 		{
 			return 1; // read error
 		}
-		if (put_string(STRINGSET_MISC, MISCSTR_VERSION, 0x01) != 0)
+		if (put_string(STRINGSET_MISC, MISCSTR_VERSION, 0x01))
 		{
 			return 1; // write error
 		}
@@ -464,15 +464,15 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
-			if (read_bytes(buffer, 32) != 0)
+			if (read_bytes(buffer, 32))
 			{
 				return 1; // read error
 			}
-			if (ask_user(ASKUSER_NUKE_WALLET) != 0)
+			if (ask_user(ASKUSER_NUKE_WALLET))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03) != 0)
+				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
@@ -481,12 +481,12 @@ u8 process_packet(void)
 			{
 				set_encryption_key(buffer);
 				set_tweak_key(&(buffer[16]));
-				if (translate_wallet_error (new_wallet(), 0, NULL) != 0)
+				if (translate_wallet_error (new_wallet(), 0, NULL))
 				{
 					return 1; // write error
 				}
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x05:
@@ -496,11 +496,11 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
-			if (ask_user(ASKUSER_NEW_ADDRESS) != 0)
+			if (ask_user(ASKUSER_NEW_ADDRESS))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03) != 0)
+				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
@@ -508,12 +508,12 @@ u8 process_packet(void)
 			else
 			{
 				make_new_address(buffer);
-				if (translate_wallet_error (wallet_get_last_error(), 20, buffer) != 0)
+				if (translate_wallet_error (wallet_get_last_error(), 20, buffer))
 				{
 					return 1; // write error
 				}
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x06:
@@ -523,14 +523,14 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
 			write_u32_littleendian(buffer, get_num_addresses());
-			if (translate_wallet_error(wallet_get_last_error(), 4, buffer) != 0)
+			if (translate_wallet_error(wallet_get_last_error(), 4, buffer))
 			{
 				return 1; // write error
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x07:
@@ -540,7 +540,7 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
 			u32 numaddresses;
 			address_handle ah;
@@ -549,7 +549,7 @@ u8 process_packet(void)
 			numaddresses = get_num_addresses();
 			if (numaddresses == 0)
 			{
-				if (translate_wallet_error (wallet_get_last_error(), 0, NULL) != 0)
+				if (translate_wallet_error (wallet_get_last_error(), 0, NULL))
 				{
 					return 1; // write error
 				}
@@ -563,7 +563,7 @@ u8 process_packet(void)
 				numaddressestimes4 = numaddresses << 2;
 				numaddressestimes16 = numaddressestimes4 << 2;
 				write_u32_littleendian(&(buffer[1]), numaddressestimes4 + numaddressestimes16);
-				if (write_bytes(buffer, 5) != 0)
+				if (write_bytes(buffer, 5))
 				{
 					return 1; // write error
 				}
@@ -592,13 +592,13 @@ u8 process_packet(void)
 							buffer[i] = 0x00;
 						}
 					}
-					if (write_bytes(buffer, 20) != 0)
+					if (write_bytes(buffer, 20))
 					{
 						return 1; // write error
 					}
 				}
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x08:
@@ -608,18 +608,18 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
-			if (read_bytes(buffer, 20) != 0)
+			if (read_bytes(buffer, 20))
 			{
 				return 1; // read error
 			}
 			is_mine(buffer);
-			if (translate_wallet_error (wallet_get_last_error(), 0, NULL) != 0)
+			if (translate_wallet_error (wallet_get_last_error(), 0, NULL))
 			{
 				return 1; // write error
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x09:
@@ -629,35 +629,35 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
 			if (get_and_send_public_key())
 			{
 				return 1; // read or write error
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x0a:
 		// Sign a transaction.
 		if (payload_length <= 20)
 		{
-			if (read_and_ignore_input() != 0)
+			if (read_and_ignore_input())
 			{
 				return 1; // read error
 			}
-			if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03) != 0)
+			if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
 			{
 				return 1; // write error
 			}
 		}
 		else
 		{
-			if (read_bytes(buffer, 20) != 0)
+			if (read_bytes(buffer, 20))
 			{
 				return 1; // read error
 			}
-			if (check_and_sign_by_address(buffer, payload_length - 20) != 0)
+			if (check_and_sign_by_address(buffer, payload_length - 20))
 			{
 				return 1; // read or write error
 			}
@@ -672,19 +672,19 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
-			if (read_bytes(buffer, 32) != 0)
+			if (read_bytes(buffer, 32))
 			{
 				return 1; // read error
 			}
 			set_encryption_key(buffer);
 			set_tweak_key(&(buffer[16]));
-			if (translate_wallet_error (init_wallet(), 0, NULL) != 0)
+			if (translate_wallet_error (init_wallet(), 0, NULL))
 			{
 				return 1; // write error
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x0c:
@@ -694,7 +694,7 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
 			volatile u8 *buffer_alias;
 			clear_keys();
@@ -708,11 +708,11 @@ u8 process_packet(void)
 			{
 				buffer_alias[i] = 0x0;
 			}
-			if (translate_wallet_error (uninit_wallet(), 0, NULL) != 0)
+			if (translate_wallet_error (uninit_wallet(), 0, NULL))
 			{
 				return 1; // write error
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x0d:
@@ -722,23 +722,23 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
-			if (ask_user(ASKUSER_FORMAT) != 0)
+			if (ask_user(ASKUSER_FORMAT))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03) != 0)
+				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
 			}
 			else
 			{
-				if (format_storage() != 0)
+				if (format_storage())
 				{
 					return 1; // write error
 				}
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	case 0x0e:
@@ -748,26 +748,26 @@ u8 process_packet(void)
 		{
 			return 1; // read or write error
 		}
-		if (r == 0)
+		if (!r)
 		{
-			if (read_bytes(buffer, 32) != 0)
+			if (read_bytes(buffer, 32))
 			{
 				return 1; // read error
 			}
-			if (translate_wallet_error (change_encryption_key(buffer), 0, NULL) != 0)
+			if (translate_wallet_error (change_encryption_key(buffer), 0, NULL))
 			{
 				return 1; // write error
 			}
-		} // if (r == 0)
+		} // if (!r)
 		break;
 
 	default:
 		// Unknown command.
-		if (read_and_ignore_input() != 0)
+		if (read_and_ignore_input())
 		{
 			return 1; // read error
 		}
-		if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03) != 0)
+		if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
 		{
 			return 1; // write error
 		}

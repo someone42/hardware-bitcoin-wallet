@@ -467,7 +467,7 @@ static void generate_test_cases(const u8 *max)
 			{
 				currenttest[j] = (u8)(rand() & 0xff);
 			}
-			if (bigiszero((bignum256)max) != 0)
+			if (bigiszero((bignum256)max))
 			{
 				// Special case; 2 ^ 256 is represented as 0 and every
 				// representable 256-bit number is >= 0. Thus the test
@@ -678,7 +678,7 @@ int main(int argc, char **argv)
 
 				// Compare results
 				mpn_to_byte(result_compare, mpn_result, result_size);
-				if ((memcmp(result, result_compare, result_size * 4) != 0)
+				if ((memcmp(result, result_compare, result_size * 4))
 					|| (returned != compare_returned))
 				{
 					if (operation == 0)
@@ -769,7 +769,7 @@ int main(int argc, char **argv)
 						if (operation == 0)
 						{
 							compare_returned = mpn_add_n(mpn_result, mpn_op1, mpn_op2, 8);
-							if (compare_returned != 0)
+							if (compare_returned)
 							{
 								mpn_result[8] = 1;
 							}
@@ -782,7 +782,7 @@ int main(int argc, char **argv)
 						else if (operation == 1)
 						{
 							compare_returned = mpn_sub_n(mpn_result, mpn_op1, mpn_op2, 8);
-							if (compare_returned != 0)
+							if (compare_returned)
 							{
 								// Because the low-level functions in GMP
 								// don't care about sign, the division below
@@ -848,7 +848,7 @@ int main(int argc, char **argv)
 				} // if (operation != 3)
 				else
 				{
-					if (bigiszero(op1) == 0)
+					if (!bigiszero(op1))
 					{
 						// Calculate result using functions in this file
 						biginvert(result, op1);
@@ -884,7 +884,7 @@ int main(int argc, char **argv)
 						{
 							succeeded++;
 						}
-					} // if (bigiszero(op1) == 0)
+					} // if (!bigiszero(op1))
 				}
 			} // for (i = 0; i < TOTAL_CASES; i++)
 		} // for (operation = 0; operation < 4; operation++)

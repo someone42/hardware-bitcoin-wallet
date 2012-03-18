@@ -31,7 +31,7 @@ void hash_writebyte(hash_state *hs, u8 byte)
 	u8 pos; // corrected for endianness
 
 	hs->messagelength++;
-	if (hs->isbigendian != 0)
+	if (hs->isbigendian)
 	{
 		pos = hs->bytepositionM;
 	}
@@ -89,7 +89,7 @@ void hash_finish(hash_state *hs)
 	{
 		buffer[i] = 0;
 	}
-	if (hs->isbigendian != 0)
+	if (hs->isbigendian)
 	{
 		write_u32_bigendian(&(buffer[4]), lengthbits);
 	}
@@ -101,7 +101,7 @@ void hash_finish(hash_state *hs)
 	{
 		hash_writebyte(hs, buffer[i]);
 	}
-	if (hs->isbigendian == 0)
+	if (!hs->isbigendian)
 	{
 		for	(i = 0; i < 8; i++)
 		{
@@ -121,7 +121,7 @@ void convertHtobytearray(u8 *out, hash_state *hs, u8 bigendian)
 {
 	u8 i;
 
-	if (bigendian != 0)
+	if (bigendian)
 	{
 		for (i = 0; i < 8; i++)
 		{

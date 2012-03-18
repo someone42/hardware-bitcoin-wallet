@@ -412,16 +412,16 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		// Check for [DECRYPT]
 		skipwhitespace(f);
 		seencount = 0;
-		while (seencount == 0)
+		while (!seencount)
 		{
 			fgets(buffer, 6, f);
 			skipline(f);
 			skipwhitespace(f);
-			if (strcmp(buffer, "[DECR") == 0)
+			if (!strcmp(buffer, "[DECR"))
 			{
 				isencrypt = 0;
 			}
-			else if (strcmp(buffer, "COUNT") == 0)
+			else if (!strcmp(buffer, "COUNT"))
 			{
 				seencount = 1;
 			}
@@ -434,7 +434,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 
 		// Get key
 		fgets(buffer, 7, f);
-		if (strcmp(buffer, "KEY = ") != 0)
+		if (strcmp(buffer, "KEY = "))
 		{
 			printf("Parse error; expected \"KEY = \"\n");
 			exit(1);
@@ -450,11 +450,11 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		// The order is: ciphertext, then plaintext for decrypt.
 		for (j = 0; j < 2; j++)
 		{
-			if (((isencrypt != 0) && (j == 0))
-				|| ((isencrypt == 0) && (j != 0)))
+			if (((isencrypt) && (j == 0))
+				|| ((!isencrypt) && (j != 0)))
 			{
 				fgets(buffer, 13, f);
-				if (strcmp(buffer, "PLAINTEXT = ") != 0)
+				if (strcmp(buffer, "PLAINTEXT = "))
 				{
 					printf("Parse error; expected \"PLAINTEXT = \"\n");
 					exit(1);
@@ -468,7 +468,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			else
 			{
 				fgets(buffer, 14, f);
-				if (strcmp(buffer, "CIPHERTEXT = ") != 0)
+				if (strcmp(buffer, "CIPHERTEXT = "))
 				{
 					printf("Parse error; expected \"CIPHERTEXT = \"\n");
 					exit(1);
@@ -484,10 +484,10 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		// Do encryption/decryption and compare
 		aes_expand_key(expkey, key);
 		testfailed = 0;
-		if (isencrypt != 0)
+		if (isencrypt)
 		{
 			aes_encrypt(compare, plaintext, expkey);
-			if (memcmp(compare, ciphertext, 16) != 0)
+			if (memcmp(compare, ciphertext, 16))
 			{
 				testfailed = 1;
 			}
@@ -495,12 +495,12 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		else
 		{
 			aes_decrypt(compare, ciphertext, expkey);
-			if (memcmp(compare, plaintext, 16) != 0)
+			if (memcmp(compare, plaintext, 16))
 			{
 				testfailed = 1;
 			}
 		}
-		if (testfailed == 0)
+		if (!testfailed)
 		{
 			succeeded++;
 		}

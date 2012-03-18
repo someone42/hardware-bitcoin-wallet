@@ -862,7 +862,7 @@ int main(int argc, char **argv)
 		printf("Couldn't create new address is new wallet\n");
 		failed++;
 	}
-	if (memcmp(address1, address2, 20) != 0)
+	if (memcmp(address1, address2, 20))
 	{
 		succeeded++;
 	}
@@ -895,20 +895,20 @@ int main(int argc, char **argv)
 		}
 		for (j = 0; j < i; j++)
 		{
-			if (memcmp(&(addressbuffer[i * 20]), &(addressbuffer[j * 20]), 20) == 0)
+			if (!memcmp(&(addressbuffer[i * 20]), &(addressbuffer[j * 20]), 20))
 			{
 				printf("Wallet addresses aren't unique\n");
 				abort = 1;
 				break;
 			}
 		}
-		if (abort != 0)
+		if (abort)
 		{
 			break;
 		}
 	}
 	free(addressbuffer);
-	if (abort == 0)
+	if (!abort)
 	{
 		succeeded++;
 	}
@@ -1003,7 +1003,7 @@ int main(int argc, char **argv)
 		}
 		addressfound[i] = 0;
 	}
-	if (abort == 0)
+	if (!abort)
 	{
 		succeeded++;
 	}
@@ -1023,7 +1023,7 @@ int main(int argc, char **argv)
 	{
 		for (j = 0; j < i; j++)
 		{
-			if (memcmp(&(addressbuffer[i * 20]), &(addressbuffer[j * 20]), 20) == 0)
+			if (!memcmp(&(addressbuffer[i * 20]), &(addressbuffer[j * 20]), 20))
 			{
 				printf("Wallet has duplicate addresses\n");
 				abortduplicate = 1;
@@ -1032,7 +1032,7 @@ int main(int argc, char **argv)
 			}
 		}
 	}
-	if (abortduplicate == 0)
+	if (!abortduplicate)
 	{
 		succeeded++;
 	}
@@ -1065,7 +1065,7 @@ int main(int argc, char **argv)
 		}
 		for (j = 0; j < MAX_TESTING_ADDRESSES; j++)
 		{
-			if (memcmp(address1, &(addressbuffer[j * 20]), 20) == 0)
+			if (!memcmp(address1, &(addressbuffer[j * 20]), 20))
 			{
 				addressfound[j] = 1;
 			}
@@ -1074,7 +1074,7 @@ int main(int argc, char **argv)
 	abort = 0;
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
-		if (addressfound[i] == 0)
+		if (!addressfound[i])
 		{
 			printf("List functions return addresses which are not in wallet\n");
 			abort = 1;
@@ -1082,11 +1082,11 @@ int main(int argc, char **argv)
 			break;
 		}
 	}
-	if (abort == 0)
+	if (!abort)
 	{
 		succeeded++;
 	}
-	if (aborterror == 0)
+	if (!aborterror)
 	{
 		succeeded++;
 	}

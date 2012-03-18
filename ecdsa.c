@@ -332,9 +332,9 @@ void set_field_to_p(void)
 // for each call to this function.
 // hash, privatekey and k are all expected to be 256-bit integers in
 // little-endian format.
-// This function will return 1 and fill r and s with the signature upon
-// success. This function will return 0 upon failure. If this function returns
-// 0, an appropriate course of action is to pick another random integer k and
+// This function will return 0 and fill r and s with the signature upon
+// success. This function will return 1 upon failure. If this function returns
+// 1, an appropriate course of action is to pick another random integer k and
 // try again. If a random number generator is truly random, failure should
 // only occur if you are extremely unlucky.
 // This is an implementation of the algorithm described in the document
@@ -348,13 +348,13 @@ u8 ecdsa_sign(bignum256 r, bignum256 s, bignum256 hash, bignum256 privatekey, bi
 	// This is one of many data-dependent branches in this function. They do
 	// not compromise timing attack resistance because these branches are
 	// expected to occur extremely infrequently.
-	if (bigiszero(k) != 0)
+	if (bigiszero(k))
 	{
-		return 0;
+		return 1;
 	}
 	if (bigcmp(k, (bignum256)secp256k1_n) != BIGCMP_LESS)
 	{
-		return 0;
+		return 1;
 	}
 
 	// Compute ephemeral elliptic curve key pair (k, bigR)
@@ -365,9 +365,9 @@ u8 ecdsa_sign(bignum256 r, bignum256 s, bignum256 hash, bignum256 privatekey, bi
 	bigsetfield(secp256k1_n, secp256k1_compn, sizeof(secp256k1_compn));
 	bigmod(r, bigR.x);
 	// r now contains (k * G).x (mod n)
-	if (bigiszero(r) != 0)
+	if (bigiszero(r))
 	{
-		return 0;
+		return 1;
 	}
 	bigmultiply(s, r, privatekey);
 	bigmod(bigR.y, hash); // use bigR.y as temporary
@@ -375,12 +375,12 @@ u8 ecdsa_sign(bignum256 r, bignum256 s, bignum256 hash, bignum256 privatekey, bi
 	biginvert(bigR.y, k);
 	bigmultiply(s, s, bigR.y);
 	// s now contains (hash + (r * privatekey)) / k (mod n)
-	if (bigiszero(s) != 0)
+	if (bigiszero(s))
 	{
-		return 0;
+		return 1;
 	}
 
-	return 1;
+	return 0;
 }
 
 #ifdef TEST
@@ -400,7 +400,7 @@ static void check_point_is_on_curve(point_affine *p)
 	u8 ysquared[32];
 	u8 xcubed[32];
 
-	if (p->is_point_at_infinity != 0)
+	if (p->is_point_at_infinity)
 	{
 		// O is always on the curve
 		succeeded++;
@@ -451,7 +451,7 @@ static void skipwhitespace(FILE *f)
 }
 
 // For testing only.
-// Returns 1 if signature is good, 0 otherwise.
+// Returns 0 if signature is good, 1 otherwise.
 // (r, s) is the signature. hash is the message digest of the message that was
 // signed. (pubkey_x, pubkey_y) is the public key. All are supposed to be
 // little-endian 256-bit integers.
@@ -488,11 +488,11 @@ static int crappy_verify_signature(bignum256 r, bignum256 s, bignum256 hash, big
 	bigmod(result.x, result.x);
 	if (bigcmp(result.x, r) == BIGCMP_EQUAL)
 	{
-		return 1;
+		return 0;
 	}
 	else
 	{
-		return 0;
+		return 1;
 	}
 }
 
@@ -532,7 +532,7 @@ int main(int argc, char **argv)
 	p2.is_point_at_infinity = 1;
 	// 2O = O
 	point_double(&p2);
-	if (p2.is_point_at_infinity == 0)
+	if (!p2.is_point_at_infinity)
 	{
 		printf("Point double doesn't handle 2O properly\n");
 		failed++;
@@ -544,7 +544,7 @@ int main(int argc, char **argv)
 	// O + O = O
 	p.is_point_at_infinity = 1;
 	point_add(&p2, &junk, &p);
-	if (p2.is_point_at_infinity == 0)
+	if (!p2.is_point_at_infinity)
 	{
 		printf("Point add doesn't handle O + O properly\n");
 		failed++;
@@ -559,7 +559,7 @@ int main(int argc, char **argv)
 	p.is_point_at_infinity = 1;
 	point_add(&p2, &junk, &p);
 	jacobian_to_affine(&p, &p2);
-	if ((p.is_point_at_infinity != 0) 
+	if ((p.is_point_at_infinity) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, (bignum256)secp256k1_Gy) != BIGCMP_EQUAL))
 	{
@@ -575,7 +575,7 @@ int main(int argc, char **argv)
 	set_to_G(&p);
 	point_add(&p2, &junk, &p);
 	jacobian_to_affine(&p, &p2);
-	if ((p.is_point_at_infinity != 0) 
+	if ((p.is_point_at_infinity) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, (bignum256)secp256k1_Gy) != BIGCMP_EQUAL))
 	{
@@ -615,7 +615,7 @@ int main(int argc, char **argv)
 	bigsubtract(p.y, temp, p.y);
 	check_point_is_on_curve(&p);
 	point_add(&p2, &junk, &p);
-	if (p2.is_point_at_infinity == 0) 
+	if (!p2.is_point_at_infinity) 
 	{
 		printf("P + -P != O\n");
 		failed++;
@@ -637,7 +637,7 @@ int main(int argc, char **argv)
 	set_to_G(&p);
 	bigsetzero(temp);
 	point_multiply(&p, temp);
-	if (p.is_point_at_infinity == 0) 
+	if (!p.is_point_at_infinity) 
 	{
 		printf("point_multiply not starting at O\n");
 		failed++;
@@ -652,7 +652,7 @@ int main(int argc, char **argv)
 	bigsetzero(temp);
 	temp[0] = 1;
 	point_multiply(&p, temp);
-	if ((p.is_point_at_infinity != 0) 
+	if ((p.is_point_at_infinity) 
 		|| (bigcmp(p.x, (bignum256)secp256k1_Gx) != BIGCMP_EQUAL)
 		|| (bigcmp(p.y, (bignum256)secp256k1_Gy) != BIGCMP_EQUAL))
 	{
@@ -699,7 +699,7 @@ int main(int argc, char **argv)
 	// Test that n * G = O
 	set_to_G(&p);
 	point_multiply(&p, (bignum256)secp256k1_n);
-	if (p.is_point_at_infinity == 0) 
+	if (!p.is_point_at_infinity) 
 	{
 		printf("n * P != O\n");
 		failed++;
@@ -765,7 +765,7 @@ int main(int argc, char **argv)
 
 	// ecdsa_sign() should fail when k == 0 or k >= n
 	bigsetzero(temp);
-	if (ecdsa_sign(r, s, temp, temp, temp) != 0)
+	if (!ecdsa_sign(r, s, temp, temp, temp))
 	{
 		printf("ecdsa_sign() accepts k == 0\n");
 		failed++;
@@ -775,7 +775,7 @@ int main(int argc, char **argv)
 		succeeded++;
 	}
 	bigassign(temp, (bignum256)secp256k1_n);
-	if (ecdsa_sign(r, s, temp, temp, temp) != 0)
+	if (!ecdsa_sign(r, s, temp, temp, temp))
 	{
 		printf("ecdsa_sign() accepts k == n\n");
 		failed++;
@@ -788,7 +788,7 @@ int main(int argc, char **argv)
 	{
 		temp[i] = 0xff;
 	}
-	if (ecdsa_sign(r, s, temp, temp, temp) != 0)
+	if (!ecdsa_sign(r, s, temp, temp, temp))
 	{
 		printf("ecdsa_sign() accepts k > n\n");
 		failed++;
@@ -801,7 +801,7 @@ int main(int argc, char **argv)
 	// But it should succeed for k == n - 1
 	bigassign(temp, (bignum256)secp256k1_n);
 	temp[0] = 0x40;
-	if (ecdsa_sign(r, s, temp, temp, temp) == 0)
+	if (ecdsa_sign(r, s, temp, temp, temp))
 	{
 		printf("ecdsa_sign() does not accept k == n - 1\n");
 		failed++;
@@ -860,8 +860,8 @@ int main(int argc, char **argv)
 			{
 				temp[j] = (u8)(rand() & 0xff);
 			}
-		} while (ecdsa_sign(r, s, hash, privkey, temp) == 0);
-		if (crappy_verify_signature(r, s, hash, pubkey_x, pubkey_y) == 0)
+		} while (ecdsa_sign(r, s, hash, privkey, temp));
+		if (crappy_verify_signature(r, s, hash, pubkey_x, pubkey_y))
 		{
 			printf("Signature verify failed\n");
 			printf("privkey = ");

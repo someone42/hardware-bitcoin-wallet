@@ -331,16 +331,16 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 		// Check for [DECRYPT]
 		skipwhitespace(f);
 		seencount = 0;
-		while (seencount == 0)
+		while (!seencount)
 		{
 			fgets(buffer, 6, f);
 			skipline(f);
 			skipwhitespace(f);
-			if (strcmp(buffer, "[DECR") == 0)
+			if (!strcmp(buffer, "[DECR"))
 			{
 				isencrypt = 0;
 			}
-			else if (strcmp(buffer, "COUNT") == 0)
+			else if (!strcmp(buffer, "COUNT"))
 			{
 				seencount = 1;
 			}
@@ -353,7 +353,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 
 		// Get data length
 		fgets(buffer, 15, f);
-		if (strcmp(buffer, "DataUnitLen = ") != 0)
+		if (strcmp(buffer, "DataUnitLen = "))
 		{
 			printf("Parse error; expected \"DataUnitLen = \"\n");
 			exit(1);
@@ -381,7 +381,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 
 			// Get key
 			fgets(buffer, 7, f);
-			if (strcmp(buffer, "Key = ") != 0)
+			if (strcmp(buffer, "Key = "))
 			{
 				printf("Parse error; expected \"Key = \"\n");
 				exit(1);
@@ -404,7 +404,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 				int n;
 
 				fgets(buffer, 21, f);
-				if (strcmp(buffer, "DataUnitSeqNumber = ") != 0)
+				if (strcmp(buffer, "DataUnitSeqNumber = "))
 				{
 					printf("Parse error; expected \"DataUnitSeqNumber = \"\n");
 					exit(1);
@@ -419,7 +419,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			else
 			{
 				fgets(buffer, 5, f);
-				if (strcmp(buffer, "i = ") != 0)
+				if (strcmp(buffer, "i = "))
 				{
 					printf("Parse error; expected \"i = \"\n");
 					exit(1);
@@ -441,11 +441,11 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			// The order is: ciphertext, then plaintext for decrypt.
 			for (j = 0; j < 2; j++)
 			{
-				if (((isencrypt != 0) && (j == 0))
-					|| ((isencrypt == 0) && (j != 0)))
+				if (((isencrypt) && (j == 0))
+					|| ((!isencrypt) && (j != 0)))
 				{
 					fgets(buffer, 6, f);
-					if (strcmp(buffer, "PT = ") != 0)
+					if (strcmp(buffer, "PT = "))
 					{
 						printf("Parse error; expected \"PT = \"\n");
 						exit(1);
@@ -459,7 +459,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 				else
 				{
 					fgets(buffer, 6, f);
-					if (strcmp(buffer, "CT = ") != 0)
+					if (strcmp(buffer, "CT = "))
 					{
 						printf("Parse error; expected \"CT = \"\n");
 						exit(1);
@@ -475,12 +475,12 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 
 			// Do encryption/decryption and compare
 			testfailed = 0;
-			if (isencrypt != 0)
+			if (isencrypt)
 			{
 				for (i = 0; i < dataunitlength; i += 16)
 				{
 					xex_encrypt(&(compare[i]), &(plaintext[i]), tweak_value, (u8)(i >> 4), tweak_key, encrypt_key);
-					if (memcmp(&(compare[i]), &(ciphertext[i]), 16) != 0)
+					if (memcmp(&(compare[i]), &(ciphertext[i]), 16))
 					{
 						testfailed = 1;
 						break;
@@ -492,14 +492,14 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 				for (i = 0; i < dataunitlength; i += 16)
 				{
 					xex_decrypt(&(compare[i]), &(ciphertext[i]), tweak_value, (u8)(i >> 4), tweak_key, encrypt_key);
-					if (memcmp(&(compare[i]), &(plaintext[i]), 16) != 0)
+					if (memcmp(&(compare[i]), &(plaintext[i]), 16))
 					{
 						testfailed = 1;
 						break;
 					}
 				}
 			}
-			if (testfailed == 0)
+			if (!testfailed)
 			{
 				succeeded++;
 			}
