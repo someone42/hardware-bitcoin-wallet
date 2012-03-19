@@ -148,6 +148,21 @@ void get_encryption_keys(u8 *out)
 	}
 }
 
+// Returns non-zero if any one of the encryption keys is non-zero.
+u8 are_encryption_keys_nonzero(void)
+{
+	u8 r;
+	u8 i;
+
+	r = 0;
+	for (i = 0; i < 16; i++)
+	{
+		r |= nvstorage_encrypt_key[i];
+		r |= nvstorage_tweak_key[i];
+	}
+	return r;
+}
+
 // Clear out memory which stores encryption keys.
 // In order to be sure that keys don't remain in RAM anywhere, you may also
 // need to clear out the space between the heap and the stack.

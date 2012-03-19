@@ -26,7 +26,7 @@
 // for confirmation from the user. This incidentally sets the maximum
 // number of outputs per transaction that parse_transaction() can deal with.
 // This must be < 256.
-#define MAX_ADDRESSES	2
+#define MAX_OUTPUTS		2
 
 // The Arduino pin numbers that the LCD interface is connected to.
 #define RS_PIN			12 // register select
@@ -176,8 +176,8 @@ static u8 accept_debounce;
 static u8 cancel_debounce;
 
 // Storage for amount/address pairs.
-static char list_amount[MAX_ADDRESSES][22];
-static char list_address[MAX_ADDRESSES][36];
+static char list_amount[MAX_OUTPUTS][22];
+static char list_address[MAX_OUTPUTS][36];
 static u8 list_index;
 
 // This does the scrolling and checks the state of the buttons.
@@ -366,7 +366,7 @@ u8 new_output_seen(char *textamount, char *textaddress)
 	char *amount_dest;
 	char *address_dest;
 
-	if (list_index >= MAX_ADDRESSES)
+	if (list_index >= MAX_OUTPUTS)
 	{
 		return 1; // not enough space to store the amount/address pair
 	}

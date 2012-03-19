@@ -20,6 +20,7 @@
 extern void set_tweak_key(u8 *in);
 extern void set_encryption_key(u8 *in);
 extern void get_encryption_keys(u8 *out);
+extern u8 are_encryption_keys_nonzero(void);
 extern void clear_keys(void);
 extern nonvolatile_return encrypted_nonvolatile_write(u8 *data, u32 address, u8 length);
 extern nonvolatile_return encrypted_nonvolatile_read(u8 *data, u32 address, u8 length);

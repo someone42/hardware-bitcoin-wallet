@@ -48,9 +48,6 @@ static bignum256 n;
 static bignum256 compn;
 static u8 sizecompn;
 
-// C specification says that all remaining initialisers will be 0.
-static const u8 zero[32] = {0};
-
 #ifdef TEST
 static void bigprint(bignum256 number)
 {
@@ -211,12 +208,14 @@ void bigmod(bignum256 r, bignum256 op1)
 {
 	u8 cmp;
 	u8 *lookup[2];
+	u8 zero[32];
 
+	bigsetzero(zero);
 	// The following 2 lines do: cmp = "bigcmp(op1, n) == BIGCMP_LESS ? 1 : 0"
 	cmp = (u8)(bigcmp(op1, n) ^ BIGCMP_LESS);
 	cmp = (u8)((((u16)(-(int)cmp)) >> 8) + 1);
 	lookup[0] = n;
-	lookup[1] = (u8 *)zero;
+	lookup[1] = zero;
 	bigsubtract_internal(r, op1, lookup[cmp]);
 }
 
@@ -228,7 +227,9 @@ void bigadd(bignum256 r, bignum256 op1, bignum256 op2)
 	u8 too_big;
 	u8 cmp;
 	u8 *lookup[2];
+	u8 zero[32];
 
+	bigsetzero(zero);
 #ifdef _DEBUG
 	assert(bigcmp(op1, n) == BIGCMP_LESS);
 	assert(bigcmp(op2, n) == BIGCMP_LESS);
@@ -237,7 +238,7 @@ void bigadd(bignum256 r, bignum256 op1, bignum256 op2)
 	cmp = (u8)(bigcmp(r, n) ^ BIGCMP_LESS);
 	cmp = (u8)((((u16)(-(int)cmp)) >> 8) & 1);
 	too_big |= cmp;
-	lookup[0] = (u8 *)zero;
+	lookup[0] = zero;
 	lookup[1] = n;
 	bigsubtract_internal(r, r, lookup[too_big]);
 }
@@ -249,13 +250,15 @@ void bigsubtract(bignum256 r, bignum256 op1, bignum256 op2)
 {
 	u8 *lookup[2];
 	u8 too_small;
+	u8 zero[32];
 
+	bigsetzero(zero);
 #ifdef _DEBUG
 	assert(bigcmp(op1, n) == BIGCMP_LESS);
 	assert(bigcmp(op2, n) == BIGCMP_LESS);
 #endif // #ifdef _DEBUG
 	too_small = bigsubtract_internal(r, op1, op2);
-	lookup[0] = (u8 *)zero;
+	lookup[0] = zero;
 	lookup[1] = n;
 	bigadd_internal(r, r, lookup[too_small], 32);
 }
@@ -405,6 +408,12 @@ void biginvert(bignum256 r, bignum256 op1)
 
 #define TOTAL_CASES			(LOW_EDGE_CASES + HIGH_EDGE_CASES + RANDOM_CASES)
 
+static u8 zero[32] = {
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
 static u8 one[32] = {
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -445,7 +454,7 @@ static void generate_test_cases(const u8 *max)
 	int j;
 	u8 currenttest[32];
 
-	bigassign(currenttest, (bignum256)zero);
+	bigsetzero(currenttest);
 	testnum = 0;
 	for (i = 0; i < LOW_EDGE_CASES; i++)
 	{

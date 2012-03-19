@@ -10,6 +10,7 @@
 #define WALLET_H_INCLUDED
 
 #include "common.h"
+#include "ecdsa.h"
 
 // A value which has a one-to-one association with BitCoin addresses. Handles
 // are more efficient to deal with than the actual addresses themselves, since
@@ -19,6 +20,10 @@ typedef u32 address_handle;
 // For functions which return an address_handle, this is an address handle
 // which indicates that an error occurred.
 #define BAD_ADDRESS_HANDLE	0xFFFFFFFF
+// Absolute maximum number of addresses that can be in a wallet. Practical
+// constraints will probably limit the number of addresses to something lower
+// than this.
+#define MAX_ADDRESSES		0xFFFFFFFE
 
 // Return values for wallet_get_last_error()
 typedef enum wallet_errors_type
@@ -47,14 +52,10 @@ extern wallet_errors wallet_get_last_error(void);
 extern wallet_errors init_wallet(void);
 extern wallet_errors uninit_wallet(void);
 extern wallet_errors sanitise_nv_storage(u32 start, u32 end);
-extern wallet_errors new_wallet(void);
-extern address_handle make_new_address(u8 *out);
+extern wallet_errors new_wallet(u8 *name);
+extern address_handle make_new_address(u8 *out_address, point_affine *out_pubkey);
+extern wallet_errors get_address_and_pubkey(u8 *out_address, point_affine *out_pubkey, address_handle ah);
 extern u32 get_num_addresses(void);
-extern address_handle list_first_address(u8 *out);
-extern address_handle list_next_address(u8 *out);
-extern address_handle is_mine(u8 *address);
-extern wallet_errors get_address(u8 *out, address_handle ah);
-extern wallet_errors get_pubkey(u8 *out, address_handle ah);
 extern wallet_errors get_privkey(u8 *out, address_handle ah);
 extern wallet_errors change_encryption_key(u8 *new_key);
 

@@ -32,8 +32,7 @@ FILE *wallet_test_file;
 
 static wallet_errors lasterror;
 static u8 wallet_loaded = 0;
-static u32 num_records;
-static u32 list_counter;
+static u32 num_addresses;
 
 // Returns the last error which occurred in any wallet function.
 // If no error occurred in the last wallet function that was called, this
@@ -57,21 +56,90 @@ void wallet_test_init(void)
 
 #endif // #if defined(TEST) || defined(INTERFACE_STUBS)
 
+#ifdef TEST
+// Maximum of addresses which can be stored in storage area - for testing
+// only. This should actually be the capacity of the wallet, since one
+// of the tests is to see what happens when the wallet is full.
+#define MAX_TESTING_ADDRESSES	7
+#endif // #ifdef TEST
+
 // Wallet storage format:
-// Each record is 128 bytes
-// First record:
-// 4 bytes: little endian version (0 = nothing here)
-// 4 bytes: little endian number of records (including this)
-// 24 bytes: reserved
-// 16 bytes: random number
-// 16 bytes: first 16 bytes of SHA-256 of random number
+// Each record is 160 bytes
+// 4 bytes: little endian version
+//          0x00000000: nothing here
+//          0x00000001: v0.1 wallet format (not supported)
+//          0x00000002: unencrypted wallet
+//          0x00000003: encrypted wallet, host provides key
+// 4 bytes: reserved
+// 40 bytes: name of wallet (padded with spaces)
+// 4 bytes: little endian number of addresses
+// 8 bytes: random data
+// 4 bytes: reserved
 // 64 bytes: seed for deterministic address generator
-//
-// Other records:
-// 20 bytes: address
-// 12 bytes: reserved
-// 32 bytes: private key (little endian)
-// 64 bytes: public key (x then y, no preceding 0x04, little endian)
+// 32 bytes: SHA-256 of everything except number of addresses and this
+// The first 48 bytes are unencrypted, the last 112 bytes are encrypted.
+#define RECORD_LENGTH			160 // must be multiple of 32 for new_wallet() to work properly
+#define ENCRYPT_START			48
+#define OFFSET_VERSION			0
+#define OFFSET_RESERVED1		4
+#define OFFSET_NAME				8
+#define OFFSET_NUM_ADDRESSES	48
+#define OFFSET_NONCE1			52
+#define OFFSET_RESERVED2		60
+#define OFFSET_SEED				64
+#define OFFSET_CHECKSUM			128
+#define VERSION_NOTHING_THERE	0x00000000
+#define VERSION_UNENCRYPTED		0x00000002
+#define VERSION_IS_ENCRYPTED	0x00000003
+
+// Calculate the checksum (SHA-256 hash) of the wallet using hs as
+// storage for the hash state. The result will be written to hash, which
+// must have space for 32 bytes.
+// Return values have the same meaning as they do for nonvolatile_read().
+static nonvolatile_return calculate_wallet_checksum(u8 *hash, hash_state *hs)
+{
+	u16 i;
+	u8 buffer[4];
+	nonvolatile_return r;
+
+	sha256_begin(hs);
+	for (i = 0; i < RECORD_LENGTH; i += 4)
+	{
+		// Skip number of addresses and checksum.
+		if (i == OFFSET_NUM_ADDRESSES)
+		{
+			i += 4;
+		}
+		if (i == OFFSET_CHECKSUM)
+		{
+			i += 32;
+		}
+		if (i < RECORD_LENGTH)
+		{
+			// "The first 48 bytes are unencrypted, the last 112 bytes are
+			// encrypted."
+			if (i < 48)
+			{
+				r = nonvolatile_read(buffer, i, 4);
+			}
+			else
+			{
+				r = encrypted_nonvolatile_read(buffer, i, 4);
+			}
+			if (r != NV_NO_ERROR)
+			{
+				return r;
+			}
+			sha256_writebyte(hs, buffer[0]);
+			sha256_writebyte(hs, buffer[1]);
+			sha256_writebyte(hs, buffer[2]);
+			sha256_writebyte(hs, buffer[3]);
+		}
+	}
+	sha256_finish(hs);
+	convertHtobytearray(hash, hs, 1);
+	return NV_NO_ERROR;
+}
 
 // Initialise wallet (load it if it's there). A return value of
 // WALLET_NO_ERROR indicates success, anything else indicates failure.
@@ -80,43 +148,52 @@ wallet_errors init_wallet(void)
 	u8 buffer[32];
 	u8 hash[32];
 	u8 i;
+	u32 version;
 	hash_state hs;
 
 	wallet_loaded = 0;
-	// Read version and number of records.
-	if (encrypted_nonvolatile_read(buffer, 0, 8) != NV_NO_ERROR)
+
+	// Read version.
+	if (nonvolatile_read(buffer, OFFSET_VERSION, 4) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;
 	}
-	if ((buffer[0] != 1) || (buffer[1] != 0)
-		|| (buffer[2] != 0) || (buffer[3] != 0))
+	version = read_u32_littleendian(buffer);
+	if ((version != VERSION_UNENCRYPTED) && (version != VERSION_IS_ENCRYPTED))
 	{
 		lasterror = WALLET_NOT_THERE;
 		return lasterror;
 	}
-	num_records = read_u32_littleendian(&(buffer[4]));
-	// Check nonce and hash of nonce.
-	if (encrypted_nonvolatile_read(buffer, 32, 32) != NV_NO_ERROR)
+
+	// Calculate checksum and check that it matches.
+	if (calculate_wallet_checksum(hash, &hs) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;
 	}
-	sha256_begin(&hs);
-	for (i = 0; i < 16; i++)
+	if (encrypted_nonvolatile_read(buffer, OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
 	{
-		sha256_writebyte(&hs, buffer[i]);
+		lasterror = WALLET_READ_ERROR;
+		return lasterror;
 	}
-	sha256_finish(&hs);
-	convertHtobytearray(hash, &hs, 1);
-	for (i = 0; i < 16; i++)
+	for (i = 0; i < 32; i++)
 	{
-		if (hash[i] != buffer[i + 16])
+		if (buffer[i] != hash[i])
 		{
 			lasterror = WALLET_NOT_THERE;
 			return lasterror;
 		}
 	}
+
+	// Read number of addresses.
+	if (encrypted_nonvolatile_read(buffer, OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_READ_ERROR;
+		return lasterror;
+	}
+	num_addresses = read_u32_littleendian(buffer);
+
 	wallet_loaded = 1;
 	lasterror = WALLET_NO_ERROR;
 	return lasterror;
@@ -128,6 +205,7 @@ wallet_errors init_wallet(void)
 wallet_errors uninit_wallet(void)
 {
 	wallet_loaded = 0;
+	num_addresses = 0;
 	lasterror = WALLET_NO_ERROR;
 	return lasterror;
 }
@@ -195,141 +273,195 @@ wallet_errors sanitise_nv_storage(u32 start, u32 end)
 	return lasterror;
 }
 
-// Create new wallet. A brand new wallet contains no addresses. A return value
-// of WALLET_NO_ERROR indicates success, anything else indicates failure.
+// Create new wallet. name should point to 40 bytes (padded with spaces if
+// necessary) containing the desired name of the wallet. A brand new wallet
+// contains no addresses. A return value of WALLET_NO_ERROR indicates success,
+// anything else indicates failure.
 // Warning: this will erase the current one.
-wallet_errors new_wallet(void)
+wallet_errors new_wallet(u8 *name)
 {
 	u8 buffer[32];
 	u8 hash[32];
-	u8 i;
 	hash_state hs;
 	wallet_errors r;
 
 	// Erase all traces of the existing wallet.
-	r = sanitise_nv_storage(0, 0xffffffff);
+	r = sanitise_nv_storage(0, RECORD_LENGTH);
 	if (r != WALLET_NO_ERROR)
 	{
 		lasterror = r;
 		return lasterror;
 	}
 
-	// version and number of records
-	for (i = 0; i < 32; i++)
+	// Write version.
+	if (are_encryption_keys_nonzero())
 	{
-		buffer[i] = 0;
+		write_u32_littleendian(buffer, VERSION_IS_ENCRYPTED);
 	}
-	buffer[0] = 1;
-	buffer[4] = 1;
-	if (encrypted_nonvolatile_write(buffer, 0, 32) != NV_NO_ERROR)
+	else
+	{
+		write_u32_littleendian(buffer, VERSION_UNENCRYPTED);
+	}
+	if (nonvolatile_write(buffer, OFFSET_VERSION, 4) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
-	// nonce and hash of nonce
+	// Write reserved area 1.
+	write_u32_littleendian(buffer, 0);
+	if (nonvolatile_write(buffer, OFFSET_RESERVED1, 4) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_WRITE_ERROR;
+		return lasterror;
+	}
+	// Write name of wallet.
+	if (nonvolatile_write(name, OFFSET_NAME, 40) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_WRITE_ERROR;
+		return lasterror;
+	}
+	// Write number of addresses.
+	write_u32_littleendian(buffer, 0);
+	if (encrypted_nonvolatile_write(buffer, OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_WRITE_ERROR;
+		return lasterror;
+	}
+	// Write nonce 1.
 	get_random_256(buffer);
-	if (encrypted_nonvolatile_write(buffer, 32, 16) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(buffer, OFFSET_NONCE1, 8) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
-	sha256_begin(&hs);
-	for (i = 0; i < 16; i++)
-	{
-		sha256_writebyte(&hs, buffer[i]);
-	}
-	sha256_finish(&hs);
-	convertHtobytearray(hash, &hs, 1);
-	if (encrypted_nonvolatile_write(hash, 48, 16) != NV_NO_ERROR)
+	// Write reserved area 2.
+	write_u32_littleendian(buffer, 0);
+	if (encrypted_nonvolatile_write(buffer, OFFSET_RESERVED2, 4) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
-	// seed for deterministic address generator
+	// Write seed for deterministic address generator.
 	get_random_256(buffer);
-	if (encrypted_nonvolatile_write(buffer, 64, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(buffer, OFFSET_SEED, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
 	get_random_256(buffer);
-	if (encrypted_nonvolatile_write(buffer, 96, 32) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_write(buffer, OFFSET_SEED + 32, 32) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
 	}
 	nonvolatile_flush();
+
+	// Write checksum.
+	if (calculate_wallet_checksum(hash, &hs) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_READ_ERROR;
+		return lasterror;
+	}
+	if (encrypted_nonvolatile_write(hash, OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_WRITE_ERROR;
+		return lasterror;
+	}
+	nonvolatile_flush();
+
 	lasterror = init_wallet();
 	return lasterror;
 }
 
-// Generate a new private/public key pair and write the resulting address
-// into the buffer specified by out (which must have space for 20 bytes).
-// On success, this returns the address handle of the new address, so that
-// you can do other things (such as get the public key) with it. This returns
-// BAD_ADDRESS_HANDLE on failure.
-address_handle make_new_address(u8 *out)
+// Generate a new address, writing the address to out_address and the public
+// key to out_pubkey. out_address must have space for 20 bytes.
+// Returns the address handle on success, or BAD_ADDRESS_HANDLE if an error
+// occurred.
+address_handle make_new_address(u8 *out_address, point_affine *out_pubkey)
 {
-	u32 baseaddress;
-	u8 buffer[32];
-	u8 seed[64];
-	point_affine pubkey;
-	hash_state hs;
-	nonvolatile_return r;
-	u8 i;
+	u8 buffer[4];
 
 	if (!wallet_loaded)
 	{
 		lasterror = WALLET_NOT_THERE;
 		return BAD_ADDRESS_HANDLE;
 	}
-	baseaddress = num_records << 7;
-	// Generate and write private key.
-	if (encrypted_nonvolatile_read(seed, 64, 64) != NV_NO_ERROR)
+#ifdef TEST
+	if (num_addresses == MAX_TESTING_ADDRESSES)
+#else
+	if (num_addresses == MAX_ADDRESSES)
+#endif // #ifdef TEST
 	{
-		lasterror = WALLET_READ_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	generate_deterministic_256(buffer, seed, num_records);
-	r = encrypted_nonvolatile_write(buffer, baseaddress + 32, 32);
-	if (r == NV_INVALID_ADDRESS)
-	{
-		// Attempted to write past end of storage device, so there's no more
-		// space left.
 		lasterror = WALLET_FULL;
 		return BAD_ADDRESS_HANDLE;
 	}
-	else if (r != NV_NO_ERROR)
+	num_addresses++;
+	write_u32_littleendian(buffer, num_addresses);
+	if (encrypted_nonvolatile_write(buffer, OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
 	}
-	// Generate and write public key.
+	lasterror = get_address_and_pubkey(out_address, out_pubkey, num_addresses);
+	if (lasterror != WALLET_NO_ERROR)
+	{
+		return BAD_ADDRESS_HANDLE;
+	}
+	else
+	{
+		return num_addresses;
+	}
+}
+
+// Given an address handle, generate the address and public key associated
+// with that address handle, placing the result in out. out must have space
+// for 20 bytes.
+wallet_errors get_address_and_pubkey(u8 *out_address, point_affine *out_pubkey, address_handle ah)
+{
+	u8 buffer[32];
+	hash_state hs;
+	wallet_errors r;
+	u8 i;
+
+	if (!wallet_loaded)
+	{
+		lasterror = WALLET_NOT_THERE;
+		return lasterror;
+	}
+	if (num_addresses == 0)
+	{
+		lasterror = WALLET_EMPTY;
+		return lasterror;
+	}
+	if ((ah == 0) || (ah > num_addresses) || (ah == BAD_ADDRESS_HANDLE))
+	{
+		lasterror = WALLET_INVALID_HANDLE;
+		return lasterror;
+	}
+
+	// Calculate private key.
+	r = get_privkey(buffer, ah);
+	if (r != WALLET_NO_ERROR)
+	{
+		lasterror = r;
+		return r;
+	}
+	// Calculate public key.
 	set_field_to_p();
-	set_to_G(&pubkey);
-	point_multiply(&pubkey, buffer);
-	if (encrypted_nonvolatile_write(pubkey.x, baseaddress + 64, 32) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_WRITE_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	if (encrypted_nonvolatile_write(pubkey.y, baseaddress + 96, 32) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_WRITE_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	// Generate and write address. The BitCoin convention is to hash the
-	// public key in big-endian format, which is why the counters
-	// run backwards in the next two loops.
+	set_to_G(out_pubkey);
+	point_multiply(out_pubkey, buffer);
+	// Calculate address. The BitCoin convention is to hash the public key in
+	// big-endian format, which is why the counters run backwards in the next
+	// two loops.
 	sha256_begin(&hs);
 	sha256_writebyte(&hs, 0x04);
 	for (i = 32; i--; )
 	{
-		sha256_writebyte(&hs, pubkey.x[i]);
+		sha256_writebyte(&hs, out_pubkey->x[i]);
 	}
 	for (i = 32; i--; )
 	{
-		sha256_writebyte(&hs, pubkey.y[i]);
+		sha256_writebyte(&hs, out_pubkey->y[i]);
 	}
 	sha256_finish(&hs);
 	convertHtobytearray(buffer, &hs, 1);
@@ -342,29 +474,11 @@ address_handle make_new_address(u8 *out)
 	convertHtobytearray(buffer, &hs, 1);
 	for (i = 0; i < 20; i++)
 	{
-		out[i] = buffer[i];
+		out_address[i] = buffer[i];
 	}
-	for (i = 20; i < 32; i++)
-	{
-		buffer[i] = 0;
-	}
-	if (encrypted_nonvolatile_write(buffer, baseaddress, 32) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_WRITE_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	nonvolatile_flush();
-	// Update num_records in RAM and non-volatile storage.
-	num_records++;
-	write_u32_littleendian(buffer, num_records);
-	if (encrypted_nonvolatile_write(buffer, 4, 4) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_WRITE_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	nonvolatile_flush();
+
 	lasterror = WALLET_NO_ERROR;
-	return num_records - 1;
+	return lasterror;
 }
 
 // Get current number of addresses in wallet.
@@ -376,7 +490,7 @@ u32 get_num_addresses(void)
 		lasterror = WALLET_NOT_THERE;
 		return 0;
 	}
-	if (num_records == 1)
+	if (num_addresses == 0)
 	{
 		lasterror = WALLET_EMPTY;
 		return 0;
@@ -384,157 +498,39 @@ u32 get_num_addresses(void)
 	else
 	{
 		lasterror = WALLET_NO_ERROR;
-		return num_records - 1;
+		return num_addresses;
 	}
 }
 
-// Get the first (in ascending order of time created) address in the wallet.
-// On success, this returns the address handle for that first address and
-// writes the address to out. out must be at least 20 bytes large. Returns
-// BAD_ADDRESS_HANDLE on failure.
-address_handle list_first_address(u8 *out)
+// Gets the 32-byte private key for a given address handle. out must have
+// space for 32 bytes.
+wallet_errors get_privkey(u8 *out, address_handle ah)
 {
-	if (!wallet_loaded)
-	{
-		lasterror = WALLET_NOT_THERE;
-		return BAD_ADDRESS_HANDLE;
-	}
-	if (num_records == 1)
-	{
-		lasterror = WALLET_EMPTY;
-		return BAD_ADDRESS_HANDLE;
-	}
-	if (encrypted_nonvolatile_read(out, 128, 20) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_READ_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	lasterror = WALLET_NO_ERROR;
-	list_counter = 2;
-	return 1;
-}
+	u8 seed[64];
 
-// Get the next (in ascending order of time created) address in the wallet.
-// This can be called repeatedly to obtain all addresses in a wallet. The
-// error code WALLET_END_OF_LIST is used when attempting to read past the
-// end of the list of addresses.
-// On success, this returns the address handle for that next address and
-// writes the address to out. out must be at least 20 bytes large. Returns
-// BAD_ADDRESS_HANDLE on failure.
-// Warning: this assumes most recent call to list_first_address() returned
-// successfully.
-address_handle list_next_address(u8 *out)
-{
-	if (!wallet_loaded)
-	{
-		lasterror = WALLET_NOT_THERE;
-		return BAD_ADDRESS_HANDLE;
-	}
-	if (list_counter >= num_records)
-	{
-		lasterror = WALLET_END_OF_LIST;
-		return BAD_ADDRESS_HANDLE;
-	}
-	if (encrypted_nonvolatile_read(out, list_counter << 7, 20) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_READ_ERROR;
-		return BAD_ADDRESS_HANDLE;
-	}
-	lasterror = WALLET_NO_ERROR;
-	return list_counter++;
-}
-
-// Check whether an address is in the wallet. address must point to 20 bytes
-// which are the address to query. This returns a valid address handle on
-// success, or BAD_ADDRESS_HANDLE if an error occurred (eg. if the address
-// was not found in the wallet).
-address_handle is_mine(u8 *address)
-{
-	u32 i;
-	u8 j;
-	u8 buffer[20];
-	u8 match;
-
-	if (!wallet_loaded)
-	{
-		lasterror = WALLET_NOT_THERE;
-		return BAD_ADDRESS_HANDLE;
-	}
-	for (i = 1; i < num_records; i++)
-	{
-		if (encrypted_nonvolatile_read(buffer, i << 7, 20) != NV_NO_ERROR)
-		{
-			lasterror = WALLET_READ_ERROR;
-			return BAD_ADDRESS_HANDLE;
-		}
-		match = 1;
-		for (j = 0; j < 20; j++)
-		{
-			if (address[j] != buffer[j])
-			{
-				match = 0;
-				break;
-			}
-		}
-		if (match)
-		{
-			lasterror = WALLET_NO_ERROR;
-			return i;
-		}
-	}
-	lasterror = WALLET_ADDRESS_NOT_FOUND;
-	return BAD_ADDRESS_HANDLE;
-}
-
-// Obtains a field from a record. The record number is specified by ah
-// (address handles are just record numbers). On success, the contents of
-// the field will be written to out. offset specifies the offset (in
-// bytes) of the start of the field from the start of the record. length
-// specifies the length of the field.
-// A return value of WALLET_NO_ERROR indicates success, anything else
-// indicates failure.
-static wallet_errors get_field(u8 *out, address_handle ah, u32 offset, u8 length)
-{
 	if (!wallet_loaded)
 	{
 		lasterror = WALLET_NOT_THERE;
 		return lasterror;
 	}
-	if (num_records == 1)
+	if (num_addresses == 0)
 	{
 		lasterror = WALLET_EMPTY;
 		return lasterror;
 	}
-	if ((ah == 0) || (ah >= num_records))
+	if ((ah == 0) || (ah > num_addresses) || (ah == BAD_ADDRESS_HANDLE))
 	{
 		lasterror = WALLET_INVALID_HANDLE;
 		return lasterror;
 	}
-	if (encrypted_nonvolatile_read(out, (ah << 7) + offset, length) != NV_NO_ERROR)
+	if (encrypted_nonvolatile_read(seed, OFFSET_SEED, 64) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;
 	}
+	generate_deterministic_256(out, seed, ah);
 	lasterror = WALLET_NO_ERROR;
 	return lasterror;
-}
-
-// Gets the 20-byte address for a given address handle. See get_field().
-wallet_errors get_address(u8 *out, address_handle ah)
-{
-	return get_field(out, ah, 0, 20);
-}
-
-// Gets the 64-byte public key for a given address handle. See get_field().
-wallet_errors get_pubkey(u8 *out, address_handle ah)
-{
-	return get_field(out, ah, 64, 64);
-}
-
-// Gets the 32-byte private key for a given address handle. See get_field().
-wallet_errors get_privkey(u8 *out, address_handle ah)
-{
-	return get_field(out, ah, 32, 32);
 }
 
 // Change the encryption key for a wallet to the key specified by new_key.
@@ -555,8 +551,8 @@ wallet_errors change_encryption_key(u8 *new_key)
 
 	get_encryption_keys(old_key);
 	r = NV_NO_ERROR;
-	address = 0;
-	end = 0xffffffff;
+	address = ENCRYPT_START;
+	end = RECORD_LENGTH;
 	while ((r == NV_NO_ERROR) && (address < end))
 	{
 		set_encryption_key(old_key);
@@ -589,10 +585,6 @@ wallet_errors change_encryption_key(u8 *new_key)
 
 // Size of storage area, in bytes.
 #define TEST_FILE_SIZE 1024
-// Maximum of addresses which can be stored in storage area - for testing
-// only. This should actually be the capacity of the wallet, since one
-// of the tests is to see what happens when the wallet is full.
-#define MAX_TESTING_ADDRESSES	7
 
 nonvolatile_return nonvolatile_write(u8 *data, u32 address, u8 length)
 {
@@ -642,11 +634,13 @@ int main(int argc, char **argv)
 	u8 temp[128];
 	u8 address1[20];
 	u8 address2[20];
+	u8 name[40];
 	u8 *addressbuffer;
 	u8 *addressfound;
 	address_handle *handles;
 	u32 numaddresses;
 	address_handle ah;
+	point_affine pubkey;
 	int abort;
 	int abortduplicate;
 	int aborterror;
@@ -675,7 +669,7 @@ int main(int argc, char **argv)
 	// Call everything without first calling init_wallet() and make sure
 	// they return WALLET_NOT_THERE somehow.
 	// new_wallet() not tested because it calls init_wallet() when it's done.
-	ah = make_new_address(temp);
+	ah = make_new_address(temp, &pubkey);
 	if ((ah == BAD_ADDRESS_HANDLE) && (wallet_get_last_error() == WALLET_NOT_THERE))
 	{
 		succeeded++;
@@ -695,52 +689,13 @@ int main(int argc, char **argv)
 		printf("get_num_addresses() doesn't recognise when wallet isn't there\n");
 		failed++;
 	}
-	ah = list_first_address(temp);
-	if ((ah == BAD_ADDRESS_HANDLE) && (wallet_get_last_error() == WALLET_NOT_THERE))
+	if (get_address_and_pubkey(temp, &pubkey, 0) == WALLET_NOT_THERE)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("list_first_address() doesn't recognise when wallet isn't there\n");
-		failed++;
-	}
-	ah = list_next_address(temp);
-	if ((ah == BAD_ADDRESS_HANDLE) && (wallet_get_last_error() == WALLET_NOT_THERE))
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("list_next_address() doesn't recognise when wallet isn't there\n");
-		failed++;
-	}
-	ah = is_mine(temp);
-	if ((ah == BAD_ADDRESS_HANDLE) && (wallet_get_last_error() == WALLET_NOT_THERE))
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("is_mine() doesn't recognise when wallet isn't there\n");
-		failed++;
-	}
-	if (get_address(temp, 0) == WALLET_NOT_THERE)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_address() doesn't recognise when wallet isn't there\n");
-		failed++;
-	}
-	if (get_pubkey(temp, 0) == WALLET_NOT_THERE)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_pubkey() doesn't recognise when wallet isn't there\n");
+		printf("get_address_and_pubkey() doesn't recognise when wallet isn't there\n");
 		failed++;
 	}
 	if (get_privkey(temp, 0) == WALLET_NOT_THERE)
@@ -750,6 +705,15 @@ int main(int argc, char **argv)
 	else
 	{
 		printf("get_privkey() doesn't recognise when wallet isn't there\n");
+		failed++;
+	}
+	if (change_encryption_key(temp) == WALLET_NOT_THERE)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("change_encryption_key() doesn't recognise when wallet isn't there\n");
 		failed++;
 	}
 
@@ -766,7 +730,8 @@ int main(int argc, char **argv)
 	}
 
 	// Try creating a wallet and testing init_wallet() on it.
-	if (new_wallet() == WALLET_NO_ERROR)
+	memcpy(name, "123456789012345678901234567890abcdefghij", 40);
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -797,16 +762,16 @@ int main(int argc, char **argv)
 	// Make some new addresses, then create a new wallet and make sure the
 	// new wallet is empty (i.e. check that new_wallet() deletes existing
 	// wallet).
-	if (make_new_address(temp) != BAD_ADDRESS_HANDLE)
+	if (make_new_address(temp, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("Couldn't create new address is new wallet\n");
+		printf("Couldn't create new address in new wallet\n");
 		failed++;
 	}
-	if (new_wallet() == WALLET_NO_ERROR)
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -826,7 +791,7 @@ int main(int argc, char **argv)
 	}
 
 	// Create 2 new wallets and check that their addresses aren't the same
-	if (new_wallet() == WALLET_NO_ERROR)
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -835,16 +800,16 @@ int main(int argc, char **argv)
 		printf("Could not create new wallet\n");
 		failed++;
 	}
-	if (make_new_address(address1) != BAD_ADDRESS_HANDLE)
+	if (make_new_address(address1, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("Couldn't create new address is new wallet\n");
+		printf("Couldn't create new address in new wallet\n");
 		failed++;
 	}
-	if (new_wallet() == WALLET_NO_ERROR)
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -853,13 +818,13 @@ int main(int argc, char **argv)
 		printf("Could not create new wallet\n");
 		failed++;
 	}
-	if (make_new_address(address2) != BAD_ADDRESS_HANDLE)
+	if (make_new_address(address2, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("Couldn't create new address is new wallet\n");
+		printf("Couldn't create new address in new wallet\n");
 		failed++;
 	}
 	if (memcmp(address1, address2, 20))
@@ -874,7 +839,7 @@ int main(int argc, char **argv)
 
 	// Make some new addresses, up to a limit.
 	// Also check that addresses are unique.
-	if (new_wallet() == WALLET_NO_ERROR)
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -887,9 +852,9 @@ int main(int argc, char **argv)
 	addressbuffer = malloc(MAX_TESTING_ADDRESSES * 20);
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
-		if (make_new_address(&(addressbuffer[i * 20])) == BAD_ADDRESS_HANDLE)
+		if (make_new_address(&(addressbuffer[i * 20]), &pubkey) == BAD_ADDRESS_HANDLE)
 		{
-			printf("Couldn't create new address is new wallet\n");
+			printf("Couldn't create new address in new wallet\n");
 			abort = 1;
 			break;
 		}
@@ -919,7 +884,7 @@ int main(int argc, char **argv)
 
 	// The wallet should be full now.
 	// Check that making a new address now causes an appropriate error.
-	if (make_new_address(temp) == BAD_ADDRESS_HANDLE)
+	if (make_new_address(temp, &pubkey) == BAD_ADDRESS_HANDLE)
 	{
 		if (wallet_get_last_error() == WALLET_FULL)
 		{
@@ -937,9 +902,8 @@ int main(int argc, char **argv)
 		failed++;
 	}
 
-	// Check that get_num_addresses and the list functions fail when the
-	// wallet is empty.
-	if (new_wallet() == WALLET_NO_ERROR)
+	// Check that get_num_addresses fails when the wallet is empty.
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -965,24 +929,6 @@ int main(int argc, char **argv)
 		printf("get_num_addresses() succeeds when used on empty wallet\n");
 		failed++;
 	}
-	ah = list_first_address(temp);
-	if (ah == BAD_ADDRESS_HANDLE)
-	{
-		if (wallet_get_last_error() == WALLET_EMPTY)
-		{
-			succeeded++;
-		}
-		else
-		{
-			printf("list_first_address() doesn't recognise wallet is empty\n");
-			failed++;
-		}
-	}
-	else
-	{
-		printf("list_first_address() succeeds when used on empty wallet\n");
-		failed++;
-	}
 
 	// Create a bunch of addresses in the (now empty) wallet and check that
 	// get_num_addresses returns the right number.
@@ -992,11 +938,11 @@ int main(int argc, char **argv)
 	abort = 0;
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
-		ah = make_new_address(&(addressbuffer[i * 20]));
+		ah = make_new_address(&(addressbuffer[i * 20]), &pubkey);
 		handles[i] = ah;
 		if (ah == BAD_ADDRESS_HANDLE)
 		{
-			printf("Couldn't create new address is new wallet\n");
+			printf("Couldn't create new address in new wallet\n");
 			abort = 1;
 			failed++;
 			break;
@@ -1037,31 +983,18 @@ int main(int argc, char **argv)
 		succeeded++;
 	}
 
-	// While there's a bunch of addresses in the wallet, check that:
-	// - The list functions succeed and
-	// - The list functions return every address
+	// While there's a bunch of addresses in the wallet, check that getting
+	// the address of every address handle returns every address.
 	aborterror = 0;
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
-		if (i == 0)
+		ah = (address_handle)(i + 1);
+		if (get_address_and_pubkey(address1, &pubkey, ah) != WALLET_NO_ERROR)
 		{
-			if (list_first_address(address1) == BAD_ADDRESS_HANDLE)
-			{
-				printf("Couldn't list first address in wallet\n");
-				aborterror = 1;
-				failed++;
-				break;
-			}
-		}
-		else
-		{
-			if (list_next_address(address1) == BAD_ADDRESS_HANDLE)
-			{
-				printf("Couldn't list next address in wallet\n");
-				aborterror = 1;
-				failed++;
-				break;
-			}
+			printf("Couldn't obtain address in wallet\n");
+			aborterror = 1;
+			failed++;
+			break;
 		}
 		for (j = 0; j < MAX_TESTING_ADDRESSES; j++)
 		{
@@ -1076,7 +1009,7 @@ int main(int argc, char **argv)
 	{
 		if (!addressfound[i])
 		{
-			printf("List functions return addresses which are not in wallet\n");
+			printf("get_address_and_pubkey() returned addresses which are not in wallet\n");
 			abort = 1;
 			failed++;
 			break;
@@ -1091,55 +1024,15 @@ int main(int argc, char **argv)
 		succeeded++;
 	}
 
-	// Test is_mine with an address known to be in the wallet and one known
-	// not to be in the wallet.
-	if (list_first_address(address1) == BAD_ADDRESS_HANDLE)
-	{
-		printf("Couldn't re-list first address in wallet\n");
-		failed++;
-	}
-	else
-	{
-		succeeded++;
-	}
-	if (is_mine(address1) == BAD_ADDRESS_HANDLE)
-	{
-		printf("is_mine() claims that wallet's address is not in wallet\n");
-		failed++;
-	}
-	else
-	{
-		succeeded++;
-	}
-	memset(address1, 3, 20);
-	if ((is_mine(address1) == BAD_ADDRESS_HANDLE) && (wallet_get_last_error() == WALLET_ADDRESS_NOT_FOUND))
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("is_mine() claims that wallet contains junk addresses\n");
-		failed++;
-	}
-
-	// Test get_address, get_privkey and get_pubkey functions using invalid
+	// Test get_address_and_pubkey and get_privkey functions using invalid
 	// and then valid address handles.
-	if (get_address(temp, 0) == WALLET_INVALID_HANDLE)
+	if (get_address_and_pubkey(temp, &pubkey, 0) == WALLET_INVALID_HANDLE)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("get_address() doesn't recognise 0 as invalid address handle\n");
-		failed++;
-	}
-	if (get_pubkey(temp, 0) == WALLET_INVALID_HANDLE)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_pubkey() doesn't recognise 0 as invalid address handle\n");
+		printf("get_address_and_pubkey() doesn't recognise 0 as invalid address handle\n");
 		failed++;
 	}
 	if (get_privkey(temp, 0) == WALLET_INVALID_HANDLE)
@@ -1151,22 +1044,13 @@ int main(int argc, char **argv)
 		printf("get_privkey() doesn't recognise 0 as invalid address handle\n");
 		failed++;
 	}
-	if (get_address(temp, BAD_ADDRESS_HANDLE) == WALLET_INVALID_HANDLE)
+	if (get_address_and_pubkey(temp, &pubkey, BAD_ADDRESS_HANDLE) == WALLET_INVALID_HANDLE)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("get_address() doesn't recognise BAD_ADDRESS_HANDLE as invalid address handle\n");
-		failed++;
-	}
-	if (get_pubkey(temp, BAD_ADDRESS_HANDLE) == WALLET_INVALID_HANDLE)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_pubkey() doesn't recognise BAD_ADDRESS_HANDLE as invalid address handle\n");
+		printf("get_address_and_pubkey() doesn't recognise BAD_ADDRESS_HANDLE as invalid address handle\n");
 		failed++;
 	}
 	if (get_privkey(temp, BAD_ADDRESS_HANDLE) == WALLET_INVALID_HANDLE)
@@ -1178,22 +1062,13 @@ int main(int argc, char **argv)
 		printf("get_privkey() doesn't recognise BAD_ADDRESS_HANDLE as invalid address handle\n");
 		failed++;
 	}
-	if (get_address(temp, handles[0]) == WALLET_NO_ERROR)
+	if (get_address_and_pubkey(temp, &pubkey, handles[0]) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("get_address() doesn't recognise valid address handle\n");
-		failed++;
-	}
-	if (get_pubkey(temp, handles[0]) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_pubkey() doesn't recognise valid address handle\n");
+		printf("get_address_and_pubkey() doesn't recognise valid address handle\n");
 		failed++;
 	}
 	if (get_privkey(temp, handles[0]) == WALLET_NO_ERROR)
@@ -1210,8 +1085,9 @@ int main(int argc, char **argv)
 	free(addressfound);
 	free(handles);
 
-	// Test is_mine on empty wallet.
-	if (new_wallet() == WALLET_NO_ERROR)
+	// Test the get_address_and_pubkey and get_privkey functions on an empty
+	// wallet.
+	if (new_wallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
 	}
@@ -1220,37 +1096,13 @@ int main(int argc, char **argv)
 		printf("Could not create new wallet\n");
 		failed++;
 	}
-	// Both WALLET_EMPTY and WALLET_ADDRESS_NOT_FOUND seem like valid
-	// responses to an is_mine query on an empty wallet.
-	if ((is_mine(address1) == BAD_ADDRESS_HANDLE) &&
-		((wallet_get_last_error() == WALLET_EMPTY) || (wallet_get_last_error() == WALLET_ADDRESS_NOT_FOUND)))
+	if (get_address_and_pubkey(temp, &pubkey, 0) == WALLET_EMPTY)
 	{
 		succeeded++;
 	}
 	else
 	{
-		printf("is_mine() doesn't deal with empty wallets correctly\n");
-		failed++;
-	}
-
-	// While the wallet is empty, test the get_address, get_privkey and
-	// get_pubkey functions.
-	if (get_address(temp, 0) == WALLET_EMPTY)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_address() doesn't deal with empty wallets correctly\n");
-		failed++;
-	}
-	if (get_pubkey(temp, 0) == WALLET_EMPTY)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("get_pubkey() doesn't deal with empty wallets correctly\n");
+		printf("get_address_and_pubkey() doesn't deal with empty wallets correctly\n");
 		failed++;
 	}
 	if (get_privkey(temp, 0) == WALLET_EMPTY)
@@ -1268,6 +1120,12 @@ int main(int argc, char **argv)
 	printf("Tests which succeeded: %d\n", succeeded);
 	printf("Tests which failed: %d\n", failed);
 	exit(0);
+}
+
+u8 stream_get_one_byte(u8 *onebyte)
+{
+	*onebyte = 0;
+	return 0; // success
 }
 
 #endif // #ifdef TEST

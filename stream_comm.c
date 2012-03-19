@@ -20,6 +20,7 @@
 #include "stream_comm.h"
 #include "prandom.h"
 #include "xex.h"
+#include "ecdsa.h"
 
 #ifdef TEST
 #include <stdlib.h>
@@ -257,10 +258,9 @@ u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 	return 0;
 }
 
-// Validate and sign a transaction, given the BitCoin address specified by
-// address (which must be a pointer to a 20-byte buffer) and a transaction
-// length specified by txlength. The signature or any error messages will be
-// sent to the output stream.
+// Validate and sign a transaction, given the address handle specified by
+// ah and a transaction length specified by txlength. The signature or any
+// error messages will be sent to the output stream.
 // This will return 0 on success, 1 if a write error occurred or 2 if a read
 // error occurred. "Success" here is defined as "no read or write errors
 // occurred"; 0 will be returned even if the transaction was rejected.
@@ -270,38 +270,11 @@ u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 // coerce GCC into not inlining this function into process_packet(). Inlining
 // is bad because then a lot of variables end up in the frame of
 // process_packet(), clogging up RAM even when not signing a transaction.
-u8 check_and_sign_by_address(u8 *address, u32 txlength)
+u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
 {
 	u8 confirmed;
 	u8 r;
-	u8 junk;
-	address_handle ah;
 	u8 sighash[32];
-
-	// Check if address is in wallet.
-	ah = is_mine(address);
-	if (ah == BAD_ADDRESS_HANDLE)
-	{
-		// parse_transaction() eats up txlength bytes from the input stream.
-		// But if is_mine() did not succeed, parse_transaction() will never
-		// be called. Since this function must consume txlength bytes from the
-		// input streams, it must be done explicitly here.
-		for (; txlength--; )
-		{
-			if (stream_get_one_byte(&junk))
-			{
-				return 2; // read error
-			}
-		}
-		if (translate_wallet_error (wallet_get_last_error(), 0, NULL))
-		{
-			return 1; // write error
-		}
-		else
-		{
-			return 0;
-		}
-	}
 
 	r = parse_and_ask_transaction(&confirmed, sighash, txlength);
 	if (r)
@@ -322,29 +295,92 @@ u8 check_and_sign_by_address(u8 *address, u32 txlength)
 	return 0;
 }
 
-// Read address from input stream and send a packet containing the
-// corresponding public key.
+// Send a packet containing an address and its corresponding public key.
+// If generate_new is non-zero, a new address will be generated. If
+// generate_new is zero, the address handle will be read from the input
+// stream.
+// If generate_new is non-zero, the address handle of the generated
+// address is also prepended to the output packet.
 // Returns 1 if a read or write error occurred, otherwise returns 0.
-u8 get_and_send_public_key(void)
+u8 get_and_send_address_and_pubkey(u8 generate_new)
 {
 	address_handle ah;
-	u8 pubkey[65];
+	point_affine pubkey;
 	u8 address[20];
+	u8 buffer[5];
+	wallet_errors r;
 
-	if (read_bytes(address, 20))
+	if (generate_new)
 	{
-		return 1; // read error
+		// Generate new address handle.
+		r = WALLET_NO_ERROR;
+		ah = make_new_address(address, &pubkey);
+		if (ah == BAD_ADDRESS_HANDLE)
+		{
+			r = wallet_get_last_error();
+		}
 	}
-	ah = is_mine(address);
-	if (ah != BAD_ADDRESS_HANDLE)
+	else
 	{
-		pubkey[0] = 0x04;
-		get_pubkey(&(pubkey[1]), ah);
+		// Read address handle from input stream.
+		if (read_bytes(buffer, 4))
+		{
+			return 1; // read error
+		}
+		ah = read_u32_littleendian(buffer);
+		r = get_address_and_pubkey(address, &pubkey, ah);
 	}
-	if (translate_wallet_error (wallet_get_last_error(), 65, pubkey))
+
+	if (r == WALLET_NO_ERROR)
 	{
-		return 1; // write error
+		buffer[0] = 0x02;
+		if (generate_new)
+		{
+			// 4 (address handle) + 20 (address) + 65 (public key)
+			write_u32_littleendian(&(buffer[1]), 89);
+		}
+		else
+		{
+			// 20 (address) + 65 (public key)
+			write_u32_littleendian(&(buffer[1]), 85);
+		}
+		if (write_bytes(buffer, 5))
+		{
+			return 1; // write error
+		}
+		if (generate_new)
+		{
+			write_u32_littleendian(buffer, ah);
+			if (write_bytes(buffer, 4))
+			{
+				return 1; // write error
+			}
+		}
+		if (write_bytes(address, 20))
+		{
+			return 1; // write error
+		}
+		buffer[0] = 0x04;
+		if (write_bytes(buffer, 1))
+		{
+			return 1; // write error
+		}
+		if (write_bytes(pubkey.x, 32))
+		{
+			return 1; // write error
+		}
+		if (write_bytes(pubkey.y, 32))
+		{
+			return 1; // write error
+		}
 	}
+	else
+	{
+		if (translate_wallet_error (r, 0, NULL))
+		{
+			return 1; // write error
+		}
+	} // end if (r == WALLET_NO_ERROR)
 
 	return 0;
 }
@@ -411,20 +447,18 @@ void init_stream_comm(void)
 u8 process_packet(void)
 {
 	u8 command;
-	u8 buffer[32];
+	u8 buffer[40];
 	u8 i;
 	u8 r;
+	address_handle ah;
 
 	if (stream_get_one_byte(&command))
 	{
 		return 1; // read error
 	}
-	for (i = 0; i < 4; i++)
+	if (read_bytes(buffer, 4))
 	{
-		if (stream_get_one_byte(&(buffer[i])))
-		{
-			return 1; // read error
-		}
+		return 1; // read error
 	}
 	payload_length = read_u32_littleendian(buffer);
 
@@ -459,7 +493,7 @@ u8 process_packet(void)
 
 	case 0x04:
 		// Create new wallet.
-		r = expect_length(32);
+		r = expect_length(72);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
@@ -467,6 +501,12 @@ u8 process_packet(void)
 		if (!r)
 		{
 			if (read_bytes(buffer, 32))
+			{
+				return 1; // read error
+			}
+			set_encryption_key(buffer);
+			set_tweak_key(&(buffer[16]));
+			if (read_bytes(buffer, 40))
 			{
 				return 1; // read error
 			}
@@ -479,9 +519,7 @@ u8 process_packet(void)
 			}
 			else
 			{
-				set_encryption_key(buffer);
-				set_tweak_key(&(buffer[16]));
-				if (translate_wallet_error (new_wallet(), 0, NULL))
+				if (translate_wallet_error (new_wallet(buffer), 0, NULL))
 				{
 					return 1; // write error
 				}
@@ -507,10 +545,9 @@ u8 process_packet(void)
 			}
 			else
 			{
-				make_new_address(buffer);
-				if (translate_wallet_error (wallet_get_last_error(), 20, buffer))
+				if (get_and_send_address_and_pubkey(1))
 				{
-					return 1; // write error
+					return 1; // read or write error
 				}
 			}
 		} // if (!r)
@@ -533,105 +570,16 @@ u8 process_packet(void)
 		} // if (!r)
 		break;
 
-	case 0x07:
-		// Get addresses in wallet.
-		r = expect_length(0);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
-		{
-			return 1; // read or write error
-		}
-		if (!r)
-		{
-			u32 numaddresses;
-			address_handle ah;
-			u8 first;
-
-			numaddresses = get_num_addresses();
-			if (numaddresses == 0)
-			{
-				if (translate_wallet_error (wallet_get_last_error(), 0, NULL))
-				{
-					return 1; // write error
-				}
-			}
-			else
-			{
-				u32 numaddressestimes4;
-				u32 numaddressestimes16;
-
-				buffer[0] = 0x02;
-				numaddressestimes4 = numaddresses << 2;
-				numaddressestimes16 = numaddressestimes4 << 2;
-				write_u32_littleendian(&(buffer[1]), numaddressestimes4 + numaddressestimes16);
-				if (write_bytes(buffer, 5))
-				{
-					return 1; // write error
-				}
-				first = 1;
-				for (; numaddresses--; )
-				{
-					if (first)
-					{
-						first = 0;
-						ah = list_first_address(buffer);
-					}
-					else
-					{
-						ah = list_next_address(buffer);
-					}
-					if (ah == BAD_ADDRESS_HANDLE)
-					{
-						// Uh oh, an error occurred while trying to build
-						// the address list. Whoever is listening to the
-						// output stream expects numaddresses * 20 bytes of
-						// payload, so something needs to be sent.
-						// Set the address to all 00s and hope the other end
-						// interprets this as an invalid address.
-						for (i = 0; i < 20; i++)
-						{
-							buffer[i] = 0x00;
-						}
-					}
-					if (write_bytes(buffer, 20))
-					{
-						return 1; // write error
-					}
-				}
-			}
-		} // if (!r)
-		break;
-
-	case 0x08:
-		// Check if address is in wallet.
-		r = expect_length(20);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
-		{
-			return 1; // read or write error
-		}
-		if (!r)
-		{
-			if (read_bytes(buffer, 20))
-			{
-				return 1; // read error
-			}
-			is_mine(buffer);
-			if (translate_wallet_error (wallet_get_last_error(), 0, NULL))
-			{
-				return 1; // write error
-			}
-		} // if (!r)
-		break;
-
 	case 0x09:
-		// Get public key corresponding to an address.
-		r = expect_length(20);
+		// Get public key corresponding to an address handle.
+		r = expect_length(4);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (get_and_send_public_key())
+			if (get_and_send_address_and_pubkey(0))
 			{
 				return 1; // read or write error
 			}
@@ -640,7 +588,7 @@ u8 process_packet(void)
 
 	case 0x0a:
 		// Sign a transaction.
-		if (payload_length <= 20)
+		if (payload_length <= 4)
 		{
 			if (read_and_ignore_input())
 			{
@@ -653,11 +601,14 @@ u8 process_packet(void)
 		}
 		else
 		{
-			if (read_bytes(buffer, 20))
+			if (read_bytes(buffer, 4))
 			{
 				return 1; // read error
 			}
-			if (check_and_sign_by_address(buffer, payload_length - 20))
+			ah = read_u32_littleendian(buffer);
+			// Don't need to subtract 4 off payload_length because read_bytes
+			// has already done so.
+			if (check_and_sign_by_ah(ah, payload_length))
 			{
 				return 1; // read or write error
 			}
@@ -1003,31 +954,39 @@ u8 ask_user(askuser_command command)
 
 // Create new wallet
 static const u8 test_stream_new_wallet[] = {
-0x04, 0x20, 0x00, 0x00, 0x00,
+0x04, 0x48, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20,
+0x66, 0x66, 0x20, 0x20, 0x20, 0x6F, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
 // Create new address
 static const u8 test_stream_new_address[] = {
 0x05, 0x00, 0x00, 0x00, 0x00};
 
-// List addresses
-static const u8 test_stream_list_addresses[] = {
-0x07, 0x00, 0x00, 0x00, 0x00};
+// Get number of addresses
+static const u8 test_stream_get_num_addresses[] = {
+0x06, 0x00, 0x00, 0x00, 0x00};
 
-// Query if address is in wallet
-static const u8 test_stream_ismine[] = {
-0x08, 0x14, 0x00, 0x00, 0x00,
-0x65, 0xda, 0xfb, 0x53, 0xbb, 0x2b, 0xd3, 0x7d, 0xf7, 0xa2,
-0xd6, 0x3f, 0xa7, 0x62, 0x34, 0x0e, 0x23, 0x14, 0x79, 0xae};
+// Get address 1
+static const u8 test_stream_get_address1[] = {
+0x09, 0x04, 0x00, 0x00, 0x00,
+0x01, 0x00, 0x00, 0x00, 0x00};
+
+// Get address 0 (which is an invalid address handle)
+static const u8 test_stream_get_address0[] = {
+0x09, 0x04, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Sign something
 static u8 test_stream_sign_tx[] = {
-0x0a, 0xa8, 0x00, 0x00, 0x00,
-0x65, 0xda, 0xfb, 0x53, 0xbb, 0x2b, 0xd3, 0x7d, 0xf7, 0xa2,
-0xd6, 0x3f, 0xa7, 0x62, 0x34, 0x0e, 0x23, 0x14, 0x79, 0xae,
+0x0a, 0x98, 0x00, 0x00, 0x00,
+0x01, 0x00, 0x00, 0x00,
 // transaction data is below
 0x01, 0x00, 0x00, 0x00, // version
 0x01, // number of inputs
@@ -1133,19 +1092,32 @@ int main(int argc, char **argv)
 	wallet_test_init();
 	init_wallet();
 
+	printf("Creating new wallet...\n");
 	send_one_test_stream(test_stream_new_wallet, sizeof(test_stream_new_wallet));
 	for(i = 0; i < 4; i++)
 	{
+		printf("Creating new address...\n");
 		send_one_test_stream(test_stream_new_address, sizeof(test_stream_new_address));
 	}
-	send_one_test_stream(test_stream_ismine, sizeof(test_stream_ismine));
-	send_one_test_stream(test_stream_list_addresses, sizeof(test_stream_list_addresses));
+	printf("Getting number of addresses...\n");
+	send_one_test_stream(test_stream_get_num_addresses, sizeof(test_stream_get_num_addresses));
+	printf("Getting address 1...\n");
+	send_one_test_stream(test_stream_get_address1, sizeof(test_stream_get_address1));
+	printf("Getting address 0...\n");
+	send_one_test_stream(test_stream_get_address0, sizeof(test_stream_get_address0));
+	printf("Signing transaction...\n");
 	send_one_test_stream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
+	//printf("Formatting...\n");
 	//send_one_test_stream(test_stream_format, sizeof(test_stream_format));
+	printf("Loading wallet using incorrect key...\n");
 	send_one_test_stream(test_stream_load_incorrect, sizeof(test_stream_load_incorrect));
+	printf("Loading wallet using correct key...\n");
 	send_one_test_stream(test_stream_load_correct, sizeof(test_stream_load_correct));
+	printf("Changing wallet key...\n");
 	send_one_test_stream(test_stream_change_key, sizeof(test_stream_change_key));
+	printf("Unloading wallet...\n");
 	send_one_test_stream(test_stream_unload, sizeof(test_stream_unload));
+	printf("Loading wallet using changed key...\n");
 	send_one_test_stream(test_stream_load_with_changed_key, sizeof(test_stream_load_with_changed_key));
 
 	exit(0);
