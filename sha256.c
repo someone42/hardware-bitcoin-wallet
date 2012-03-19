@@ -17,15 +17,6 @@
 #include <string.h>
 #endif // #ifdef TEST
 
-#if defined(AVR) && defined(__GNUC__)
-#include <avr/io.h>
-#include <avr/pgmspace.h>
-#define LOOKUP_DWORD(x)		(pgm_read_dword_near(x))
-#else
-#define PROGMEM
-#define LOOKUP_DWORD(x)		(*(x))
-#endif // #if defined(AVR) && defined(__GNUC__)
-
 #include "common.h"
 #include "hash.h"
 #include "sha256.h"

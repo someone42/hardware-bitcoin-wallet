@@ -30,15 +30,6 @@
 #include <math.h>
 #endif // #ifdef TEST
 
-#if defined(AVR) && defined(__GNUC__)
-#include <avr/io.h>
-#include <avr/pgmspace.h>
-#define LOOKUP_BYTE(x)		(pgm_read_byte_near(x))
-#else
-#define PROGMEM
-#define LOOKUP_BYTE(x)		(*(x))
-#endif // #if defined(AVR) && defined(__GNUC__)
-
 #include "common.h"
 #include "bignum256.h"
 #include "ecdsa.h"
