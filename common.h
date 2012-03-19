@@ -20,4 +20,10 @@ typedef unsigned short u16;
 // Unsigned 32-bit integer
 typedef unsigned long u32;
 
+#if defined(__GNUC__)
+#define NOINLINE __attribute__((noinline))
+#else
+#define NOINLINE
+#endif // #if defined(__GNUC__)
+
 #endif // #ifndef COMMON_H_INCLUDED

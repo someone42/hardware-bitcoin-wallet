@@ -75,6 +75,44 @@ void get_random_256(bignum256 n)
 	}
 }
 
+// First part of deterministic 256-bit number generation.
+// See comments to generate_deterministic_256() for details.
+// It was split into two parts to most efficiently use stack space.
+static NOINLINE void generate_deterministic_256_part1(u8 *hash, u8 *seed, u32 num)
+{
+	u8 i;
+	hash_state hs;
+
+	sha256_begin(&hs);
+	for (i = 32; i < 64; i++)
+	{
+		sha256_writebyte(&hs, seed[i]);
+	}
+	for (i = 0; i < 4; i++)
+	{
+		sha256_writebyte(&hs, 0);
+	}
+	sha256_writebyte(&hs, (u8)(num >> 24));
+	sha256_writebyte(&hs, (u8)(num >> 16));
+	sha256_writebyte(&hs, (u8)(num >> 8));
+	sha256_writebyte(&hs, (u8)num);
+	sha256_finish(&hs);
+	convertHtobytearray(hash, &hs, 1);
+}
+
+// Second part of deterministic 256-bit number generation.
+// See comments to generate_deterministic_256() for details.
+// It was split into two parts to most efficiently use stack space.
+static NOINLINE void generate_deterministic_256_part2(bignum256 out, u8 *hash, u8 *seed)
+{
+	u8 expkey[EXPKEY_SIZE];
+
+	aes_expand_key(expkey, &(seed[0]));
+	aes_encrypt(&(out[0]), &(hash[0]), expkey);
+	aes_expand_key(expkey, &(seed[16]));
+	aes_encrypt(&(out[16]), &(hash[16]), expkey);
+}
+
 // Use a combination of cryptographic primitives to deterministically
 // generate a new 256-bit number. seed should point to a 64-byte array,
 // num is a counter and the resulting 256-bit number will be written to out.
@@ -96,30 +134,10 @@ void get_random_256(bignum256 n)
 // half goes into the most-significant 256 bits.
 void generate_deterministic_256(bignum256 out, u8 *seed, u32 num)
 {
-	u8 i;
-	hash_state hs;
-	u8 expkey[EXPKEY_SIZE];
 	u8 hash[32];
 
-	sha256_begin(&hs);
-	for (i = 32; i < 64; i++)
-	{
-		sha256_writebyte(&hs, seed[i]);
-	}
-	for (i = 0; i < 4; i++)
-	{
-		sha256_writebyte(&hs, 0);
-	}
-	sha256_writebyte(&hs, (u8)(num >> 24));
-	sha256_writebyte(&hs, (u8)(num >> 16));
-	sha256_writebyte(&hs, (u8)(num >> 8));
-	sha256_writebyte(&hs, (u8)num);
-	sha256_finish(&hs);
-	convertHtobytearray(hash, &hs, 1);
-	aes_expand_key(expkey, &(seed[0]));
-	aes_encrypt(&(out[0]), &(hash[0]), expkey);
-	aes_expand_key(expkey, &(seed[16]));
-	aes_encrypt(&(out[16]), &(hash[16]), expkey);
+	generate_deterministic_256_part1(hash, seed, num);
+	generate_deterministic_256_part2(out, hash, seed);
 }
 
 #ifdef INTERFACE_STUBS

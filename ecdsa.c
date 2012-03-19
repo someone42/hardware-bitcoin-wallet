@@ -122,7 +122,7 @@ static void affine_to_jacobian(point_jacobian *out, point_affine *in)
 
 // Convert a point from Jacobian coordinates to affine coordinates. This
 // is very slow because it involves inversion (division).
-static void jacobian_to_affine(point_affine *out, point_jacobian *in)
+static NOINLINE void jacobian_to_affine(point_affine *out, point_jacobian *in)
 {
 	u8 s[32];
 	u8 t[32];
@@ -147,7 +147,7 @@ static void jacobian_to_affine(point_affine *out, point_jacobian *in)
 // http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.25.8619&rep=rep1&type=pdf
 // on 16-August-2011. See equations (2) ("doubling in Jacobian coordinates")
 // from section 4 of that article.
-static void point_double(point_jacobian *p)
+static NOINLINE void point_double(point_jacobian *p)
 {
 	u8 t[32];
 	u8 u[32];
@@ -195,7 +195,7 @@ static void point_double(point_jacobian *p)
 // See equations (3) ("addition in mixed Jacobian-affine coordinates") from
 // section 4 of that article described in the comments to point_double().
 // junk must point at some memory area to redirect dummy writes to.
-static void point_add(point_jacobian *p1, point_jacobian *junk, point_affine *p2)
+static NOINLINE void point_add(point_jacobian *p1, point_jacobian *junk, point_affine *p2)
 {
 	u8 s[32];
 	u8 t[32];

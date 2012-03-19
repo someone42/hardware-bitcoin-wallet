@@ -158,7 +158,7 @@ u8 format_storage(void)
 // associated with the address handle ah. If the signing process was
 // successful, the signature is also sent as a success packet.
 // This has the same return values as check_and_sign_by_address().
-u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
+static NOINLINE u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 {
 	u8 signature[73];
 	u8 privkey[32];
@@ -181,7 +181,7 @@ u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 // if they accept it. A non-zero value will be written to *out_confirmed if
 // the user accepted it, otherwise a zero value will be written.
 // This has the same return values as check_and_sign_by_address().
-u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
+static NOINLINE u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 {
 	u8 confirmed;
 	u8 i;
@@ -266,11 +266,7 @@ u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
 // occurred"; 0 will be returned even if the transaction was rejected.
 // This function will always consume txlength bytes from the input stream,
 // except when a read error occurs.
-// This used to be declared "static", but that modifier was removed to
-// coerce GCC into not inlining this function into process_packet(). Inlining
-// is bad because then a lot of variables end up in the frame of
-// process_packet(), clogging up RAM even when not signing a transaction.
-u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
+static NOINLINE u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
 {
 	u8 confirmed;
 	u8 r;
@@ -302,7 +298,7 @@ u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
 // If generate_new is non-zero, the address handle of the generated
 // address is also prepended to the output packet.
 // Returns 1 if a read or write error occurred, otherwise returns 0.
-u8 get_and_send_address_and_pubkey(u8 generate_new)
+static NOINLINE u8 get_and_send_address_and_pubkey(u8 generate_new)
 {
 	address_handle ah;
 	point_affine pubkey;
