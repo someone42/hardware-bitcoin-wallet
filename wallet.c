@@ -629,7 +629,7 @@ void sanitise_ram(void)
 
 #ifdef TEST
 
-int main(int argc, char **argv)
+int main(void)
 {
 	u8 temp[128];
 	u8 address1[20];
@@ -648,12 +648,6 @@ int main(int argc, char **argv)
 	int j;
 	int succeeded;
 	int failed;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	srand(42);
 	succeeded = 0;

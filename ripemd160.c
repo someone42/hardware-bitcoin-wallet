@@ -258,17 +258,11 @@ static const u32 testhashes[5 * NUMTESTS] = {
 0xb0e20b6e, 0x31166402, 0x86ed3a87, 0xa5713079, 0xb21f5189,
 0x9b752e45, 0x573d4b39, 0xf4dbd332, 0x3cab82bf, 0x63326bfb};
 
-int main(int argc, char **argv)
+int main(void)
 {
 	int i;
 	char *str;
 	u32 *compareH;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	succeeded = 0;
 	failed = 0;

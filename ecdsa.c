@@ -496,7 +496,7 @@ static int crappy_verify_signature(bignum256 r, bignum256 s, bignum256 hash, big
 	}
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
 	point_affine p;
 	point_jacobian p2;
@@ -512,12 +512,6 @@ int main(int argc, char **argv)
 	int i;
 	int j;
 	FILE *f;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	succeeded = 0;
 	failed = 0;

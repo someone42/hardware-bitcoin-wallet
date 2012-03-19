@@ -1075,15 +1075,9 @@ static void send_one_test_stream(const u8 *test_stream, int size)
 	printf("process_packet() returned: %d\n", r);
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
 	int i;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	wallet_test_init();
 	init_wallet();

@@ -548,19 +548,13 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 
 extern void wallet_test_init(void);
 
-int main(int argc, char **argv)
+int main(void)
 {
 	u8 what_storage_should_be[MAX_ADDRESS];
 	u8 buffer[256];
 	u8 onekey[16];
 	int i;
 	int j;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	wallet_test_init();
 	clear_keys();

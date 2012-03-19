@@ -366,7 +366,7 @@ const struct base58test_struct base58tests[] = {
   0x6f, 0xcd, 0x28, 0xd9, 0x44, 0x35, 0x05, 0xb9, 0xba, 0xfe},
   "1Dinox3mFw8yykpAZXFGEKeH4VX1Mzbcxe"}};
 
-int main(int argc, char **argv)
+int main(void)
 {
 	char text[22];
 	char addr[36];
@@ -374,12 +374,6 @@ int main(int argc, char **argv)
 	int i;
 	int succeeded;
 	int failed;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	succeeded = 0;
 	failed = 0;

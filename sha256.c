@@ -314,14 +314,8 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 	fclose(f);
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
-
 	succeeded = 0;
 	failed = 0;
 	scantestvectors("SHA256ShortMsg.rsp");

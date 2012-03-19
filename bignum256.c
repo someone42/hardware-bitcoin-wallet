@@ -517,7 +517,7 @@ static void mpn_to_byte(bignum256 out, mp_limb_t *in, int n)
 	}
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
 	int operation;
 	int i;
@@ -538,12 +538,6 @@ int main(int argc, char **argv)
 	mp_limb_t mpn_divisor[8];
 	mp_limb_t mpn_quotient[9];
 	mp_limb_t mpn_remainder[8];
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	if (sizeof(mp_limb_t) != 4)
 	{

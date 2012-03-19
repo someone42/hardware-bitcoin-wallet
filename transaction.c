@@ -542,19 +542,13 @@ u8 stream_get_one_byte(u8 *onebyte)
 	return 0; // success
 }
 
-int main(int argc, char **argv)
+int main(void)
 {
 	size_t txsize;
 	u8 sighash[32];
 	u8 txhash[32];
 	u8 signature[73];
 	int i;
-
-	// Reference argc and argv just to make certain compilers happy.
-	if (argc == 2)
-	{
-		printf("%s\n", argv[1]);
-	}
 
 	srand(42);
 
