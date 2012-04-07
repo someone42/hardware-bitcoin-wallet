@@ -150,7 +150,7 @@ u8 format_storage(void)
 		return 1; // write error
 	}
 
-	init_wallet(); // force wallet to unload
+	uninit_wallet(); // force wallet to unload
 	return 0;
 }
 

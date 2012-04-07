@@ -2,7 +2,14 @@
 // wallet.c
 // ***********************************************************************
 //
-// Manages BitCoin addresses.
+// Manages BitCoin addresses. Addresses are stored in wallets, which can be
+// "loaded" or "unloaded". A loaded wallet can have operations (eg. new
+// address) performed on it, whereas an unloaded wallet can only sit dormant.
+// Addresses aren't actually physically stored in non-volatile storage;
+// rather a seed for a deterministic private key generation algorithm is
+// stored and private keys are generated when they are needed. This means
+// that obtaining an address is a slow operation (requiring a point multiply),
+// so the host should try to remember all public keys and addresses.
 //
 // This file is licensed as described by the file LICENCE.
 
@@ -92,17 +99,17 @@ void wallet_test_init(void)
 #define VERSION_UNENCRYPTED		0x00000002
 #define VERSION_IS_ENCRYPTED	0x00000003
 
-// Calculate the checksum (SHA-256 hash) of the wallet using hs as
-// storage for the hash state. The result will be written to hash, which
-// must have space for 32 bytes.
+// Calculate the checksum (SHA-256 hash) of the wallet. The result will be
+// written to hash, which must have space for 32 bytes.
 // Return values have the same meaning as they do for nonvolatile_read().
-static nonvolatile_return calculate_wallet_checksum(u8 *hash, hash_state *hs)
+static nonvolatile_return calculate_wallet_checksum(u8 *hash)
 {
 	u16 i;
 	u8 buffer[4];
+	hash_state hs;
 	nonvolatile_return r;
 
-	sha256_begin(hs);
+	sha256_begin(&hs);
 	for (i = 0; i < RECORD_LENGTH; i += 4)
 	{
 		// Skip number of addresses and checksum.
@@ -130,14 +137,14 @@ static nonvolatile_return calculate_wallet_checksum(u8 *hash, hash_state *hs)
 			{
 				return r;
 			}
-			sha256_writebyte(hs, buffer[0]);
-			sha256_writebyte(hs, buffer[1]);
-			sha256_writebyte(hs, buffer[2]);
-			sha256_writebyte(hs, buffer[3]);
+			sha256_writebyte(&hs, buffer[0]);
+			sha256_writebyte(&hs, buffer[1]);
+			sha256_writebyte(&hs, buffer[2]);
+			sha256_writebyte(&hs, buffer[3]);
 		}
 	}
-	sha256_finish(hs);
-	convertHtobytearray(hash, hs, 1);
+	sha256_finish(&hs);
+	convertHtobytearray(hash, &hs, 1);
 	return NV_NO_ERROR;
 }
 
@@ -149,7 +156,6 @@ wallet_errors init_wallet(void)
 	u8 hash[32];
 	u8 i;
 	u32 version;
-	hash_state hs;
 
 	wallet_loaded = 0;
 
@@ -167,7 +173,7 @@ wallet_errors init_wallet(void)
 	}
 
 	// Calculate checksum and check that it matches.
-	if (calculate_wallet_checksum(hash, &hs) != NV_NO_ERROR)
+	if (calculate_wallet_checksum(hash) != NV_NO_ERROR)
 	{
 		lasterror = WALLET_READ_ERROR;
 		return lasterror;
@@ -273,16 +279,52 @@ wallet_errors sanitise_nv_storage(u32 start, u32 end)
 	return lasterror;
 }
 
+// Writes 4-byte wallet version. This is in its own function because
+// it's used by both new_wallet() and change_encryption_key().
+// Return values have the same meaning as they do for nonvolatile_write().
+static nonvolatile_return write_wallet_version(void)
+{
+	u8 buffer[4];
+
+	if (are_encryption_keys_nonzero())
+	{
+		write_u32_littleendian(buffer, VERSION_IS_ENCRYPTED);
+	}
+	else
+	{
+		write_u32_littleendian(buffer, VERSION_UNENCRYPTED);
+	}
+	return nonvolatile_write(buffer, OFFSET_VERSION, 4);
+}
+
+// Writes wallet checksum. This is in its own function because
+// it's used by both new_wallet() and change_encryption_key().
+// A return value of WALLET_NO_ERROR indicates success, anything else
+// indicates failure.
+static wallet_errors write_wallet_checksum(void)
+{
+	u8 hash[32];
+
+	if (calculate_wallet_checksum(hash) != NV_NO_ERROR)
+	{
+		return WALLET_READ_ERROR;
+	}
+	if (encrypted_nonvolatile_write(hash, OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
+	{
+		return WALLET_WRITE_ERROR;
+	}
+	return WALLET_NO_ERROR;
+}
+
 // Create new wallet. name should point to 40 bytes (padded with spaces if
 // necessary) containing the desired name of the wallet. A brand new wallet
 // contains no addresses. A return value of WALLET_NO_ERROR indicates success,
 // anything else indicates failure.
+// If this returns WALLET_NO_ERROR, then the wallet will also be loaded.
 // Warning: this will erase the current one.
 wallet_errors new_wallet(u8 *name)
 {
 	u8 buffer[32];
-	u8 hash[32];
-	hash_state hs;
 	wallet_errors r;
 
 	// Erase all traces of the existing wallet.
@@ -294,15 +336,7 @@ wallet_errors new_wallet(u8 *name)
 	}
 
 	// Write version.
-	if (are_encryption_keys_nonzero())
-	{
-		write_u32_littleendian(buffer, VERSION_IS_ENCRYPTED);
-	}
-	else
-	{
-		write_u32_littleendian(buffer, VERSION_UNENCRYPTED);
-	}
-	if (nonvolatile_write(buffer, OFFSET_VERSION, 4) != NV_NO_ERROR)
+	if (write_wallet_version() != NV_NO_ERROR)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 		return lasterror;
@@ -357,14 +391,10 @@ wallet_errors new_wallet(u8 *name)
 	nonvolatile_flush();
 
 	// Write checksum.
-	if (calculate_wallet_checksum(hash, &hs) != NV_NO_ERROR)
+	r = write_wallet_checksum();
+	if (r != WALLET_NO_ERROR)
 	{
-		lasterror = WALLET_READ_ERROR;
-		return lasterror;
-	}
-	if (encrypted_nonvolatile_write(hash, OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
-	{
-		lasterror = WALLET_WRITE_ERROR;
+		lasterror = r;
 		return lasterror;
 	}
 	nonvolatile_flush();
@@ -570,9 +600,18 @@ wallet_errors change_encryption_key(u8 *new_key)
 
 	set_encryption_key(new_key);
 	set_tweak_key(&(new_key[16]));
-	if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
+	if (r == NV_NO_ERROR)
 	{
-		lasterror = WALLET_NO_ERROR;
+		// Update version and checksum.
+		r = write_wallet_version();
+		if (r == NV_NO_ERROR)
+		{
+			lasterror = write_wallet_checksum();;
+		}
+		else
+		{
+			lasterror = WALLET_WRITE_ERROR;
+		}
 	}
 	else
 	{
@@ -629,39 +668,18 @@ void sanitise_ram(void)
 
 #ifdef TEST
 
-int main(void)
+static int succeeded;
+static int failed;
+
+// Call everything without and make sure
+// they return WALLET_NOT_THERE somehow.
+static void check_functions_return_wallet_not_there(void)
 {
 	u8 temp[128];
-	u8 address1[20];
-	u8 address2[20];
-	u8 name[40];
-	u8 *addressbuffer;
-	u8 *addressfound;
-	address_handle *handles;
 	u32 numaddresses;
 	address_handle ah;
 	point_affine pubkey;
-	int abort;
-	int abortduplicate;
-	int aborterror;
-	int i;
-	int j;
-	int succeeded;
-	int failed;
 
-	srand(42);
-	succeeded = 0;
-	failed = 0;
-	wallet_test_init();
-	// Blank out non-volatile storage area (set to all nulls).
-	temp[0] = 0;
-	for (i = 0; i < TEST_FILE_SIZE; i++)
-	{
-		fwrite(temp, 1, 1, wallet_test_file);
-	}
-
-	// Call everything without first calling init_wallet() and make sure
-	// they return WALLET_NOT_THERE somehow.
 	// new_wallet() not tested because it calls init_wallet() when it's done.
 	ah = make_new_address(temp, &pubkey);
 	if ((ah == BAD_ADDRESS_HANDLE) && (wallet_get_last_error() == WALLET_NOT_THERE))
@@ -710,6 +728,59 @@ int main(void)
 		printf("change_encryption_key() doesn't recognise when wallet isn't there\n");
 		failed++;
 	}
+}
+
+int main(void)
+{
+	u8 temp[128];
+	u8 address1[20];
+	u8 address2[20];
+	u8 name[40];
+	u8 encryption_key[16];
+	u8 tweak_key[16];
+	u8 new_encryption_key[32];
+	u8 *addressbuffer;
+	u8 one_byte;
+	address_handle *handles;
+	address_handle ah;
+	point_affine pubkey;
+	point_affine *pubkey_buffer;
+	int abort;
+	int is_zero;
+	int abortduplicate;
+	int aborterror;
+	int i;
+	int j;
+
+	srand(42);
+	succeeded = 0;
+	failed = 0;
+	wallet_test_init();
+	memset(encryption_key, 0, 16);
+	memset(tweak_key, 0, 16);
+	set_encryption_key(encryption_key);
+	set_tweak_key(tweak_key);
+	// Blank out non-volatile storage area (set to all nulls).
+	temp[0] = 0;
+	for (i = 0; i < TEST_FILE_SIZE; i++)
+	{
+		fwrite(temp, 1, 1, wallet_test_file);
+	}
+
+	// sanitise_nv_storage() should nuke everything.
+	if (sanitise_nv_storage(0, 0xffffffff) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("Cannot nuke NV storage using sanitise_nv_storage()\n");
+		failed++;
+	}
+
+	// init_wallet() hasn't been called yet, so nearly every function should
+	// return WALLET_NOT_THERE somehow.
+	check_functions_return_wallet_not_there();
 
 	// The non-volatile storage area was blanked out, so there shouldn't be a
 	// (valid) wallet there.
@@ -753,9 +824,38 @@ int main(void)
 		failed++;
 	}
 
+	// Check that sanitise_nv_wallet() deletes wallet.
+	if (sanitise_nv_storage(0, 0xffffffff) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("Cannot nuke NV storage using sanitise_nv_storage()\n");
+		failed++;
+	}
+	if (init_wallet() == WALLET_NOT_THERE)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("sanitise_nv_storage() isn't deleting wallet\n");
+		failed++;
+	}
+
 	// Make some new addresses, then create a new wallet and make sure the
 	// new wallet is empty (i.e. check that new_wallet() deletes existing
 	// wallet).
+	if (new_wallet(name) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("Could not create new wallet\n");
+		failed++;
+	}
 	if (make_new_address(temp, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
@@ -781,6 +881,77 @@ int main(void)
 	else
 	{
 		printf("new_wallet() doesn't delete existing wallet\n");
+		failed++;
+	}
+
+	// Unload wallet and make sure everything realises that the wallet is
+	// not loaded.
+	if (uninit_wallet() == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("uninit_wallet() failed to do its basic job\n");
+		failed++;
+	}
+	check_functions_return_wallet_not_there();
+
+	// Load wallet again. Since there is actually a wallet there, this
+	// should succeed.
+	if (init_wallet() == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("uninit_wallet() appears to be permanent\n");
+		failed++;
+	}
+
+	// Change bytes in non-volatile memory and make sure init_wallet() fails
+	// because of the checksum check.
+	if (uninit_wallet() != WALLET_NO_ERROR)
+	{
+		printf("uninit_wallet() failed to do its basic job 2\n");
+		failed++;
+	}
+	abort = 0;
+	for (i = 0; i < RECORD_LENGTH; i++)
+	{
+		if (nonvolatile_read(&one_byte, (u32)i, 1) != NV_NO_ERROR)
+		{
+			printf("NV read fail\n");
+			abort = 1;
+			break;
+		}
+		one_byte++;
+		if (nonvolatile_write(&one_byte, (u32)i, 1) != NV_NO_ERROR)
+		{
+			printf("NV write fail\n");
+			abort = 1;
+			break;
+		}
+		if (init_wallet() == WALLET_NO_ERROR)
+		{
+			printf("Wallet still loads when wallet checksum is wrong, offset = %d\n", i);
+			abort = 1;
+			break;
+		}
+		one_byte--;
+		if (nonvolatile_write(&one_byte, (u32)i, 1) != NV_NO_ERROR)
+		{
+			printf("NV write fail\n");
+			abort = 1;
+			break;
+		}
+	}
+	if (!abort)
+	{
+		succeeded++;
+	}
+	else
+	{
 		failed++;
 	}
 
@@ -812,6 +983,8 @@ int main(void)
 		printf("Could not create new wallet\n");
 		failed++;
 	}
+	memset(address2, 0, 20);
+	memset(&pubkey, 0, sizeof(point_affine));
 	if (make_new_address(address2, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
@@ -829,6 +1002,35 @@ int main(void)
 	{
 		printf("New wallets are creating identical addresses\n");
 		failed++;
+	}
+
+	// Check that make_new_address wrote to its outputs.
+	is_zero = 1;
+	for (i = 0; i < 20; i++)
+	{
+		if (address2[i] != 0)
+		{
+			is_zero = 0;
+			break;
+		}
+	}
+	if (is_zero)
+	{
+		printf("make_new_address() doesn't write the address\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
+	}
+	if (bigiszero(pubkey.x))
+	{
+		printf("make_new_address() doesn't write the public key\n");
+		failed++;
+	}
+	else
+	{
+		succeeded++;
 	}
 
 	// Make some new addresses, up to a limit.
@@ -927,12 +1129,12 @@ int main(void)
 	// Create a bunch of addresses in the (now empty) wallet and check that
 	// get_num_addresses returns the right number.
 	addressbuffer = malloc(MAX_TESTING_ADDRESSES * 20);
-	addressfound = malloc(MAX_TESTING_ADDRESSES);
+	pubkey_buffer = malloc(MAX_TESTING_ADDRESSES * sizeof(point_affine));
 	handles = malloc(MAX_TESTING_ADDRESSES * sizeof(address_handle));
 	abort = 0;
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
-		ah = make_new_address(&(addressbuffer[i * 20]), &pubkey);
+		ah = make_new_address(&(addressbuffer[i * 20]), &(pubkey_buffer[i]));
 		handles[i] = ah;
 		if (ah == BAD_ADDRESS_HANDLE)
 		{
@@ -941,7 +1143,6 @@ int main(void)
 			failed++;
 			break;
 		}
-		addressfound[i] = 0;
 	}
 	if (!abort)
 	{
@@ -977,12 +1178,51 @@ int main(void)
 		succeeded++;
 	}
 
-	// While there's a bunch of addresses in the wallet, check that getting
-	// the address of every address handle returns every address.
-	aborterror = 0;
+	// The wallet should contain unique public keys.
+	abortduplicate = 0;
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
-		ah = (address_handle)(i + 1);
+		for (j = 0; j < i; j++)
+		{
+			if (bigcmp(pubkey_buffer[i].x, pubkey_buffer[j].y) == BIGCMP_EQUAL)
+			{
+				printf("Wallet has duplicate public keys\n");
+				abortduplicate = 1;
+				failed++;
+				break;
+			}
+		}
+	}
+	if (!abortduplicate)
+	{
+		succeeded++;
+	}
+
+	// The address handles should start at 1 and be sequential.
+	abort = 0;
+	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
+	{
+		if (handles[i] != (address_handle)(i + 1))
+		{
+			printf("Address handle %d should be %d, but got %d\n", i, i + 1, (int)handles[i]);
+			abort = 1;
+			failed++;
+			break;
+		}
+	}
+	if (!abort)
+	{
+		succeeded++;
+	}
+
+	// While there's a bunch of addresses in the wallet, check that
+	// get_address_and_pubkey obtains the same address and public key as
+	// make_new_address.
+	aborterror = 0;
+	abort = 0;
+	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
+	{
+		ah = handles[i];
 		if (get_address_and_pubkey(address1, &pubkey, ah) != WALLET_NO_ERROR)
 		{
 			printf("Couldn't obtain address in wallet\n");
@@ -990,20 +1230,11 @@ int main(void)
 			failed++;
 			break;
 		}
-		for (j = 0; j < MAX_TESTING_ADDRESSES; j++)
+		if ((memcmp(address1, &(addressbuffer[i * 20]), 20))
+			|| (bigcmp(pubkey.x, pubkey_buffer[i].x) != BIGCMP_EQUAL)
+			|| (bigcmp(pubkey.y, pubkey_buffer[i].y) != BIGCMP_EQUAL))
 		{
-			if (!memcmp(address1, &(addressbuffer[j * 20]), 20))
-			{
-				addressfound[j] = 1;
-			}
-		}
-	}
-	abort = 0;
-	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
-	{
-		if (!addressfound[i])
-		{
-			printf("get_address_and_pubkey() returned addresses which are not in wallet\n");
+			printf("get_address_and_pubkey() returned mismatching address or pubkey, ah = %d\n", i);
 			abort = 1;
 			failed++;
 			break;
@@ -1076,8 +1307,49 @@ int main(void)
 	}
 
 	free(addressbuffer);
-	free(addressfound);
+	free(pubkey_buffer);
 	free(handles);
+
+	// Check that change_encryption_key() works.
+	memset(new_encryption_key, 0, 32);
+	new_encryption_key[0] = 1;
+	if (change_encryption_key(new_encryption_key) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("Couldn't change encryption key\n");
+		failed++;
+	}
+
+	// Check that loading the wallet with the old key fails.
+	uninit_wallet();
+	set_encryption_key(encryption_key);
+	set_tweak_key(tweak_key);
+	if (init_wallet() == WALLET_NOT_THERE)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("Loading wallet with old encryption key succeeds\n");
+		failed++;
+	}
+
+	// Check that loading the wallet with the new key succeeds.
+	uninit_wallet();
+	set_encryption_key(&(new_encryption_key[0]));
+	set_tweak_key(&(new_encryption_key[16]));
+	if (init_wallet() == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("Loading wallet with new encryption key fails\n");
+		failed++;
+	}
 
 	// Test the get_address_and_pubkey and get_privkey functions on an empty
 	// wallet.
@@ -1114,12 +1386,6 @@ int main(void)
 	printf("Tests which succeeded: %d\n", succeeded);
 	printf("Tests which failed: %d\n", failed);
 	exit(0);
-}
-
-u8 stream_get_one_byte(u8 *onebyte)
-{
-	*onebyte = 0;
-	return 0; // success
 }
 
 #endif // #ifdef TEST

@@ -14,7 +14,7 @@
 #include "../common.h"
 #include "../hwinterface.h"
 
-static const char str_MISCSTR_VERSION[] PROGMEM = "Hardware Bitcoin Wallet for AVR v0.1";
+static const char str_MISCSTR_VERSION[] PROGMEM = "Hardware Bitcoin Wallet for AVR v0.2";
 static const char str_MISCSTR_PERMISSION_DENIED[] PROGMEM = "Permission denied by user";
 static const char str_MISCSTR_INVALID_PACKET[] PROGMEM = "Unrecognised command";
 static const char str_WALLET_FULL[] PROGMEM = "Wallet has run out of space";

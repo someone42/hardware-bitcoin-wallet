@@ -242,7 +242,7 @@ extern void __bss_start;
 
 // This is a separate function so that the saved variables in sanitise_ram()
 // won't get mangled.
-void sanitise_ram_internal(void)
+static NOINLINE void sanitise_ram_internal(void)
 {
 	volatile u16 i;
 
