@@ -71,14 +71,22 @@ static char *packet_command_to_text(int command)
 		return "create new address in wallet";
 	case 0x06:
 		return "get number of addresses";
-	case 0x07:
-		return "get addresses";
-	case 0x08:
-		return "is address mine?";
 	case 0x09:
-		return "get public key";
+		return "get address and public key";
 	case 0x0a:
 		return "sign transaction";
+	case 0x0b:
+		return "load wallet";
+	case 0x0c:
+		return "unload wallet";
+	case 0x0d:
+		return "format storage";
+	case 0x0e:
+		return "change encryption key";
+	case 0x0f:
+		return "change name";
+	case 0x10:
+		return "list wallets";
 	default:
 		return "unknown";
 	}

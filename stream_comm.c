@@ -381,6 +381,42 @@ static NOINLINE u8 get_and_send_address_and_pubkey(u8 generate_new)
 	return 0;
 }
 
+// Send a packet containing a list of wallets.
+// Returns 1 if a write error occurred, otherwise returns 0.
+static NOINLINE u8 list_wallets(void)
+{
+	u8 version[4];
+	u8 name[40];
+	u8 buffer[5];
+
+	if (get_wallet_info(version, name) != WALLET_NO_ERROR)
+	{
+		if (translate_wallet_error(wallet_get_last_error(), 0, NULL))
+		{
+			return 1; // write error
+		}
+	}
+	else
+	{
+		buffer[0] = 0x02;
+		write_u32_littleendian(&(buffer[1]), 44);
+		if (write_bytes(buffer, 5))
+		{
+			return 1; // write error
+		}
+		if (write_bytes(version, 4))
+		{
+			return 1; // write error
+		}
+		if (write_bytes(name, 40))
+		{
+			return 1; // write error
+		}
+	}
+
+	return 0;
+}
+
 // Read but ignore payload_length bytes from input stream.
 // Returns 0 on success, non-zero if there was a read error.
 static u8 read_and_ignore_input(void)
@@ -708,6 +744,52 @@ u8 process_packet(void)
 		} // if (!r)
 		break;
 
+	case 0x0f:
+		// Change wallet name.
+		r = expect_length(40);
+		if (r >= EXPECT_LENGTH_IO_ERROR)
+		{
+			return 1; // read or write error
+		}
+		if (!r)
+		{
+			if (read_bytes(buffer, 40))
+			{
+				return 1; // read error
+			}
+			if (ask_user(ASKUSER_CHANGE_NAME))
+			{
+				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
+				{
+					return 1; // write error
+				}
+			}
+			else
+			{
+				if (translate_wallet_error (change_wallet_name(buffer), 0, NULL))
+				{
+					return 1; // write error
+				}
+			}
+		} // if (!r)
+		break;
+
+	case 0x10:
+		// List wallets.
+		r = expect_length(0);
+		if (r >= EXPECT_LENGTH_IO_ERROR)
+		{
+			return 1; // read or write error
+		}
+		if (!r)
+		{
+			if (list_wallets())
+			{
+				return 1; // write error
+			}
+		} // if (!r)
+		break;
+
 	default:
 		// Unknown command.
 		if (read_and_ignore_input())
@@ -929,6 +1011,9 @@ u8 ask_user(askuser_command command)
 	case ASKUSER_FORMAT:
 		printf("Format storage area? ");
 		break;
+	case ASKUSER_CHANGE_NAME:
+		printf("Change wallet name? ");
+		break;
 	default:
 		assert(0);
 		return 1;
@@ -1065,6 +1150,19 @@ static const u8 test_stream_load_with_changed_key[] = {
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+// List wallets
+static const u8 test_stream_list_wallets[] = {
+0x10, 0x00, 0x00, 0x00, 0x00};
+
+// Change wallet name
+static const u8 test_stream_change_name[] = {
+0x0f, 0x28, 0x00, 0x00, 0x00,
+0x71, 0x71, 0x71, 0x72, 0x70, 0x74, 0x20, 0x20,
+0x68, 0x68, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
+
 static void send_one_test_stream(const u8 *test_stream, int size)
 {
 	int r;
@@ -1082,8 +1180,12 @@ int main(void)
 	wallet_test_init();
 	init_wallet();
 
+	printf("Listing wallets...\n");
+	send_one_test_stream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
 	printf("Creating new wallet...\n");
 	send_one_test_stream(test_stream_new_wallet, sizeof(test_stream_new_wallet));
+	printf("Listing wallets...\n");
+	send_one_test_stream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
 	for(i = 0; i < 4; i++)
 	{
 		printf("Creating new address...\n");
@@ -1109,6 +1211,10 @@ int main(void)
 	send_one_test_stream(test_stream_unload, sizeof(test_stream_unload));
 	printf("Loading wallet using changed key...\n");
 	send_one_test_stream(test_stream_load_with_changed_key, sizeof(test_stream_load_with_changed_key));
+	printf("Changing name...\n");
+	send_one_test_stream(test_stream_change_name, sizeof(test_stream_change_name));
+	printf("Listing wallets...\n");
+	send_one_test_stream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
 
 	exit(0);
 }

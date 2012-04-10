@@ -37,7 +37,9 @@ typedef enum askuser_command_type
 	// Do you want to do this transaction?
 	ASKUSER_SIGN_TRANSACTION	=	3,
 	// Do you want to delete everything?
-	ASKUSER_FORMAT				=	4
+	ASKUSER_FORMAT				=	4,
+	// Do you want to change the name of a wallet?
+	ASKUSER_CHANGE_NAME			=	5
 } askuser_command;
 
 // Values for get_string() function which specify which set of strings

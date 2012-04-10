@@ -431,6 +431,8 @@ static char str_sign_part0[] PROGMEM = "Sending ";
 static char str_sign_part1[] PROGMEM = " BTC to";
 static char str_format_line0[] PROGMEM = "Do you want to";
 static char str_format_line1[] PROGMEM = "delete everything?";
+static char str_change_line0[] PROGMEM = "Change the name";
+static char str_change_line1[] PROGMEM = "of your wallet?";
 static char str_unknown_line0[] PROGMEM = "Unknown command in ask_user()";
 static char str_unknown_line1[] PROGMEM = "Press any button to continue";
 
@@ -490,6 +492,15 @@ u8 ask_user(askuser_command command)
 		write_string(str_format_line0, 1);
 		goto_start_of_line(1);
 		write_string(str_format_line1, 1);
+		r = wait_for_button_press();
+	}
+	else if (command == ASKUSER_CHANGE_NAME)
+	{
+		wait_for_no_button_press();
+		goto_start_of_line(0);
+		write_string(str_change_line0, 1);
+		goto_start_of_line(1);
+		write_string(str_change_line1, 1);
 		r = wait_for_button_press();
 	}
 	else

@@ -58,6 +58,8 @@ extern wallet_errors get_address_and_pubkey(u8 *out_address, point_affine *out_p
 extern u32 get_num_addresses(void);
 extern wallet_errors get_privkey(u8 *out, address_handle ah);
 extern wallet_errors change_encryption_key(u8 *new_key);
+extern wallet_errors change_wallet_name(u8 *new_name);
+extern wallet_errors get_wallet_info(u8 *out_version, u8 *out_name);
 
 #ifdef TEST
 extern void wallet_test_init(void);

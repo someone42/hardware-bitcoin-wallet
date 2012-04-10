@@ -270,7 +270,20 @@ wallet_errors sanitise_nv_storage(u32 start, u32 end)
 
 	if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
 	{
-		lasterror = WALLET_NO_ERROR;
+		// Write VERSION_NOTHING_THERE to all possible locations of the
+		// version field. This ensures that a wallet won't accidentally
+		// (1 in 2 ^ 31 chance) be recognised as a valid wallet by
+		// get_wallet_info().
+		write_u32_littleendian(buffer, VERSION_NOTHING_THERE);
+		r = nonvolatile_write(buffer, OFFSET_VERSION, 4);
+		if (r == NV_NO_ERROR)
+		{
+			lasterror = WALLET_NO_ERROR;
+		}
+		else
+		{
+			lasterror = WALLET_WRITE_ERROR;
+		}
 	}
 	else
 	{
@@ -282,6 +295,7 @@ wallet_errors sanitise_nv_storage(u32 start, u32 end)
 // Writes 4-byte wallet version. This is in its own function because
 // it's used by both new_wallet() and change_encryption_key().
 // Return values have the same meaning as they do for nonvolatile_write().
+// Warning: a wallet must be loaded before calling this.
 static nonvolatile_return write_wallet_version(void)
 {
 	u8 buffer[4];
@@ -298,7 +312,8 @@ static nonvolatile_return write_wallet_version(void)
 }
 
 // Writes wallet checksum. This is in its own function because
-// it's used by both new_wallet() and change_encryption_key().
+// it's used by both new_wallet(), change_encryption_key() and
+// change_wallet_name().
 // A return value of WALLET_NO_ERROR indicates success, anything else
 // indicates failure.
 static wallet_errors write_wallet_checksum(void)
@@ -603,8 +618,7 @@ wallet_errors change_encryption_key(u8 *new_key)
 	if (r == NV_NO_ERROR)
 	{
 		// Update version and checksum.
-		r = write_wallet_version();
-		if (r == NV_NO_ERROR)
+		if (write_wallet_version() == NV_NO_ERROR)
 		{
 			lasterror = write_wallet_checksum();;
 		}
@@ -617,6 +631,61 @@ wallet_errors change_encryption_key(u8 *new_key)
 	{
 		lasterror = WALLET_WRITE_ERROR;
 	}
+	return lasterror;
+}
+
+// Change the name of the currently loaded wallet. name should point to 40
+// bytes (padded with spaces if necessary) containing the desired name of the
+// wallet.
+wallet_errors change_wallet_name(u8 *new_name)
+{
+	wallet_errors r;
+
+	if (!wallet_loaded)
+	{
+		lasterror = WALLET_NOT_THERE;
+		return lasterror;
+	}
+
+	// Write wallet name.
+	if (nonvolatile_write(new_name, OFFSET_NAME, 40) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_WRITE_ERROR;
+		return lasterror;
+	}
+	// Write checksum.
+	r = write_wallet_checksum();
+	if (r != WALLET_NO_ERROR)
+	{
+		lasterror = r;
+		return lasterror;
+	}
+	nonvolatile_flush();
+
+	lasterror = WALLET_NO_ERROR;
+	return lasterror;
+}
+
+// Obtain publicly available information about a wallet. out_version should
+// have enough space to store 4 bytes. out_name should have enough space to
+// store 40 bytes. Upon success, out_version will contain the little-endian
+// version of the wallet and out_name will contain the (space-padded) name
+// of the wallet.
+// The wallet doesn't need to be loaded.
+wallet_errors get_wallet_info(u8 *out_version, u8 *out_name)
+{
+	if (nonvolatile_read(out_version, OFFSET_VERSION, 4) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_READ_ERROR;
+		return lasterror;
+	}
+	if (nonvolatile_read(out_name, OFFSET_NAME, 40) != NV_NO_ERROR)
+	{
+		lasterror = WALLET_READ_ERROR;
+		return lasterror;
+	}
+
+	lasterror = WALLET_NO_ERROR;
 	return lasterror;
 }
 
@@ -728,6 +797,15 @@ static void check_functions_return_wallet_not_there(void)
 		printf("change_encryption_key() doesn't recognise when wallet isn't there\n");
 		failed++;
 	}
+	if (change_wallet_name(temp) == WALLET_NOT_THERE)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("change_wallet_name() doesn't recognise when wallet isn't there\n");
+		failed++;
+	}
 }
 
 int main(void)
@@ -739,6 +817,7 @@ int main(void)
 	u8 encryption_key[16];
 	u8 tweak_key[16];
 	u8 new_encryption_key[32];
+	u8 version[4];
 	u8 *addressbuffer;
 	u8 one_byte;
 	address_handle *handles;
@@ -775,6 +854,26 @@ int main(void)
 	else
 	{
 		printf("Cannot nuke NV storage using sanitise_nv_storage()\n");
+		failed++;
+	}
+
+	// Check that the version field is "wallet not there".
+	if (get_wallet_info(version, temp) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() failed after sanitise_nv_storage() was called\n");
+		failed++;
+	}
+	if (read_u32_littleendian(version) == VERSION_NOTHING_THERE)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("sanitise_nv_storage() does not set version to nothing there\n");
 		failed++;
 	}
 
@@ -824,6 +923,26 @@ int main(void)
 		failed++;
 	}
 
+	// Check that the version field is "unencrypted wallet".
+	if (get_wallet_info(version, temp) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() failed after new_wallet() was called\n");
+		failed++;
+	}
+	if (read_u32_littleendian(version) == VERSION_UNENCRYPTED)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("new_wallet() does not set version to unencrypted wallet\n");
+		failed++;
+	}
+
 	// Check that sanitise_nv_wallet() deletes wallet.
 	if (sanitise_nv_storage(0, 0xffffffff) == WALLET_NO_ERROR)
 	{
@@ -847,15 +966,7 @@ int main(void)
 	// Make some new addresses, then create a new wallet and make sure the
 	// new wallet is empty (i.e. check that new_wallet() deletes existing
 	// wallet).
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	if (make_new_address(temp, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
@@ -865,15 +976,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		failed++;
 	}
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	if ((get_num_addresses() == 0) && (wallet_get_last_error() == WALLET_EMPTY))
 	{
 		succeeded++;
@@ -956,15 +1059,7 @@ int main(void)
 	}
 
 	// Create 2 new wallets and check that their addresses aren't the same
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	if (make_new_address(address1, &pubkey) != BAD_ADDRESS_HANDLE)
 	{
 		succeeded++;
@@ -974,15 +1069,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		failed++;
 	}
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	memset(address2, 0, 20);
 	memset(&pubkey, 0, sizeof(point_affine));
 	if (make_new_address(address2, &pubkey) != BAD_ADDRESS_HANDLE)
@@ -1035,15 +1122,7 @@ int main(void)
 
 	// Make some new addresses, up to a limit.
 	// Also check that addresses are unique.
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	abort = 0;
 	addressbuffer = malloc(MAX_TESTING_ADDRESSES * 20);
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
@@ -1099,15 +1178,7 @@ int main(void)
 	}
 
 	// Check that get_num_addresses fails when the wallet is empty.
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	if (get_num_addresses() == 0)
 	{
 		if (wallet_get_last_error() == WALLET_EMPTY)
@@ -1323,6 +1394,129 @@ int main(void)
 		failed++;
 	}
 
+	// Check that the version field is "encrypted wallet".
+	if (get_wallet_info(version, temp) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() failed after change_encryption_key() was called\n");
+		failed++;
+	}
+	if (read_u32_littleendian(version) == VERSION_IS_ENCRYPTED)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("change_encryption_key() does not set version to encrypted wallet\n");
+		failed++;
+	}
+
+	// Check name matches what was given in new_wallet().
+	if (!memcmp(temp, name, 40))
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() doesn't return correct name when wallet is loaded\n");
+		failed++;
+	}
+
+	// Check that get_wallet_info() still works after unloading wallet.
+	uninit_wallet();
+	if (get_wallet_info(version, temp) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() failed after uninit_wallet() was called\n");
+		failed++;
+	}
+	if (read_u32_littleendian(version) == VERSION_IS_ENCRYPTED)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("uninit_wallet() caused wallet version to change\n");
+		failed++;
+	}
+
+	// Check name matches what was given in new_wallet().
+	if (!memcmp(temp, name, 40))
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() doesn't return correct name when wallet is not loaded\n");
+		failed++;
+	}
+
+	// Change wallet's name and check that get_wallet_info() reflects the
+	// name change.
+	init_wallet();
+	memcpy(name, "HHHHH HHHHHHHHHHHHHHHHH HHHHHHHHHHHHHH  ", 40);
+	if (change_wallet_name(name) == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("change_wallet_name() couldn't change name\n");
+		failed++;
+	}
+	get_wallet_info(version, temp);
+	if (!memcmp(temp, name, 40))
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() doesn't reflect name change\n");
+		failed++;
+	}
+
+	// Check that name change is preserved when unloading and loading a
+	// wallet.
+	uninit_wallet();
+	get_wallet_info(version, temp);
+	if (!memcmp(temp, name, 40))
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() doesn't reflect name change after unloading wallet\n");
+		failed++;
+	}
+
+	// Check that init_wallet succeeds (changing the name changes the
+	// checksum, so this tests whether the checksum was updated).
+	if (init_wallet() == WALLET_NO_ERROR)
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("init_wallet() failed after name change\n");
+		failed++;
+	}
+	get_wallet_info(version, temp);
+	if (!memcmp(temp, name, 40))
+	{
+		succeeded++;
+	}
+	else
+	{
+		printf("get_wallet_info() doesn't reflect name change after reloading wallet\n");
+		failed++;
+	}
+
 	// Check that loading the wallet with the old key fails.
 	uninit_wallet();
 	set_encryption_key(encryption_key);
@@ -1353,15 +1547,7 @@ int main(void)
 
 	// Test the get_address_and_pubkey and get_privkey functions on an empty
 	// wallet.
-	if (new_wallet(name) == WALLET_NO_ERROR)
-	{
-		succeeded++;
-	}
-	else
-	{
-		printf("Could not create new wallet\n");
-		failed++;
-	}
+	new_wallet(name);
 	if (get_address_and_pubkey(temp, &pubkey, 0) == WALLET_EMPTY)
 	{
 		succeeded++;
