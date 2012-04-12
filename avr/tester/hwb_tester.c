@@ -34,7 +34,7 @@ static uint32_t rx_bytes_to_ack;
 
 // Write the 32-bit unsigned integer specified by in into the byte array
 // specified by out. This will write the bytes in a little-endian format.
-static void write_u32_littleendian(uint8_t *out, uint32_t in)
+static void writeU32LittleEndian(uint8_t *out, uint32_t in)
 {
 	out[0] = (uint8_t)in;
 	out[1] = (uint8_t)(in >> 8);
@@ -44,7 +44,7 @@ static void write_u32_littleendian(uint8_t *out, uint32_t in)
 
 // Read a 32-bit unsigned integer from the byte array specified by in.
 // The bytes will be read in a little-endian format.
-static uint32_t read_u32_littleendian(uint8_t *in)
+static uint32_t readU32LittleEndian(uint8_t *in)
 {
 	return ((uint32_t)in[0])
 		| ((uint32_t)in[1] << 8)
@@ -53,7 +53,7 @@ static uint32_t read_u32_littleendian(uint8_t *in)
 }
 
 // Convert command number into text string
-static char *packet_command_to_text(int command)
+static char *packetCommandToText(int command)
 {
 	switch (command)
 	{
@@ -93,7 +93,7 @@ static char *packet_command_to_text(int command)
 }
 
 // Display packet contents on screen
-static void display_packet(uint8_t *packet_data, uint32_t buffer_length)
+static void displayPacket(uint8_t *packet_data, uint32_t buffer_length)
 {
 	uint8_t command;
 	uint8_t one_byte;
@@ -101,8 +101,8 @@ static void display_packet(uint8_t *packet_data, uint32_t buffer_length)
 	uint32_t i;
 
 	command = packet_data[0];
-	length = read_u32_littleendian(&(packet_data[1]));
-	printf("command 0x%02x (%s)\n", command, packet_command_to_text(command));
+	length = readU32LittleEndian(&(packet_data[1]));
+	printf("command 0x%02x (%s)\n", command, packetCommandToText(command));
 	printf("Payload length: %d\n", length);
 
 	// display hex bytes
@@ -146,7 +146,7 @@ static void display_packet(uint8_t *packet_data, uint32_t buffer_length)
 }
 
 // Get a byte from the serial link, sending an acknowledgement if required
-static uint8_t receive_byte(int fd)
+static uint8_t receiveByte(int fd)
 {
 	uint8_t ack_buffer[5];
 	uint8_t buffer;
@@ -157,14 +157,14 @@ static uint8_t receive_byte(int fd)
 	{
 		rx_bytes_to_ack = RX_ACKNOWLEDGE_INTERVAL;
 		ack_buffer[0] = 0xff;
-		write_u32_littleendian(&(ack_buffer[1]), rx_bytes_to_ack);
+		writeU32LittleEndian(&(ack_buffer[1]), rx_bytes_to_ack);
 		write(fd, ack_buffer, 5);
 	}
 	return buffer;
 }
 
 // Receive a packet, copying it into a memory buffer and returning the buffer
-static uint8_t *receive_packet(int fd)
+static uint8_t *receivePacket(int fd)
 {
 	uint8_t packet_header[5];
 	uint8_t *packet_buffer;
@@ -173,9 +173,9 @@ static uint8_t *receive_packet(int fd)
 
 	for (i = 0; i < 5; i++)
 	{
-		packet_header[i] = receive_byte(fd);
+		packet_header[i] = receiveByte(fd);
 	}
-	length = read_u32_littleendian(&(packet_header[1]));
+	length = readU32LittleEndian(&(packet_header[1]));
 	if (length > PACKET_LENGTH_LIMIT)
 	{
 		printf("Got absurdly large packet length of %d\n", length);
@@ -186,13 +186,13 @@ static uint8_t *receive_packet(int fd)
 	memcpy(packet_buffer, packet_header, 5);
 	for (i = 0; i < length; i++)
 	{
-		packet_buffer[i + 5] = receive_byte(fd);
+		packet_buffer[i + 5] = receiveByte(fd);
 	}
 	return packet_buffer;
 }
 
 // Send a byte to the serial link, waiting for acknowledgement if required
-static void send_byte(uint8_t data, int fd)
+static void sendByte(uint8_t data, int fd)
 {
 	uint8_t ack_buffer[5];
 	uint8_t buffer;
@@ -209,7 +209,7 @@ static void send_byte(uint8_t data, int fd)
 			printf("Exiting, since the serial link is probably dodgy\n");
 			exit(1);
 		}
-		tx_bytes_to_ack = read_u32_littleendian(&(ack_buffer[1]));
+		tx_bytes_to_ack = readU32LittleEndian(&(ack_buffer[1]));
 	}
 }
 
@@ -234,7 +234,7 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
-	// Attempt to open serial link
+	// Attempt to open serial link.
 	fd_serial = open(argv[1], O_RDWR | O_NOCTTY);
 	if (fd_serial == -1)
 	{
@@ -263,7 +263,7 @@ int main(int argc, char **argv)
 	abort = 0;
 	do
 	{
-		// Get filename from user
+		// Get filename from user.
 		printf("Enter file to send (blank to quit): ");
 		fgets(filename, sizeof(filename), stdin);
 		newline = strrchr(filename, '\r');
@@ -285,7 +285,7 @@ int main(int argc, char **argv)
 			}
 			else
 			{
-				// Get file length then read entire contents of file
+				// Get file length then read entire contents of file.
 				fseek(file_to_send, 0, SEEK_END);
 				size = ftell(file_to_send);
 				fseek(file_to_send, 0, SEEK_SET);
@@ -293,20 +293,19 @@ int main(int argc, char **argv)
 				fread(packet_buffer, size, 1, file_to_send);
 				fclose(file_to_send);
 				printf("Sending packet: ");
-				display_packet(packet_buffer, size);
-				// Send the packet
+				displayPacket(packet_buffer, size);
+				// Send the packet.
 				for (i = 0; i < size; i++)
 				{
-					send_byte(packet_buffer[i], fd_serial);
+					sendByte(packet_buffer[i], fd_serial);
 				}
 				free(packet_buffer);
-				// Get and display response packet
-				packet_buffer = receive_packet(fd_serial);
-				size = 5 + read_u32_littleendian(&(packet_buffer[1]));
+				// Get and display response packet.
+				packet_buffer = receivePacket(fd_serial);
+				size = 5 + readU32LittleEndian(&(packet_buffer[1]));
 				printf("Received packet: ");
-				display_packet(packet_buffer, size);
+				displayPacket(packet_buffer, size);
 				free(packet_buffer);
-
 			}
 		}
 		else

@@ -2,7 +2,7 @@
 // transaction.c
 // ***********************************************************************
 //
-// Containes functions specific to BitCoin transactions.
+// Containes functions specific to Bitcoin transactions.
 //
 // This file is licensed as described by the file LICENCE.
 
@@ -12,7 +12,7 @@
 // linker errors from occuring
 //#define INTERFACE_STUBS
 
-// The maximum size of a transaction (in bytes) which parse_transaction()
+// The maximum size of a transaction (in bytes) which parseTransaction()
 // is prepared to handle.
 #define MAX_TRANSACTION_SIZE	200000
 
@@ -36,25 +36,25 @@ static u32 transaction_data_index;
 static u32 transaction_length;
 static u16 transaction_num_inputs;
 static u8 read_error_occurred;
-static u8 suppress_txhash;
-static u8 suppress_bothhash;
-static hash_state sighash_hs;
-static hash_state txhash_hs;
+static u8 suppress_transaction_hash;
+static u8 suppress_both_hash;
+static HashState sig_hash_hs;
+static HashState transaction_hash_hs;
 
 // Returns the number of inputs from the most recent transaction parsed by
-// parse_transaction. Returns 0 if there was an error obtaining the number
+// parseTransaction. Returns 0 if there was an error obtaining the number
 // of inputs.
-u16 get_transaction_num_inputs(void)
+u16 getTransactionNumInputs(void)
 {
 	return transaction_num_inputs;
 }
 
 // Returns 0 on success and fills buffer with length bytes,
 // otherwise returns 1 to indicate an unexpected end of transaction data.
-static u8 get_tx_bytes(u8 *buffer, u8 length)
+static u8 getTransactionBytes(u8 *buffer, u8 length)
 {
 	u8 i;
-	u8 onebyte;
+	u8 one_byte;
 
 	if (transaction_data_index + (u32)length > transaction_length)
 	{
@@ -64,18 +64,18 @@ static u8 get_tx_bytes(u8 *buffer, u8 length)
 	{
 		for (i = 0; i < length; i++)
 		{
-			if (stream_get_one_byte(&onebyte))
+			if (streamGetOneByte(&one_byte))
 			{
 				read_error_occurred = 1;
 				return 1; // error while trying to get byte from stream
 			}
-			buffer[i] = onebyte;
-			if (!suppress_bothhash)
+			buffer[i] = one_byte;
+			if (!suppress_both_hash)
 			{
-				sha256_writebyte(&sighash_hs, onebyte);
-				if (!suppress_txhash)
+				sha256WriteByte(&sig_hash_hs, one_byte);
+				if (!suppress_transaction_hash)
 				{
-					sha256_writebyte(&txhash_hs, onebyte);
+					sha256WriteByte(&transaction_hash_hs, one_byte);
 				}
 			}
 			transaction_data_index++;
@@ -85,7 +85,7 @@ static u8 get_tx_bytes(u8 *buffer, u8 length)
 }
 
 // Returns 0 if not at end of transaction data, otherwise returns 1.
-static u8 is_end_of_transaction_data(void)
+static u8 isEndOfTransactionData(void)
 {
 	if (transaction_data_index >= transaction_length)
 	{
@@ -102,11 +102,11 @@ static u8 is_end_of_transaction_data(void)
 // Returns 1 to indicate an unexpected end of transaction data.
 // Returns 2 to indicate that the varint is too large.
 // This only supports varints up to 2 ^ 32 - 1.
-static u8 getvarint(u32 *out)
+static u8 getVarInt(u32 *out)
 {
 	u8 temp[4];
 
-	if (get_tx_bytes(temp, 1))
+	if (getTransactionBytes(temp, 1))
 	{
 		return 1; // unexpected end of transaction data
 	}
@@ -116,7 +116,7 @@ static u8 getvarint(u32 *out)
 	}
 	else if (temp[0] == 0xfd)
 	{
-		if (get_tx_bytes(temp, 2))
+		if (getTransactionBytes(temp, 2))
 		{
 			return 1; // unexpected end of transaction data
 		}
@@ -124,11 +124,11 @@ static u8 getvarint(u32 *out)
 	}
 	else if (temp[0] == 0xfe)
 	{
-		if (get_tx_bytes(temp, 4))
+		if (getTransactionBytes(temp, 4))
 		{
 			return 1; // unexpected end of transaction data
 		}
-		*out = read_u32_littleendian(temp);
+		*out = readU32LittleEndian(temp);
 	}
 	else
 	{
@@ -137,19 +137,19 @@ static u8 getvarint(u32 *out)
 	return 0;
 }
 
-// See comments for parse_transaction() for description of what this does
+// See comments for parseTransaction() for description of what this does
 // and return values.
-static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash, u32 length)
+static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 transaction_hash, u32 length)
 {
 	u8 temp[20];
-	u32 numinputs;
-	u8 numoutputs;
-	u32 scriptlength;
+	u32 num_inputs;
+	u8 num_outputs;
+	u32 script_length;
 	u16 i;
 	u8 j;
 	u32 i32;
-	char textamount[22];
-	char textaddress[36];
+	char text_amount[22];
+	char text_address[36];
 
 	transaction_num_inputs = 0;
 	read_error_occurred = 0;
@@ -157,199 +157,209 @@ static tx_errors parse_transaction_internal(bignum256 sighash, bignum256 txhash,
 	transaction_length = length;
 	if (length > MAX_TRANSACTION_SIZE)
 	{
-		return TX_TOO_LARGE; // transaction too large
+		return TRANSACTION_TOO_LARGE; // transaction too large
 	}
 
-	sha256_begin(&sighash_hs);
-	suppress_bothhash = 0;
-	sha256_begin(&txhash_hs);
-	suppress_txhash = 0;
+	sha256Begin(&sig_hash_hs);
+	suppress_both_hash = 0;
+	sha256Begin(&transaction_hash_hs);
+	suppress_transaction_hash = 0;
 
-	// version
-	if (get_tx_bytes(temp, 4))
+	// Check version.
+	if (getTransactionBytes(temp, 4))
 	{
-		return TX_INVALID_FORMAT; // transaction truncated
+		return TRANSACTION_INVALID_FORMAT; // transaction truncated
 	}
 	if ((temp[0] != 0x01) || (temp[1] != 0x00)
 		|| (temp[2] != 0x00) || (temp[3] != 0x00))
 	{
-		return TX_INVALID_FORMAT; // unsupported transaction version
+		return TRANSACTION_INVALID_FORMAT; // unsupported transaction version
 	}
 
-	// number of inputs
-	if (getvarint(&numinputs))
+	// Get number of inputs.
+	if (getVarInt(&num_inputs))
 	{
-		return TX_INVALID_FORMAT; // transaction truncated or varint too big
+		return TRANSACTION_INVALID_FORMAT; // transaction truncated or varint too big
 	}
-	if (numinputs == 0)
+	if (num_inputs == 0)
 	{
-		return TX_INVALID_FORMAT; // invalid transaction
+		return TRANSACTION_INVALID_FORMAT; // invalid transaction
 	}
-	if (numinputs >= 0xffff)
+	if (num_inputs >= 0xffff)
 	{
-		return TX_TOO_MANY_INPUTS; // too many inputs
+		return TRANSACTION_TOO_MANY_INPUTS; // too many inputs
 	}
-	transaction_num_inputs = (u16)numinputs;
+	transaction_num_inputs = (u16)num_inputs;
 
-	// process each input
-	for (i = 0; i < numinputs; i++)
+	// Process each input.
+	for (i = 0; i < num_inputs; i++)
 	{
-		suppress_txhash = 1;
-		// skip transaction reference (hash and output number)
+		// Skip input transaction reference (hash and output number) because
+		// it's useless here.
 		for (j = 0; j < 9; j++)
 		{
-			if (get_tx_bytes(temp, 4))
+			if (getTransactionBytes(temp, 4))
 			{
-				return TX_INVALID_FORMAT; // transaction truncated
+				return TRANSACTION_INVALID_FORMAT; // transaction truncated
 			}
 		}
-		// input script length
-		if (getvarint(&scriptlength))
+		// The Bitcoin protocol for signing a transaction involves replacing
+		// the corresponding input script with the output script that
+		// the input references. This means that the transaction data parsed
+		// here will be different depending on which input is being signed
+		// for. The transaction hash is supposed to be the same regardless of
+		// which input is being signed for, so the calculation of the
+		// transaction hash ignores input scripts.
+		suppress_transaction_hash = 1;
+		// Get input script length.
+		if (getVarInt(&script_length))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated or varint too big
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated or varint too big
 		}
-		// skip the script
-		for (i32 = 0; i32 < scriptlength; i32++)
+		// Skip the script because it's useless here.
+		for (i32 = 0; i32 < script_length; i32++)
 		{
-			if (get_tx_bytes(temp, 1))
+			if (getTransactionBytes(temp, 1))
 			{
-				return TX_INVALID_FORMAT; // transaction truncated
+				return TRANSACTION_INVALID_FORMAT; // transaction truncated
 			}
 		}
-		suppress_txhash = 0;
-		// skip sequence
-		if (get_tx_bytes(temp, 4))
+		suppress_transaction_hash = 0;
+		// Skip sequence because it's useless here.
+		if (getTransactionBytes(temp, 4))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated
 		}
 	}
 
-	// number of outputs
-	if (get_tx_bytes(&numoutputs, 1))
+	// Get number of outputs.
+	if (getTransactionBytes(&num_outputs, 1))
 	{
-		return TX_INVALID_FORMAT; // transaction truncated
+		return TRANSACTION_INVALID_FORMAT; // transaction truncated
 	}
-	if (numoutputs == 0)
+	if (num_outputs == 0)
 	{
-		return TX_INVALID_FORMAT; // invalid transaction
+		return TRANSACTION_INVALID_FORMAT; // invalid transaction
 	}
-	if (numoutputs >= 0xfd)
+	if (num_outputs >= 0xfd)
 	{
-		return TX_TOO_MANY_OUTPUTS; // too many outputs
+		return TRANSACTION_TOO_MANY_OUTPUTS; // too many outputs
 	}
 
-	// process each output
-	for (i = 0; i < numoutputs; i++)
+	// Process each output.
+	for (i = 0; i < num_outputs; i++)
 	{
-		// amount
-		if (get_tx_bytes(temp, 8))
+		// Get output amount.
+		if (getTransactionBytes(temp, 8))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated
 		}
-		amount_to_text(textamount, temp);
-		// output script length
-		if (getvarint(&scriptlength))
+		amountToText(text_amount, temp);
+		// Get output script length.
+		if (getVarInt(&script_length))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated or varint too big
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated or varint too big
 		}
-		if (scriptlength != 0x19)
+		if (script_length != 0x19)
 		{
-			return TX_NONSTANDARD; // nonstandard transaction
+			return TRANSACTION_NON_STANDARD; // nonstandard transaction
 		}
-		// look for: OP_DUP, OP_HASH160, (20 bytes of data)
-		if (get_tx_bytes(temp, 3))
+		// Check for a standard, pay to address output script.
+		// Look for: OP_DUP, OP_HASH160, (20 bytes of data).
+		if (getTransactionBytes(temp, 3))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated
 		}
 		if ((temp[0] != 0x76) || (temp[1] != 0xa9) || (temp[2] != 0x14))
 		{
-			return TX_NONSTANDARD; // nonstandard transaction
+			return TRANSACTION_NON_STANDARD; // nonstandard transaction
 		}
-		if (get_tx_bytes(temp, 20))
+		if (getTransactionBytes(temp, 20))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated
 		}
-		hash_to_addr(textaddress, temp);
-		// look for: OP_EQUALVERIFY OP_CHECKSIG
-		if (get_tx_bytes(temp, 2))
+		hashToAddr(text_address, temp);
+		// Look for: OP_EQUALVERIFY OP_CHECKSIG.
+		if (getTransactionBytes(temp, 2))
 		{
-			return TX_INVALID_FORMAT; // transaction truncated
+			return TRANSACTION_INVALID_FORMAT; // transaction truncated
 		}
 		if ((temp[0] != 0x88) || (temp[1] != 0xac))
 		{
-			return TX_NONSTANDARD; // nonstandard transaction
+			return TRANSACTION_NON_STANDARD; // nonstandard transaction
 		}
-		if (new_output_seen(textamount, textaddress))
+		if (newOutputSeen(text_amount, text_address))
 		{
-			return TX_TOO_MANY_OUTPUTS; // too many outputs
+			return TRANSACTION_TOO_MANY_OUTPUTS; // too many outputs
 		}
 	}
 
-	// locktime
-	if (get_tx_bytes(temp, 4))
+	// Check locktime.
+	if (getTransactionBytes(temp, 4))
 	{
-		return TX_INVALID_FORMAT; // transaction truncated
+		return TRANSACTION_INVALID_FORMAT; // transaction truncated
 	}
 	if ((temp[0] != 0x00) || (temp[1] != 0x00)
 		|| (temp[2] != 0x00) || (temp[3] != 0x00))
 	{
-		return TX_NONSTANDARD; // nonstandard transaction
+		return TRANSACTION_NON_STANDARD; // nonstandard transaction
 	}
 
-	// hashtype
-	if (get_tx_bytes(temp, 4))
+	// Check hashtype.
+	if (getTransactionBytes(temp, 4))
 	{
-		return TX_INVALID_FORMAT; // transaction truncated
+		return TRANSACTION_INVALID_FORMAT; // transaction truncated
 	}
 	if ((temp[0] != 0x01) || (temp[1] != 0x00)
 		|| (temp[2] != 0x00) || (temp[3] != 0x00))
 	{
-		return TX_NONSTANDARD; // nonstandard transaction
+		return TRANSACTION_NON_STANDARD; // nonstandard transaction
 	}
 
-	if (!is_end_of_transaction_data())
+	// Is there junk at the end of the transaction data?
+	if (!isEndOfTransactionData())
 	{
-		return TX_INVALID_FORMAT; // junk at end of transaction data
+		return TRANSACTION_INVALID_FORMAT; // junk at end of transaction data
 	}
 
-	sha256_finishdouble(&sighash_hs);
-	sha256_finish(&txhash_hs);
-	convertHtobytearray(sighash, &sighash_hs, 0);
-	convertHtobytearray(txhash, &txhash_hs, 0);
+	sha256FinishDouble(&sig_hash_hs);
+	sha256Finish(&transaction_hash_hs);
+	writeHashToByteArray(sig_hash, &sig_hash_hs, 0);
+	writeHashToByteArray(transaction_hash, &transaction_hash_hs, 0);
 
 	return 0;
 }
 
-// Parse a BitCoin transaction, extracting the output amounts/addresses,
+// Parse a Bitcoin transaction, extracting the output amounts/addresses,
 // validating the transaction (ensuring that it is "standard") and computing
 // a double SHA-256 hash of the transaction. length should be the total length
 // of the transaction data stream. If no read errors occur, then exactly
 // length bytes should be read from the stream, even if the transaction is
 // not parsed correctly. Upon success, the double SHA-256 hash will be written
-// out to sighash (which should be a byte array which can hold 32 bytes) in
+// out to sig_hash (which should be a byte array which can hold 32 bytes) in
 // little-endian format.
-// In addition to sighash ("signature hash"), a transaction hash will be
-// computed and written out to txhash in little-endian format. The transaction
-// hash is just like the signature hash, except input references and scripts
-// are not included. The transaction hash can be used to determine if (when
-// signing a transaction with multiple inputs) a bunch of transactions are
-// "the same".
-// Returns one of the values in tx_errors.
+// In addition to sig_hash ("signature hash"), a transaction hash will be
+// computed and written out to transaction_hash in little-endian format. The
+// transaction hash is just like the signature hash, except input scripts
+// are not included. The transaction hash can be used to determine
+// if (when signing a transaction with multiple inputs) a bunch of
+// transactions are "the same".
+// Returns one of the values in TransactionErrors.
 // This will always read the number of bytes specified by length from the
 // input stream, even in the case of an invalid transaction.
-tx_errors parse_transaction(bignum256 sighash, bignum256 txhash, u32 length)
+TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, u32 length)
 {
-	tx_errors r;
+	TransactionErrors r;
 	u8 junk;
 
-	r = parse_transaction_internal(sighash, txhash, length);
+	r = parseTransactionInternal(sig_hash, transaction_hash, length);
 	if (!read_error_occurred)
 	{
 		// Always try to consume the entire stream.
-		suppress_bothhash = 1;
-		while (!is_end_of_transaction_data())
+		suppress_both_hash = 1;
+		while (!isEndOfTransactionData())
 		{
-			if (get_tx_bytes(&junk, 1))
+			if (getTransactionBytes(&junk, 1))
 			{
 				break;
 			}
@@ -359,13 +369,13 @@ tx_errors parse_transaction(bignum256 sighash, bignum256 txhash, u32 length)
 	{
 		// Read errors are more fundamental (in terms of cause and effect)
 		// than other errors.
-		return TX_READ_ERROR;
+		return TRANSACTION_READ_ERROR;
 	}
 	return r;
 }
 
 // Swap endian representation of a 256-bit integer.
-void swap_endian256(u8 *buffer)
+void swapEndian256(u8 *buffer)
 {
 	u8 i;
 	u8 temp;
@@ -385,17 +395,17 @@ void swap_endian256(u8 *buffer)
 // bytes long, and 2 bytes are needed for INTEGER/length. 4 + 33 + 2 = 39.
 #define S_OFFSET	39
 
-// Sign the transaction with the (signature) hash specified by sighash, using
-// the private key specified by privatekey. Both sighash and privatekey are
+// Sign the transaction with the (signature) hash specified by sig_hash, using
+// the private key specified by private_key. Both sig_hash and private_key are
 // little-endian 256-bit numbers. The resulting signature will be written
 // out to signature in DER format, with the hash type appended. signature must
 // have space for at least 73 bytes.
 // The return value is the length of the signature (including the
 // hash type byte).
-u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey)
+u8 signTransaction(u8 *signature, BigNum256 sig_hash, BigNum256 private_key)
 {
 	u8 k[32];
-	u8 sequencelength;
+	u8 sequence_length;
 	u8 i;
 
 	// Place an extra leading zero in front of r and s, just in case their
@@ -410,17 +420,17 @@ u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey)
 	signature[S_OFFSET] = 0x00;
 	do
 	{
-		get_random_256(k);
-	} while (ecdsa_sign(
-		(bignum256)(&(signature[R_OFFSET + 1])),
-		(bignum256)(&(signature[S_OFFSET + 1])),
-		sighash,
-		privatekey,
+		getRandom256(k);
+	} while (ecdsaSign(
+		(BigNum256)(&(signature[R_OFFSET + 1])),
+		(BigNum256)(&(signature[S_OFFSET + 1])),
+		sig_hash,
+		private_key,
 		k));
-	swap_endian256(&(signature[R_OFFSET + 1]));
-	swap_endian256(&(signature[S_OFFSET + 1]));
+	swapEndian256(&(signature[R_OFFSET + 1]));
+	swapEndian256(&(signature[S_OFFSET + 1]));
 
-	sequencelength = 0x46; // 2 + 33 + 2 + 33
+	sequence_length = 0x46; // 2 + 33 + 2 + 33
 	signature[R_OFFSET - 2] = 0x02; // INTEGER
 	signature[R_OFFSET - 1] = 0x21; // length of INTEGER
 	signature[S_OFFSET - 2] = 0x02; // INTEGER
@@ -440,7 +450,7 @@ u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey)
 		{
 			signature[i] = signature[i + 1];
 		}
-		sequencelength--;
+		sequence_length--;
 		signature[S_OFFSET - 1]--;
 		if (signature[S_OFFSET - 1] == 1)
 		{
@@ -455,7 +465,7 @@ u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey)
 		{
 			signature[i] = signature[i + 1];
 		}
-		sequencelength--;
+		sequence_length--;
 		signature[R_OFFSET - 1]--;
 		if (signature[R_OFFSET - 1] == 1)
 		{
@@ -464,21 +474,21 @@ u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey)
 	}
 
 	signature[0] = 0x30; // SEQUENCE
-	signature[1] = sequencelength; // length of SEQUENCE
+	signature[1] = sequence_length; // length of SEQUENCE
 	// 3 extra bytes: SEQUENCE/length and hashtype
-	return (u8)(sequencelength + 3);
+	return (u8)(sequence_length + 3);
 }
 
 #if defined(TEST) || defined(INTERFACE_STUBS)
 
-u8 new_output_seen(char *textamount, char *textaddress)
+u8 newOutputSeen(char *text_amount, char *text_address)
 {
-	printf("Amount: %s\n", textamount);
-	printf("Address: %s\n", textaddress);
+	printf("Amount: %s\n", text_amount);
+	printf("Address: %s\n", text_address);
 	return 0; // success
 }
 
-void clear_outputs_seen(void)
+void clearOutputsSeen(void)
 {
 }
 
@@ -528,7 +538,7 @@ static const u8 test_tx1[] = {
 0x01, 0x00, 0x00, 0x00 // hashtype
 };
 
-static const u8 privatekey[] = {
+static const u8 private_key[] = {
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
@@ -536,39 +546,39 @@ static const u8 privatekey[] = {
 
 static u8 *transaction_data;
 
-u8 stream_get_one_byte(u8 *onebyte)
+u8 streamGetOneByte(u8 *one_byte)
 {
-	*onebyte = transaction_data[transaction_data_index];
+	*one_byte = transaction_data[transaction_data_index];
 	return 0; // success
 }
 
 int main(void)
 {
-	size_t txsize;
-	u8 sighash[32];
-	u8 txhash[32];
+	size_t length;
+	u8 sig_hash[32];
+	u8 transaction_hash[32];
 	u8 signature[73];
 	int i;
 
 	srand(42);
 
-	txsize = sizeof(test_tx1);
-	transaction_data = malloc(txsize);
-	memcpy(transaction_data, test_tx1, txsize);
-	printf("parse_transaction() returned: %d\n", (int)parse_transaction(sighash, txhash, txsize));
+	length = sizeof(test_tx1);
+	transaction_data = malloc(length);
+	memcpy(transaction_data, test_tx1, lwngth);
+	printf("parseTransaction() returned: %d\n", (int)parseTransaction(sig_hash, transaction_hash, length));
 	printf("Signature hash: ");
 	for (i = 0; i < 32; i++)
 	{
-		printf("%02x", (int)sighash[i]);
+		printf("%02x", (int)sig_hash[i]);
 	}
 	printf("\n");
 	printf("Transaction hash: ");
 	for (i = 0; i < 32; i++)
 	{
-		printf("%02x", (int)txhash[i]);
+		printf("%02x", (int)transaction_hash[i]);
 	}
 	printf("\n");
-	printf("sign_transaction() returned: %d\n", (int)sign_transaction(signature, sighash, (bignum256)privatekey));
+	printf("signTransaction() returned: %d\n", (int)signTransaction(signature, sig_hash, (BigNum256)private_key));
 	for (i = 0; i < 73; i++)
 	{
 		printf("%02x", (int)signature[i]);

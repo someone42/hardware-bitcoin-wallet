@@ -11,7 +11,7 @@
 
 // Write the 32-bit unsigned integer specified by in into the byte array
 // specified by out. This will write the bytes in a big-endian format.
-void write_u32_bigendian(u8 *out, u32 in)
+void writeU32BigEndian(u8 *out, u32 in)
 {
 	out[0] = (u8)(in >> 24);
 	out[1] = (u8)(in >> 16);
@@ -21,7 +21,7 @@ void write_u32_bigendian(u8 *out, u32 in)
 
 // Write the 32-bit unsigned integer specified by in into the byte array
 // specified by out. This will write the bytes in a little-endian format.
-void write_u32_littleendian(u8 *out, u32 in)
+void writeU32LittleEndian(u8 *out, u32 in)
 {
 	out[0] = (u8)in;
 	out[1] = (u8)(in >> 8);
@@ -31,7 +31,7 @@ void write_u32_littleendian(u8 *out, u32 in)
 
 // Read a 32-bit unsigned integer from the byte array specified by in.
 // The bytes will be read in a little-endian format.
-u32 read_u32_littleendian(u8 *in)
+u32 readU32LittleEndian(u8 *in)
 {
 	return ((u32)in[0])
 		| ((u32)in[1] << 8)
@@ -39,10 +39,10 @@ u32 read_u32_littleendian(u8 *in)
 		| ((u32)in[3] << 24);
 }
 
-// No-one needs read_u32_bitendian(), so it is not implemented.
+// No-one needs readU32BigEndian(), so it is not implemented.
 
 // Swap endianness of a 32-bit unsigned integer.
-void swap_endian(u32 *v)
+void swapEndian(u32 *v)
 {
 	u8 t;
 	u8 *r;

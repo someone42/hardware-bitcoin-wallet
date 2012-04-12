@@ -38,18 +38,18 @@
 #include "common.h"
 #include "bignum256.h"
 
-// Field parameters: n is the prime modulus. compn is the 2s complement
-// of n (with most significant zero bytes removed) and sizecompn is the
-// size of compn. The smaller sizecompn is, the faster multiplication
-// will be.
+// Field parameters: n is the prime modulus. complement_n is the 2s complement
+// of n (with most significant zero bytes removed) and size_complement_n is
+// the size of complement_n. The smaller size_complement_n is, the faster
+// multiplication will be.
 // n must be greater than 2 ^ 255. The least significant byte of n must
-// be >= 2 (otherwise biginvert() will not work correctly).
-static bignum256 n;
-static bignum256 compn;
-static u8 sizecompn;
+// be >= 2 (otherwise bigInvert() will not work correctly).
+static BigNum256 n;
+static BigNum256 complement_n;
+static u8 size_complement_n;
 
 #ifdef TEST
-static void bigprint(bignum256 number)
+static void bigPrint(BigNum256 number)
 {
 	u8 i;
 	for (i = 31; i < 32; i--)
@@ -63,7 +63,7 @@ static void bigprint(bignum256 number)
 // BIGCMP_LESS if op1 < op2.
 // op1 may alias op2.
 // This supports bignums with sizes other than 256 bits.
-u8 bigcmp_varsize(u8 *op1, u8 *op2, u8 size)
+u8 bigCompareVariableSize(u8 *op1, u8 *op2, u8 size)
 {
 	u8 i;
 	u8 r;
@@ -101,14 +101,14 @@ u8 bigcmp_varsize(u8 *op1, u8 *op2, u8 size)
 // Returns BIGCMP_GREATER if op1 > op2, BIGCMP_EQUAL if they're equal and
 // BIGCMP_LESS if op1 < op2.
 // op1 may alias op2.
-u8 bigcmp(bignum256 op1, bignum256 op2)
+u8 bigCompare(BigNum256 op1, BigNum256 op2)
 {
-	return bigcmp_varsize(op1, op2, 32);
+	return bigCompareVariableSize(op1, op2, 32);
 }
 
 // Returns 1 if op1 is zero, returns 0 otherwise.
 // This supports bignums with sizes other than 256 bits.
-u8 bigiszero_varsize(u8 *op1, u8 size)
+u8 bigIsZeroVariableSize(u8 *op1, u8 size)
 {
 	u8 i;
 	u8 r;
@@ -118,18 +118,18 @@ u8 bigiszero_varsize(u8 *op1, u8 size)
 	{
 		r |= op1[i];
 	}
-	// The following line does: "return r ? 0 : 1;"
+	// The following line does: "return r ? 0 : 1;".
 	return (u8)((((u16)(-(int)r)) >> 8) + 1);
 }
 
 // Returns 1 if op1 is zero, returns 0 otherwise.
-u8 bigiszero(bignum256 op1)
+u8 bigIsZero(BigNum256 op1)
 {
-	return bigiszero_varsize(op1, 32);
+	return bigIsZeroVariableSize(op1, 32);
 }
 
 // Set r to 0
-void bigsetzero(bignum256 r)
+void bigSetZero(BigNum256 r)
 {
 	u8 i;
 	for (i = 0; i < 32; i++)
@@ -139,7 +139,7 @@ void bigsetzero(bignum256 r)
 }
 
 // Assign op1 to r.
-void bigassign(bignum256 r, bignum256 op1)
+void bigAssign(BigNum256 r, BigNum256 op1)
 {
 	u8 i;
 	for (i = 0; i < 32; i++)
@@ -148,19 +148,19 @@ void bigassign(bignum256 r, bignum256 op1)
 	}
 }
 
-// Set field parameters n, compn and sizecompn. See comments above
-// n/compn/sizecompn.
-void bigsetfield(const u8 *in_n, const u8 *in_compn, const u8 in_sizecompn)
+// Set field parameters n, complement_n and size_of_complement_n. See comments
+// above n/complement_n/size_of_complement_n.
+void bigSetField(const u8 *in_n, const u8 *in_complement_n, const u8 in_size_complement_n)
 {
-	n = (bignum256)in_n;
-	compn = (bignum256)in_compn;
-	sizecompn = (u8)in_sizecompn;
+	n = (BigNum256)in_n;
+	complement_n = (BigNum256)in_complement_n;
+	size_complement_n = (u8)in_size_complement_n;
 }
 
 // Returns 1 if there's carry, 0 otherwise.
 // r may alias op1 or op2. op1 may alias op2.
 // opsize is the size (in bytes) of the operands and result.
-static u8 bigadd_internal(u8 *r, u8 *op1, u8 *op2, u8 opsize)
+static u8 bigAddVariableSizeNoModulo(u8 *r, u8 *op1, u8 *op2, u8 opsize)
 {
 	u16 partial;
 	u8 carry;
@@ -179,7 +179,7 @@ static u8 bigadd_internal(u8 *r, u8 *op1, u8 *op2, u8 opsize)
 // Subtract op2 from op1. Returns 1 if there's borrow, 0 otherwise.
 // r may alias op1 or op2. op1 may alias op2.
 // This supports bignums with sizes other than 256 bits.
-u8 bigsubtract_varsize(u8 *r, u8 *op1, u8 *op2, u8 size)
+u8 bigSubtractVariableSizeNoModulo(u8 *r, u8 *op1, u8 *op2, u8 size)
 {
 	u16 partial;
 	u8 borrow;
@@ -197,124 +197,124 @@ u8 bigsubtract_varsize(u8 *r, u8 *op1, u8 *op2, u8 size)
 
 // Subtract op2 from op1. Returns 1 if there's borrow, 0 otherwise.
 // r may alias op1 or op2. op1 may alias op2.
-static u8 bigsubtract_internal(bignum256 r, bignum256 op1, bignum256 op2)
+static u8 bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
-	return bigsubtract_varsize(r, op1, op2, 32);
+	return bigSubtractVariableSizeNoModulo(r, op1, op2, 32);
 }
 
 // Computes op1 modulo n.
 // r may alias op1.
-void bigmod(bignum256 r, bignum256 op1)
+void bigModulo(BigNum256 r, BigNum256 op1)
 {
 	u8 cmp;
 	u8 *lookup[2];
 	u8 zero[32];
 
-	bigsetzero(zero);
-	// The following 2 lines do: cmp = "bigcmp(op1, n) == BIGCMP_LESS ? 1 : 0"
-	cmp = (u8)(bigcmp(op1, n) ^ BIGCMP_LESS);
+	bigSetZero(zero);
+	// The following 2 lines do: cmp = "bigCompare(op1, n) == BIGCMP_LESS ? 1 : 0".
+	cmp = (u8)(bigCompare(op1, n) ^ BIGCMP_LESS);
 	cmp = (u8)((((u16)(-(int)cmp)) >> 8) + 1);
 	lookup[0] = n;
 	lookup[1] = zero;
-	bigsubtract_internal(r, op1, lookup[cmp]);
+	bigSubtractNoModulo(r, op1, lookup[cmp]);
 }
 
 // Computes op1 + op2 modulo n and places result into r.
 // op1 must be < n and op2 must also be < n.
 // r may alias op1 or op2. op1 may alias op2.
-void bigadd(bignum256 r, bignum256 op1, bignum256 op2)
+void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	u8 too_big;
 	u8 cmp;
 	u8 *lookup[2];
 	u8 zero[32];
 
-	bigsetzero(zero);
+	bigSetZero(zero);
 #ifdef _DEBUG
-	assert(bigcmp(op1, n) == BIGCMP_LESS);
-	assert(bigcmp(op2, n) == BIGCMP_LESS);
+	assert(bigCompare(op1, n) == BIGCMP_LESS);
+	assert(bigCompare(op2, n) == BIGCMP_LESS);
 #endif // #ifdef _DEBUG
-	too_big = bigadd_internal(r, op1, op2, 32);
-	cmp = (u8)(bigcmp(r, n) ^ BIGCMP_LESS);
+	too_big = bigAddVariableSizeNoModulo(r, op1, op2, 32);
+	cmp = (u8)(bigCompare(r, n) ^ BIGCMP_LESS);
 	cmp = (u8)((((u16)(-(int)cmp)) >> 8) & 1);
 	too_big |= cmp;
 	lookup[0] = zero;
 	lookup[1] = n;
-	bigsubtract_internal(r, r, lookup[too_big]);
+	bigSubtractNoModulo(r, r, lookup[too_big]);
 }
 
 // Computes op1 - op2 modulo n and places result into r.
 // op1 must be < n and op2 must also be < n.
 // r may alias op1 or op2. op1 may alias op2.
-void bigsubtract(bignum256 r, bignum256 op1, bignum256 op2)
+void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	u8 *lookup[2];
 	u8 too_small;
 	u8 zero[32];
 
-	bigsetzero(zero);
+	bigSetZero(zero);
 #ifdef _DEBUG
-	assert(bigcmp(op1, n) == BIGCMP_LESS);
-	assert(bigcmp(op2, n) == BIGCMP_LESS);
+	assert(bigCompare(op1, n) == BIGCMP_LESS);
+	assert(bigCompare(op2, n) == BIGCMP_LESS);
 #endif // #ifdef _DEBUG
-	too_small = bigsubtract_internal(r, op1, op2);
+	too_small = bigSubtractNoModulo(r, op1, op2);
 	lookup[0] = zero;
 	lookup[1] = n;
-	bigadd_internal(r, r, lookup[too_small], 32);
+	bigAddVariableSizeNoModulo(r, r, lookup[too_small], 32);
 }
 
 // Computes op1 * op2 and places result into r. op1size is the size
 // (in bytes) of op1 and op2size is the size (in bytes) of op2.
 // r needs to be an array of (op1size + op2size) bytes (instead of the
 // usual 32). r cannot alias op1 or op2. op1 may alias op2.
-static void bigmultiply_internal(u8 *r, u8 *op1, u8 op1size, u8 *op2, u8 op2size)
+static void bigMultiplyVariableSizeNoModulo(u8 *r, u8 *op1, u8 op1_size, u8 *op2, u8 op2_size)
 {
-	u8 partialop1;
-	u8 locarry;
-	u8 hicarry;
-	u16 multiplyresult16;
-	u8 multiplyresultlo8;
-	u8 multiplyresulthi8;
-	u16 partialsum;
+	u8 cached_op1;
+	u8 low_carry;
+	u8 high_carry;
+	u16 multiply_result16;
+	u8 multiply_result_low8;
+	u8 multiply_result_high8;
+	u16 partial_sum;
 	u8 i;
 	u8 j;
 
-	for (i = 0; i < (op1size + op2size); i++)
+	for (i = 0; i < (op1_size + op2_size); i++)
 	{
 		r[i] = 0;
 	}
-	for (i = 0; i < op1size; i++)
+	for (i = 0; i < op1_size; i++)
 	{
-		partialop1 = op1[i];
-		hicarry = 0;
-		for (j = 0; j < op2size; j++)
+		cached_op1 = op1[i];
+		high_carry = 0;
+		for (j = 0; j < op2_size; j++)
 		{
-			multiplyresult16 = (u16)((u16)partialop1 * (u16)op2[j]);
-			multiplyresultlo8 = (u8)multiplyresult16;
-			multiplyresulthi8 = (u8)(multiplyresult16 >> 8);
-			partialsum = (u16)((u16)r[i + j] + (u16)multiplyresultlo8);
-			r[i + j] = (u8)partialsum;
-			locarry = (u8)(partialsum >> 8);
-			partialsum = (u16)((u16)r[i + j + 1] + (u16)multiplyresulthi8 + (u16)locarry + (u16)hicarry);
-			r[i + j + 1] = (u8)partialsum;
-			hicarry = (u8)(partialsum >> 8);
+			multiply_result16 = (u16)((u16)cached_op1 * (u16)op2[j]);
+			multiply_result_low8 = (u8)multiply_result16;
+			multiply_result_high8 = (u8)(multiply_result16 >> 8);
+			partial_sum = (u16)((u16)r[i + j] + (u16)multiply_result_low8);
+			r[i + j] = (u8)partial_sum;
+			low_carry = (u8)(partial_sum >> 8);
+			partial_sum = (u16)((u16)r[i + j + 1] + (u16)multiply_result_high8 + (u16)low_carry + (u16)high_carry);
+			r[i + j + 1] = (u8)partial_sum;
+			high_carry = (u8)(partial_sum >> 8);
 		}
 #ifdef _DEBUG
-		assert(hicarry == 0);
+		assert(high_carry == 0);
 #endif // #ifdef _DEBUG
 	}
 }
 
 // Computes op1 * op2 modulo n and places result into r.
 // r may alias op1 or op2. op1 may alias op2.
-void bigmultiply(bignum256 r, bignum256 op1, bignum256 op2)
+void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	u8 temp[64];
-	u8 fullr[64];
+	u8 full_r[64];
 	u8 i;
 	u8 remaining;
 
-	bigmultiply_internal(fullr, op1, 32, op2, 32);
+	bigMultiplyVariableSizeNoModulo(full_r, op1, 32, op2, 32);
 	// The modular reduction is done by subtracting off some multiple of
 	// n. The upper 256 bits of r are used as an estimate for that multiple.
 	// As long as n is close to 2 ^ 256, this estimate should be very close.
@@ -330,80 +330,84 @@ void bigmultiply(bignum256 r, bignum256 op1, bignum256 op2)
 		{
 			temp[i] = 0;
 		}
-		// n should be equal to 2 ^ 256 - compn. Therefore, subtracting
+		// n should be equal to 2 ^ 256 - complement_n. Therefore, subtracting
 		// off (upper 256 bits of r) * n is equivalent to setting the
-		// upper 256 bits of r to 0 and adding (upper 256 bits of r) * compn.
-		bigmultiply_internal(temp, compn, sizecompn, &(fullr[32]), (u8)(remaining - 32));
+		// upper 256 bits of r to 0 and
+		// adding (upper 256 bits of r) * complement_n.
+		bigMultiplyVariableSizeNoModulo(\
+			temp,
+			complement_n, size_complement_n,
+			&(full_r[32]), (u8)(remaining - 32));
 		for (i = 32; i < 64; i++)
 		{
-			fullr[i] = 0;
+			full_r[i] = 0;
 		}
-		bigadd_internal(fullr, fullr, temp, remaining);
+		bigAddVariableSizeNoModulo(full_r, full_r, temp, remaining);
 		// This update of the bound is only valid for remaining > 32.
-		remaining = (u8)(remaining - 32 + sizecompn);
+		remaining = (u8)(remaining - 32 + size_complement_n);
 	}
 	// The upper 256 bits of r should now be 0. But r could still be >= n.
 	// As long as n > 2 ^ 255, at most one subtraction is
 	// required to ensure that r < n.
-	bigmod(fullr, fullr);
-	bigassign(r, fullr);
+	bigModulo(full_r, full_r);
+	bigAssign(r, full_r);
 }
 
 // Compute the modular inverse of op1 (i. e. a number r such that r * op1 = 1
 // modulo n).
 // r may alias op1.
-void biginvert(bignum256 r, bignum256 op1)
+void bigInvert(BigNum256 r, BigNum256 op1)
 {
 	u8 temp[32];
 	u8 i;
 	u8 j;
-	u8 byteofnminus2;
-	u8 bitofnminus2;
+	u8 byte_of_n_minus_2;
+	u8 bit_of_n_minus_2;
 	u8 *lookup[2];
 
 	// This uses Fermat's Little Theorem, of which an immediate corollary is:
 	// a ^ (p - 2) = a ^ (-1) modulo n.
 	// The Montgomery ladder method is used to perform the exponentiation.
-	bigassign(temp, op1);
-	bigsetzero(r);
+	bigAssign(temp, op1);
+	bigSetZero(r);
 	r[0] = 1;
 	lookup[0] = r;
 	lookup[1] = temp;
 	for (i = 31; i < 32; i--)
 	{
-		byteofnminus2 = n[i];
+		byte_of_n_minus_2 = n[i];
 		if (i == 0)
 		{
-			byteofnminus2 = (u8)(byteofnminus2 - 2);
+			byte_of_n_minus_2 = (u8)(byte_of_n_minus_2 - 2);
 		}
 		for (j = 0; j < 8; j++)
 		{
-			bitofnminus2 = (u8)((byteofnminus2 & 0x80) >> 7);
-			byteofnminus2 = (u8)(byteofnminus2 << 1);
+			bit_of_n_minus_2 = (u8)((byte_of_n_minus_2 & 0x80) >> 7);
+			byte_of_n_minus_2 = (u8)(byte_of_n_minus_2 << 1);
 			// The next two lines do the following:
-			// if (bitofnminus2)
+			// if (bit_of_n_minus_2)
 			// {
-			//     bigmultiply(r, r, temp);
-			//     bigmultiply(temp, temp, temp);
+			//     bigMultiply(r, r, temp);
+			//     bigMultiply(temp, temp, temp);
 			// }
 			// else
 			// {
-			//     bigmultiply(temp, r, temp);
-			//     bigmultiply(r, r, r);
+			//     bigMultiply(temp, r, temp);
+			//     bigMultiply(r, r, r);
 			// }
-			bigmultiply(lookup[1 - bitofnminus2], r, temp);
-			bigmultiply(lookup[bitofnminus2], lookup[bitofnminus2], lookup[bitofnminus2]);
+			bigMultiply(lookup[1 - bit_of_n_minus_2], r, temp);
+			bigMultiply(lookup[bit_of_n_minus_2], lookup[bit_of_n_minus_2], lookup[bit_of_n_minus_2]);
 		}
 	}
 }
 
 #ifdef TEST
 
-// Number of low edge cases (numbers near minimum) to test
+// Number of low edge cases (numbers near minimum) to test.
 #define LOW_EDGE_CASES		700
-// Number of high edge cases (numbers near maximum) to test
+// Number of high edge cases (numbers near maximum) to test.
 #define HIGH_EDGE_CASES		700
-// Number of "random" numbers to test
+// Number of "random" numbers to test.
 #define RANDOM_CASES		3000
 
 #define TOTAL_CASES			(LOW_EDGE_CASES + HIGH_EDGE_CASES + RANDOM_CASES)
@@ -420,24 +424,24 @@ static u8 one[32] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// The prime number used to define the prime field for secp256k1
+// The prime number used to define the prime field for secp256k1.
 static const u8 secp256k1_p[32] = {
 0x2f, 0xfc, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-static const u8 secp256k1_compp[5] = {
+static const u8 secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
-// The order of the base point used in secp256k1
+// The order of the base point used in secp256k1.
 static const u8 secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-static const u8 secp256k1_compn[17] = {
+static const u8 secp256k1_complement_n[17] = {
 0xbf, 0xbe, 0xc9, 0x2f, 0x73, 0xa1, 0x2d, 0x40,
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
@@ -447,26 +451,26 @@ static u8 test_cases[TOTAL_CASES][32];
 // Low edge cases will start from 0 and go up.
 // High edge cases will start from max - 1 and go down.
 // Random test cases will be within [0, max - 1].
-static void generate_test_cases(const u8 *max)
+static void generateTestCases(const u8 *max)
 {
-	int testnum;
+	int test_num;
 	int i;
 	int j;
-	u8 currenttest[32];
+	u8 current_test[32];
 
-	bigsetzero(currenttest);
-	testnum = 0;
+	bigSetZero(current_test);
+	test_num = 0;
 	for (i = 0; i < LOW_EDGE_CASES; i++)
 	{
-		bigassign(test_cases[testnum++], currenttest);
-		bigadd_internal(currenttest, currenttest, one, 32);
+		bigAssign(test_cases[test_num++], current_test);
+		bigAddVariableSizeNoModulo(current_test, current_test, one, 32);
 	}
-	bigassign(currenttest, (bignum256)max);
-	bigsubtract_internal(currenttest, currenttest, one);
+	bigAssign(current_test, (BigNum256)max);
+	bigSubtractNoModulo(current_test, current_test, one);
 	for (i = 0; i < HIGH_EDGE_CASES; i++)
 	{
-		bigassign(test_cases[testnum++], currenttest);
-		bigsubtract_internal(currenttest, currenttest, one);
+		bigAssign(test_cases[test_num++], current_test);
+		bigSubtractNoModulo(current_test, current_test, one);
 	}
 	for (i = 0; i < RANDOM_CASES; i++)
 	{
@@ -474,9 +478,9 @@ static void generate_test_cases(const u8 *max)
 		{
 			for (j = 0; j < 32; j++)
 			{
-				currenttest[j] = (u8)(rand() & 0xff);
+				current_test[j] = (u8)(rand() & 0xff);
 			}
-			if (bigiszero((bignum256)max))
+			if (bigIsZero((BigNum256)max))
 			{
 				// Special case; 2 ^ 256 is represented as 0 and every
 				// representable 256-bit number is >= 0. Thus the test
@@ -485,35 +489,35 @@ static void generate_test_cases(const u8 *max)
 				// number is < 2 ^ 256).
 				break;
 			}
-		} while (bigcmp(currenttest, (bignum256)max) != BIGCMP_LESS);
-		bigassign(test_cases[testnum++], currenttest);
+		} while (bigCompare(current_test, (BigNum256)max) != BIGCMP_LESS);
+		bigAssign(test_cases[test_num++], current_test);
 	}
 #ifdef _DEBUG
-	assert(testnum == TOTAL_CASES);
+	assert(test_num == TOTAL_CASES);
 #endif // #ifdef _DEBUG
 }
 
 // Convert number from byte array format to GMP limb array
 // format. n is the number of limbs in GMP limb array.
-static void byte_to_mpn(mp_limb_t *out, bignum256 in, int n)
+static void byteToMpn(mp_limb_t *out, BigNum256 in, int n)
 {
 	int i;
 
 	for (i = 0; i < n; i++)
 	{
-		out[i] = (mp_limb_t)read_u32_littleendian(&(in[i * 4]));
+		out[i] = (mp_limb_t)readU32LittleEndian(&(in[i * 4]));
 	}
 }
 
 // Convert number from GMP limb array format to byte array format.
 // n is the number of limbs in GMP limb array.
-static void mpn_to_byte(bignum256 out, mp_limb_t *in, int n)
+static void mpnToByte(BigNum256 out, mp_limb_t *in, int n)
 {
 	int i;
 
 	for (i = 0; i < n; i++)
 	{
-		write_u32_littleendian(&(out[i * 4]), in[i]);
+		writeU32LittleEndian(&(out[i * 4]), in[i]);
 	}
 }
 
@@ -549,14 +553,14 @@ int main(void)
 	succeeded = 0;
 	failed = 0;
 
-	// Test bigcmp, since many other functions rely on it.
+	// Test bigCompare, since many other functions rely on it.
 	op1[0] = 10;
 	op2[0] = 2;
 	op1[1] = 5;
 	op2[1] = 5;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_GREATER)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_GREATER)
 	{
-		printf("bigcmp doesn't recognise when op1 > op2\n");
+		printf("bigCompare doesn't recognise when op1 > op2\n");
 		failed++;
 	}
 	else
@@ -564,9 +568,9 @@ int main(void)
 		succeeded++;
 	}
 	op1[0] = 1;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_LESS)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_LESS)
 	{
-		printf("bigcmp doesn't recognise when op1 < op2\n");
+		printf("bigCompare doesn't recognise when op1 < op2\n");
 		failed++;
 	}
 	else
@@ -574,9 +578,9 @@ int main(void)
 		succeeded++;
 	}
 	op1[0] = 2;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_EQUAL)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_EQUAL)
 	{
-		printf("bigcmp doesn't recognise when op1 == op2\n");
+		printf("bigCompare doesn't recognise when op1 == op2\n");
 		failed++;
 	}
 	else
@@ -585,9 +589,9 @@ int main(void)
 	}
 	op1[0] = 255;
 	op2[0] = 254;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_GREATER)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_GREATER)
 	{
-		printf("bigcmp doesn't recognise when op1 > op2, possibly a signed/unsigned thing\n");
+		printf("bigCompare doesn't recognise when op1 > op2, possibly a signed/unsigned thing\n");
 		failed++;
 	}
 	else
@@ -596,9 +600,9 @@ int main(void)
 	}
 	op1[0] = 254;
 	op2[0] = 255;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_LESS)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_LESS)
 	{
-		printf("bigcmp doesn't recognise when op1 < op2, possibly a signed/unsigned thing\n");
+		printf("bigCompare doesn't recognise when op1 < op2, possibly a signed/unsigned thing\n");
 		failed++;
 	}
 	else
@@ -609,9 +613,9 @@ int main(void)
 	op2[0] = 2;
 	op1[1] = 4;
 	op2[1] = 3;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_GREATER)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_GREATER)
 	{
-		printf("bigcmp doesn't recognise when op1 > op2, possibly a endian thing\n");
+		printf("bigCompare doesn't recognise when op1 > op2, possibly an endian thing\n");
 		failed++;
 	}
 	else
@@ -622,9 +626,9 @@ int main(void)
 	op2[0] = 1;
 	op1[1] = 3;
 	op2[1] = 4;
-	if (bigcmp_varsize(op1, op2, 2) != BIGCMP_LESS)
+	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_LESS)
 	{
-		printf("bigcmp doesn't recognise when op1 < op2, possibly a endian thing\n");
+		printf("bigCompare doesn't recognise when op1 < op2, possibly a endian thing\n");
 		failed++;
 	}
 	else
@@ -634,37 +638,37 @@ int main(void)
 
 	// Test internal functions, which don't do modular reduction (hence
 	// max is 2 ^ 256).
-	generate_test_cases(zero);
+	generateTestCases(zero);
 	for (operation = 0; operation < 3; operation++)
 	{
 		for (i = 0; i < TOTAL_CASES; i++)
 		{
-			bigassign(op1, test_cases[i]);
+			bigAssign(op1, test_cases[i]);
 			for (j = 0; j < TOTAL_CASES; j++)
 			{
-				bigassign(op2, test_cases[j]);
+				bigAssign(op2, test_cases[j]);
 
-				// Calculate result using functions in this file
+				// Calculate result using functions in this file.
 				if (operation == 0)
 				{
-					returned = bigadd_internal(result, op1, op2, 32);
+					returned = bigAddVariableSizeNoModulo(result, op1, op2, 32);
 					result_size = 8;
 				}
 				else if (operation == 1)
 				{
-					returned = bigsubtract_internal(result, op1, op2);
+					returned = bigSubtractNoModulo(result, op1, op2);
 					result_size = 8;
 				}
 				else
 				{
 					returned = 0;
-					bigmultiply_internal(result, op1, 32, op2, 32);
+					bigMultiplyVariableSizeNoModulo(result, op1, 32, op2, 32);
 					result_size = 16;
 				}
 
-				// Calculate result using GMP
-				byte_to_mpn(mpn_op1, op1, 8);
-				byte_to_mpn(mpn_op2, op2, 8);
+				// Calculate result using GMP.
+				byteToMpn(mpn_op1, op1, 8);
+				byteToMpn(mpn_op2, op2, 8);
 				if (operation == 0)
 				{
 					compare_returned = mpn_add_n(mpn_result, mpn_op1, mpn_op2, 8);
@@ -679,8 +683,8 @@ int main(void)
 					mpn_mul_n(mpn_result, mpn_op1, mpn_op2, 8);
 				}
 
-				// Compare results
-				mpn_to_byte(result_compare, mpn_result, result_size);
+				// Compare results.
+				mpnToByte(result_compare, mpn_result, result_size);
 				if ((memcmp(result, result_compare, result_size * 4))
 					|| (returned != compare_returned))
 				{
@@ -697,21 +701,21 @@ int main(void)
 						printf("Test failed (internal multiplication)\n");
 					}
 					printf("op1: ");
-					bigprint(op1);
+					bigPrint(op1);
 					printf("\nop2: ");
-					bigprint(op2);
+					bigPrint(op2);
 					printf("\nExpected: ");
 					if (result_size > 8)
 					{
-						bigprint(&(result_compare[32]));
+						bigPrint(&(result_compare[32]));
 					}
-					bigprint(result_compare);
+					bigPrint(result_compare);
 					printf("\nGot: ");
 					if (result_size > 8)
 					{
-						bigprint(&(result[32]));
+						bigPrint(&(result[32]));
 					}
-					bigprint(result);
+					bigPrint(result);
 					printf("\n");
 					printf("Expected return value: %d\n", (int)compare_returned);
 					printf("Got return value: %d\n", (int)returned);
@@ -731,44 +735,44 @@ int main(void)
 	{
 		if (divisor_select == 0)
 		{
-			generate_test_cases(secp256k1_p);
-			byte_to_mpn(mpn_divisor, (bignum256)secp256k1_p, 8);
-			bigsetfield(secp256k1_p, secp256k1_compp, sizeof(secp256k1_compp));
+			generateTestCases(secp256k1_p);
+			byteToMpn(mpn_divisor, (BigNum256)secp256k1_p, 8);
+			bigSetField(secp256k1_p, secp256k1_complement_p, sizeof(secp256k1_complement_p));
 		}
 		else
 		{
-			generate_test_cases(secp256k1_n);
-			byte_to_mpn(mpn_divisor, (bignum256)secp256k1_n, 8);
-			bigsetfield(secp256k1_n, secp256k1_compn, sizeof(secp256k1_compn));
+			generateTestCases(secp256k1_n);
+			byteToMpn(mpn_divisor, (BigNum256)secp256k1_n, 8);
+			bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
 		}
 		for (operation = 0; operation < 4; operation++)
 		{
 			for (i = 0; i < TOTAL_CASES; i++)
 			{
-				bigassign(op1, test_cases[i]);
+				bigAssign(op1, test_cases[i]);
 				if (operation != 3)
 				{
 					for (j = 0; j < TOTAL_CASES; j++)
 					{
-						bigassign(op2, test_cases[j]);
+						bigAssign(op2, test_cases[j]);
 
-						// Calculate result using functions in this file
+						// Calculate result using functions in this file.
 						if (operation == 0)
 						{
-							bigadd(result, op1, op2);
+							bigAdd(result, op1, op2);
 						}
 						else if (operation == 1)
 						{
-							bigsubtract(result, op1, op2);
+							bigSubtract(result, op1, op2);
 						}
 						else
 						{
-							bigmultiply(result, op1, op2);
+							bigMultiply(result, op1, op2);
 						}
 
-						// Calculate result using GMP
-						byte_to_mpn(mpn_op1, op1, 8);
-						byte_to_mpn(mpn_op2, op2, 8);
+						// Calculate result using GMP.
+						byteToMpn(mpn_op1, op1, 8);
+						byteToMpn(mpn_op2, op2, 8);
 						if (operation == 0)
 						{
 							compare_returned = mpn_add_n(mpn_result, mpn_op1, mpn_op2, 8);
@@ -805,11 +809,11 @@ int main(void)
 						}
 						mpn_tdiv_qr(mpn_quotient, mpn_remainder, 0, mpn_result, result_size, mpn_divisor, 8);
 
-						// Compare results
+						// Compare results.
 						// Now that we're doing modular arithmetic, the
 						// results are always 256 bits (8 GMP limbs).
-						mpn_to_byte(result_compare, mpn_remainder, 8);
-						if (bigcmp(result, result_compare) != BIGCMP_EQUAL)
+						mpnToByte(result_compare, mpn_remainder, 8);
+						if (bigCompare(result, result_compare) != BIGCMP_EQUAL)
 						{
 							if (operation == 0)
 							{
@@ -826,20 +830,20 @@ int main(void)
 							printf("divisor: ");
 							if (divisor_select == 0)
 							{
-								bigprint((bignum256)secp256k1_p);
+								bigPrint((BigNum256)secp256k1_p);
 							}
 							else
 							{
-								bigprint((bignum256)secp256k1_n);
+								bigPrint((BigNum256)secp256k1_n);
 							}
 							printf("\nop1: ");
-							bigprint(op1);
+							bigPrint(op1);
 							printf("\nop2: ");
-							bigprint(op2);
+							bigPrint(op2);
 							printf("\nExpected: ");
-							bigprint(result_compare);
+							bigPrint(result_compare);
 							printf("\nGot: ");
-							bigprint(result);
+							bigPrint(result);
 							printf("\n");
 							failed++;
 						}
@@ -851,10 +855,10 @@ int main(void)
 				} // if (operation != 3)
 				else
 				{
-					if (!bigiszero(op1))
+					if (!bigIsZero(op1))
 					{
 						// Calculate result using functions in this file
-						biginvert(result, op1);
+						bigInvert(result, op1);
 
 						// The mpn_gcdext function in GMP is a bit of a pain
 						// to use because it doesn't quite give the modular
@@ -862,24 +866,24 @@ int main(void)
 						// the modular inverse function. Assuming modular
 						// multiplication is working, then result * op1
 						// should be 1 by definition of the modular inverse.
-						bigmultiply(result, result, op1);
-						if (bigcmp(result, one) != BIGCMP_EQUAL)
+						bigMultiply(result, result, op1);
+						if (bigCompare(result, one) != BIGCMP_EQUAL)
 						{
 							printf("Test failed (modular inversion)\n");
 							printf("divisor: ");
 							if (divisor_select == 0)
 							{
-								bigprint((bignum256)secp256k1_p);
+								bigPrint((BigNum256)secp256k1_p);
 							}
 							else
 							{
-								bigprint((bignum256)secp256k1_n);
+								bigPrint((BigNum256)secp256k1_n);
 							}
 							printf("\nop1: ");
-							bigprint(op1);
+							bigPrint(op1);
 							printf("\nExpected inverse * op1 to be 1\n");
 							printf("Got: ");
-							bigprint(result);
+							bigPrint(result);
 							printf("\n");
 							failed++;
 						}
@@ -887,8 +891,8 @@ int main(void)
 						{
 							succeeded++;
 						}
-					} // if (!bigiszero(op1))
-				}
+					} // if (!bigIsZero(op1))
+				} // if (operation != 3) (else clause)
 			} // for (i = 0; i < TOTAL_CASES; i++)
 		} // for (operation = 0; operation < 4; operation++)
 	}

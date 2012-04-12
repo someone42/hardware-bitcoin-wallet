@@ -15,7 +15,7 @@
 #include "hwinit.h"
 
 // Enable ADC with prescaler 128 (ADC clock 125 kHz), pointing at input ADC0.
-void init_adc(void)
+void initAdc(void)
 {
 	ADMUX = _BV(REFS0);
 	ADCSRA = _BV(ADEN) |  _BV(ADPS2) |  _BV(ADPS1) |  _BV(ADPS0);
@@ -23,7 +23,7 @@ void init_adc(void)
 	PRR = (u8)(PRR & ~_BV(PRADC));
 }
 
-static u16 adc_sample(void)
+static u16 adcSample(void)
 {
 	u8 sample_lo;
 	u8 sample_hi;
@@ -41,16 +41,18 @@ static u16 adc_sample(void)
 
 // Fill buffer with n random bytes. Return an estimate of the total number
 // of bits (not bytes) of entropy in the buffer.
-u16 hardware_random_bytes(u8 *buffer, u8 n)
+u16 hardwareRandomBytes(u8 *buffer, u8 n)
 {
 	u16 sample;
 	u16 entropy;
 
-	// Just assume each sample has 4 bits of entropy
+	// Just assume each sample has 4 bits of entropy.
+	// A better method would be to estimate it after running some statistical
+	// tests (for example, estimating bias and bandwidth).
 	entropy = (u16)((u16)n << 2);
 	for (; n--; )
 	{
-		sample = adc_sample();
+		sample = adcSample();
 		// Each sample is 10 bits. XOR the most-significant (MS) 2 bits into
 		// the least-significant (LS) 2 bits. As long as they are not
 		// significantly correlated, this shouldn't result in a decrease in

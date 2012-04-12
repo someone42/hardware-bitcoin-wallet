@@ -30,7 +30,7 @@
 #endif // #ifdef TEST
 
 // Because stdlib.h might not be included, NULL might be undefined. NULL
-// is only used as a placeholder pointer for translate_wallet_error() if
+// is only used as a placeholder pointer for translateWalletError() if
 // there is no appropriate pointer.
 #ifndef NULL
 #define NULL ((void *)0) 
@@ -39,25 +39,26 @@
 // The transaction hash of the most recently approved transaction. This is
 // stored so that if a transaction needs to be signed multiple times (eg.
 // if it has more than one input), the user doesn't have to confirm every one.
-static u8 prev_txhash[32];
-// 0 means disregard prev_tx_hash, non-zero means that prev_tx_hash is valid
-// for prev_tx_hash more transactions (eg. if prev_tx_hash is 2, then
-// prev_txhash can be considered valid for the approval of 2 more
+static u8 prev_transaction_hash[32];
+// 0 means disregard prev_transaction_hash, non-zero means that
+// prev_transaction_hash is valid for prev_transaction_hash_valid more
+// transactions (eg. if prev_transaction_hash_valid is 2, then
+// prev_transaction_hash can be considered valid for the approval of 2 more
 // transactions).
-static u16 prev_txhash_valid;
+static u16 prev_transaction_hash_valid;
 
 // Length of current packet's payload.
 static u32 payload_length;
 
 // Write a number of bytes to the output stream. Returns 0 on success,
 // non-zero on failure.
-static u8 write_bytes(u8 *buffer, u16 length)
+static u8 writeBytes(u8 *buffer, u16 length)
 {
 	u16 i;
 
 	for (i = 0; i < length; i++)
 	{
-		if (stream_put_one_byte(buffer[i]))
+		if (streamPutOneByte(buffer[i]))
 		{
 			return 1; // write error
 		}
@@ -68,22 +69,22 @@ static u8 write_bytes(u8 *buffer, u16 length)
 // Sends a packet with a device string as payload. spec specifies the device
 // string to send and command specifies the command of the packet.
 // This returns 0 on success or non-zero if there was a write error.
-static u8 put_string(string_set set, u8 spec, u8 command)
+static u8 writeString(StringSet set, u8 spec, u8 command)
 {
 	u8 buffer[5];
 	u16 length;
 	u16 i;
 
 	buffer[0] = command;
-	length = get_string_length(set, spec);
-	write_u32_littleendian(&(buffer[1]), length);
-	if (write_bytes(buffer, 5))
+	length = getStringLength(set, spec);
+	writeU32LittleEndian(&(buffer[1]), length);
+	if (writeBytes(buffer, 5))
 	{
 		return 1; // write error
 	}
 	for (i = 0; i < length; i++)
 	{
-		if (stream_put_one_byte((u8)get_string(set, spec, i)))
+		if (streamPutOneByte((u8)getString(set, spec, i)))
 		{
 			return 1; // write error
 		}
@@ -97,26 +98,26 @@ static u8 put_string(string_set set, u8 spec, u8 command)
 // packet. Otherwise, if the return value indicates failure, the payload is
 // a (text) error message.
 // This returns 0 on success or non-zero if there was a write error.
-static u8 translate_wallet_error(wallet_errors r, u8 length, u8 *data)
+static u8 translateWalletError(WalletErrors r, u8 length, u8 *data)
 {
 	u8 buffer[5];
 
 	if (r == WALLET_NO_ERROR)
 	{
 		buffer[0] = 0x02;
-		write_u32_littleendian(&(buffer[1]), length);
-		if (write_bytes(buffer, 5))
+		writeU32LittleEndian(&(buffer[1]), length);
+		if (writeBytes(buffer, 5))
 		{
 			return 1; // write error
 		}
-		if (write_bytes(data, length))
+		if (writeBytes(data, length))
 		{
 			return 1; // write error
 		}
 	}
 	else
 	{
-		return put_string(STRINGSET_WALLET, (u8)r, 0x03);
+		return writeString(STRINGSET_WALLET, (u8)r, 0x03);
 	}
 
 	return 0;
@@ -125,13 +126,13 @@ static u8 translate_wallet_error(wallet_errors r, u8 length, u8 *data)
 // Read a number (specified by length) of bytes from the input stream
 // and place those bytes into a buffer. Returns 0 on success, non-zero on
 // failure.
-static u8 read_bytes(u8 *buffer, u8 length)
+static u8 readBytes(u8 *buffer, u8 length)
 {
 	u8 i;
 
 	for (i = 0; i < length; i++)
 	{
-		if (stream_get_one_byte(&(buffer[i])))
+		if (streamGetOneByte(&(buffer[i])))
 		{
 			return 1; // read error
 		}
@@ -143,34 +144,34 @@ static u8 read_bytes(u8 *buffer, u8 length)
 // Format non-volatile storage, erasing its contents and replacing it with
 // random data.
 // This returns 0 on success or non-zero if there was a write error.
-u8 format_storage(void)
+u8 formatStorage(void)
 {
-	if (translate_wallet_error(sanitise_nv_storage(0, 0xffffffff), 0, NULL))
+	if (translateWalletError(sanitiseNonVolatileStorage(0, 0xffffffff), 0, NULL))
 	{
 		return 1; // write error
 	}
 
-	uninit_wallet(); // force wallet to unload
+	uninitWallet(); // force wallet to unload
 	return 0;
 }
 
-// Sign the transaction with hash given by sighash with the private key
+// Sign the transaction with hash given by sig_hash with the private key
 // associated with the address handle ah. If the signing process was
 // successful, the signature is also sent as a success packet.
-// This has the same return values as check_and_sign_by_address().
-static NOINLINE u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
+// This has the same return values as validateAndSignTransaction().
+static NOINLINE u8 signTransactionByAddressHandle(AddressHandle ah, u8 *sig_hash)
 {
 	u8 signature[73];
-	u8 privkey[32];
+	u8 private_key[32];
 	u8 signature_length;
 
 	signature_length = 0;
-	if (get_privkey(privkey, ah) == WALLET_NO_ERROR)
+	if (getPrivateKey(private_key, ah) == WALLET_NO_ERROR)
 	{
-		// Note: sign_transaction() cannot fail.
-		signature_length = sign_transaction(signature, sighash, privkey);
+		// Note: signTransaction() cannot fail.
+		signature_length = signTransaction(signature, sig_hash, private_key);
 	}
-	if (translate_wallet_error (wallet_get_last_error(), signature_length, signature))
+	if (translateWalletError (walletGetLastError(), signature_length, signature))
 	{
 		return 1; // write error
 	}
@@ -180,25 +181,25 @@ static NOINLINE u8 sign_transaction_by_ah(address_handle ah, u8 *sighash)
 // Read the transaction from the input stream, parse it and ask the user
 // if they accept it. A non-zero value will be written to *out_confirmed if
 // the user accepted it, otherwise a zero value will be written.
-// This has the same return values as check_and_sign_by_address().
-static NOINLINE u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32 txlength)
+// This has the same return values as validateAndSignTransaction().
+static NOINLINE u8 parseTransactionAndAsk(u8 *out_confirmed, u8 *sig_hash, u32 transaction_length)
 {
 	u8 confirmed;
 	u8 i;
-	tx_errors r;
-	u8 txhash[32];
+	TransactionErrors r;
+	u8 transaction_hash[32];
 
 	// Validate transaction and calculate hashes of it.
 	*out_confirmed = 0;
-	clear_outputs_seen();
-	r = parse_transaction(sighash, txhash, txlength);
-	if (r == TX_READ_ERROR)
+	clearOutputsSeen();
+	r = parseTransaction(sig_hash, transaction_hash, transaction_length);
+	if (r == TRANSACTION_READ_ERROR)
 	{
 		return 2; // read error
 	}
-	if (r != TX_NO_ERROR)
+	if (r != TRANSACTION_NO_ERROR)
 	{
-		if (put_string(STRINGSET_TRANSACTION, (u8)r, 0x03))
+		if (writeString(STRINGSET_TRANSACTION, (u8)r, 0x03))
 		{
 			return 1; // write error
 		}
@@ -210,23 +211,23 @@ static NOINLINE u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32
 
 	// Get permission from user.
 	confirmed = 0;
-	// Does txhash match previous confirmed transaction?
-	if (prev_txhash_valid)
+	// Does transaction_hash match previous confirmed transaction?
+	if (prev_transaction_hash_valid)
 	{
-		if (bigcmp(txhash, prev_txhash) == BIGCMP_EQUAL)
+		if (bigCompare(transaction_hash, prev_transaction_hash) == BIGCMP_EQUAL)
 		{
 			confirmed = 1;
-			prev_txhash_valid--;
+			prev_transaction_hash_valid--;
 		}
 	}
 	if (!confirmed)
 	{
 		// Need to explicitly get permission from user.
-		// The call to parse_transaction should have logged all the outputs
+		// The call to parseTransaction should have logged all the outputs
 		// to the user interface.
-		if (ask_user(ASKUSER_SIGN_TRANSACTION))
+		if (askUser(ASKUSER_SIGN_TRANSACTION))
 		{
-			if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
+			if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 			{
 				return 1; // write error
 			}
@@ -236,7 +237,7 @@ static NOINLINE u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32
 			confirmed = 1;
 			for (i = 0; i < 32; i++)
 			{
-				prev_txhash[i] = txhash[i];
+				prev_transaction_hash[i] = transaction_hash[i];
 			}
 			// The transaction hash can only be reused another
 			// (number of inputs) - 1 times. This is to prevent an exploit
@@ -246,10 +247,10 @@ static NOINLINE u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32
 			// genuine transaction would also allow all the copies to be
 			// automatically accepted, causing the user to spend more than
 			// they intended.
-			prev_txhash_valid = get_transaction_num_inputs();
-			if (prev_txhash_valid)
+			prev_transaction_hash_valid = getTransactionNumInputs();
+			if (prev_transaction_hash_valid)
 			{
-				prev_txhash_valid--;
+				prev_transaction_hash_valid--;
 			}
 		}
 	}
@@ -259,20 +260,20 @@ static NOINLINE u8 parse_and_ask_transaction(u8 *out_confirmed, u8 *sighash, u32
 }
 
 // Validate and sign a transaction, given the address handle specified by
-// ah and a transaction length specified by txlength. The signature or any
-// error messages will be sent to the output stream.
+// ah and a transaction length specified by transaction_length. The signature
+// or any error messages will be sent to the output stream.
 // This will return 0 on success, 1 if a write error occurred or 2 if a read
 // error occurred. "Success" here is defined as "no read or write errors
 // occurred"; 0 will be returned even if the transaction was rejected.
-// This function will always consume txlength bytes from the input stream,
-// except when a read error occurs.
-static NOINLINE u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
+// This function will always consume transaction_length bytes from the input
+// stream, except when a read error occurs.
+static NOINLINE u8 validateAndSignTransaction(AddressHandle ah, u32 transaction_length)
 {
 	u8 confirmed;
 	u8 r;
-	u8 sighash[32];
+	u8 sig_hash[32];
 
-	r = parse_and_ask_transaction(&confirmed, sighash, txlength);
+	r = parseTransactionAndAsk(&confirmed, sig_hash, transaction_length);
 	if (r)
 	{
 		return r;
@@ -281,7 +282,7 @@ static NOINLINE u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
 	if (confirmed)
 	{
 		// Okay to sign transaction.
-		r = sign_transaction_by_ah(ah, sighash);
+		r = signTransactionByAddressHandle(ah, sig_hash);
 		if (r)
 		{
 			return r;
@@ -298,33 +299,33 @@ static NOINLINE u8 check_and_sign_by_ah(address_handle ah, u32 txlength)
 // If generate_new is non-zero, the address handle of the generated
 // address is also prepended to the output packet.
 // Returns 1 if a read or write error occurred, otherwise returns 0.
-static NOINLINE u8 get_and_send_address_and_pubkey(u8 generate_new)
+static NOINLINE u8 getAndSendAddressAndPublicKey(u8 generate_new)
 {
-	address_handle ah;
-	point_affine pubkey;
+	AddressHandle ah;
+	PointAffine public_key;
 	u8 address[20];
 	u8 buffer[5];
-	wallet_errors r;
+	WalletErrors r;
 
 	if (generate_new)
 	{
 		// Generate new address handle.
 		r = WALLET_NO_ERROR;
-		ah = make_new_address(address, &pubkey);
+		ah = makeNewAddress(address, &public_key);
 		if (ah == BAD_ADDRESS_HANDLE)
 		{
-			r = wallet_get_last_error();
+			r = walletGetLastError();
 		}
 	}
 	else
 	{
 		// Read address handle from input stream.
-		if (read_bytes(buffer, 4))
+		if (readBytes(buffer, 4))
 		{
 			return 1; // read error
 		}
-		ah = read_u32_littleendian(buffer);
-		r = get_address_and_pubkey(address, &pubkey, ah);
+		ah = readU32LittleEndian(buffer);
+		r = getAddressAndPublicKey(address, &public_key, ah);
 	}
 
 	if (r == WALLET_NO_ERROR)
@@ -333,46 +334,46 @@ static NOINLINE u8 get_and_send_address_and_pubkey(u8 generate_new)
 		if (generate_new)
 		{
 			// 4 (address handle) + 20 (address) + 65 (public key)
-			write_u32_littleendian(&(buffer[1]), 89);
+			writeU32LittleEndian(&(buffer[1]), 89);
 		}
 		else
 		{
 			// 20 (address) + 65 (public key)
-			write_u32_littleendian(&(buffer[1]), 85);
+			writeU32LittleEndian(&(buffer[1]), 85);
 		}
-		if (write_bytes(buffer, 5))
+		if (writeBytes(buffer, 5))
 		{
 			return 1; // write error
 		}
 		if (generate_new)
 		{
-			write_u32_littleendian(buffer, ah);
-			if (write_bytes(buffer, 4))
+			writeU32LittleEndian(buffer, ah);
+			if (writeBytes(buffer, 4))
 			{
 				return 1; // write error
 			}
 		}
-		if (write_bytes(address, 20))
+		if (writeBytes(address, 20))
 		{
 			return 1; // write error
 		}
 		buffer[0] = 0x04;
-		if (write_bytes(buffer, 1))
+		if (writeBytes(buffer, 1))
 		{
 			return 1; // write error
 		}
-		if (write_bytes(pubkey.x, 32))
+		if (writeBytes(public_key.x, 32))
 		{
 			return 1; // write error
 		}
-		if (write_bytes(pubkey.y, 32))
+		if (writeBytes(public_key.y, 32))
 		{
 			return 1; // write error
 		}
 	}
 	else
 	{
-		if (translate_wallet_error (r, 0, NULL))
+		if (translateWalletError (r, 0, NULL))
 		{
 			return 1; // write error
 		}
@@ -383,15 +384,15 @@ static NOINLINE u8 get_and_send_address_and_pubkey(u8 generate_new)
 
 // Send a packet containing a list of wallets.
 // Returns 1 if a write error occurred, otherwise returns 0.
-static NOINLINE u8 list_wallets(void)
+static NOINLINE u8 listWallets(void)
 {
 	u8 version[4];
 	u8 name[40];
 	u8 buffer[5];
 
-	if (get_wallet_info(version, name) != WALLET_NO_ERROR)
+	if (getWalletInfo(version, name) != WALLET_NO_ERROR)
 	{
-		if (translate_wallet_error(wallet_get_last_error(), 0, NULL))
+		if (translateWalletError(walletGetLastError(), 0, NULL))
 		{
 			return 1; // write error
 		}
@@ -399,16 +400,16 @@ static NOINLINE u8 list_wallets(void)
 	else
 	{
 		buffer[0] = 0x02;
-		write_u32_littleendian(&(buffer[1]), 44);
-		if (write_bytes(buffer, 5))
+		writeU32LittleEndian(&(buffer[1]), 44);
+		if (writeBytes(buffer, 5))
 		{
 			return 1; // write error
 		}
-		if (write_bytes(version, 4))
+		if (writeBytes(version, 4))
 		{
 			return 1; // write error
 		}
-		if (write_bytes(name, 40))
+		if (writeBytes(name, 40))
 		{
 			return 1; // write error
 		}
@@ -419,7 +420,7 @@ static NOINLINE u8 list_wallets(void)
 
 // Read but ignore payload_length bytes from input stream.
 // Returns 0 on success, non-zero if there was a read error.
-static u8 read_and_ignore_input(void)
+static u8 readAndIgnoreInput(void)
 {
 	u8 junk;
 
@@ -427,7 +428,7 @@ static u8 read_and_ignore_input(void)
 	{
 		for (; payload_length--; )
 		{
-			if (stream_get_one_byte(&junk))
+			if (streamGetOneByte(&junk))
 			{
 				return 1; // read error
 			}
@@ -436,7 +437,7 @@ static u8 read_and_ignore_input(void)
 	return 0;
 }
 
-// All I/O errors returned by expect_length are >= EXPECT_LENGTH_IO_ERROR.
+// All I/O errors returned by expectLength() are >= EXPECT_LENGTH_IO_ERROR.
 #define EXPECT_LENGTH_IO_ERROR		42
 
 // Expect payload length to be equal to desired_length, and send an error
@@ -446,15 +447,15 @@ static u8 read_and_ignore_input(void)
 // 1 for length != desired_length.
 // EXPECT_LENGTH_IO_ERROR for read error,
 // EXPECT_LENGTH_IO_ERROR + 1 for write error,
-static u8 expect_length(const u8 desired_length)
+static u8 expectLength(const u8 desired_length)
 {
 	if (payload_length != desired_length)
 	{
-		if (read_and_ignore_input())
+		if (readAndIgnoreInput())
 		{
 			return EXPECT_LENGTH_IO_ERROR; // read error
 		}
-		if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
+		if (writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
 		{
 			return EXPECT_LENGTH_IO_ERROR + 1; // write error
 		}
@@ -467,32 +468,32 @@ static u8 expect_length(const u8 desired_length)
 }
 
 // This must be called on device startup.
-void init_stream_comm(void)
+void initStreamComm(void)
 {
-	prev_txhash_valid = 0;
+	prev_transaction_hash_valid = 0;
 }
 
 // Get packet from stream and deal with it. Returns 0 if the packet was
 // received successfully, non-zero if an error occurred. 0 will still
 // be returned if a command failed; here, "an error" means a problem
 // reading/writing from/to the stream.
-u8 process_packet(void)
+u8 processPacket(void)
 {
 	u8 command;
 	u8 buffer[40];
 	u8 i;
 	u8 r;
-	address_handle ah;
+	AddressHandle ah;
 
-	if (stream_get_one_byte(&command))
+	if (streamGetOneByte(&command))
 	{
 		return 1; // read error
 	}
-	if (read_bytes(buffer, 4))
+	if (readBytes(buffer, 4))
 	{
 		return 1; // read error
 	}
-	payload_length = read_u32_littleendian(buffer);
+	payload_length = readU32LittleEndian(buffer);
 
 	// Checklist for each case:
 	// 1. Have you checked or dealt with length?
@@ -510,11 +511,11 @@ u8 process_packet(void)
 	case 0x00:
 		// Ping request.
 		// Just throw away the data and then send response.
-		if (read_and_ignore_input())
+		if (readAndIgnoreInput())
 		{
 			return 1; // read error
 		}
-		if (put_string(STRINGSET_MISC, MISCSTR_VERSION, 0x01))
+		if (writeString(STRINGSET_MISC, MISCSTR_VERSION, 0x01))
 		{
 			return 1; // write error
 		}
@@ -525,33 +526,33 @@ u8 process_packet(void)
 
 	case 0x04:
 		// Create new wallet.
-		r = expect_length(72);
+		r = expectLength(72);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (read_bytes(buffer, 32))
+			if (readBytes(buffer, 32))
 			{
 				return 1; // read error
 			}
-			set_encryption_key(buffer);
-			set_tweak_key(&(buffer[16]));
-			if (read_bytes(buffer, 40))
+			setEncryptionKey(buffer);
+			setTweakKey(&(buffer[16]));
+			if (readBytes(buffer, 40))
 			{
 				return 1; // read error
 			}
-			if (ask_user(ASKUSER_NUKE_WALLET))
+			if (askUser(ASKUSER_NUKE_WALLET))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
+				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
 			}
 			else
 			{
-				if (translate_wallet_error (new_wallet(buffer), 0, NULL))
+				if (translateWalletError(newWallet(buffer), 0, NULL))
 				{
 					return 1; // write error
 				}
@@ -561,23 +562,23 @@ u8 process_packet(void)
 
 	case 0x05:
 		// Create new address in wallet.
-		r = expect_length(0);
+		r = expectLength(0);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (ask_user(ASKUSER_NEW_ADDRESS))
+			if (askUser(ASKUSER_NEW_ADDRESS))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
+				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
 			}
 			else
 			{
-				if (get_and_send_address_and_pubkey(1))
+				if (getAndSendAddressAndPublicKey(1))
 				{
 					return 1; // read or write error
 				}
@@ -587,15 +588,15 @@ u8 process_packet(void)
 
 	case 0x06:
 		// Get number of addresses in wallet.
-		r = expect_length(0);
+		r = expectLength(0);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			write_u32_littleendian(buffer, get_num_addresses());
-			if (translate_wallet_error(wallet_get_last_error(), 4, buffer))
+			writeU32LittleEndian(buffer, getNumAddresses());
+			if (translateWalletError(walletGetLastError(), 4, buffer))
 			{
 				return 1; // write error
 			}
@@ -604,14 +605,14 @@ u8 process_packet(void)
 
 	case 0x09:
 		// Get public key corresponding to an address handle.
-		r = expect_length(4);
+		r = expectLength(4);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (get_and_send_address_and_pubkey(0))
+			if (getAndSendAddressAndPublicKey(0))
 			{
 				return 1; // read or write error
 			}
@@ -622,25 +623,25 @@ u8 process_packet(void)
 		// Sign a transaction.
 		if (payload_length <= 4)
 		{
-			if (read_and_ignore_input())
+			if (readAndIgnoreInput())
 			{
 				return 1; // read error
 			}
-			if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
+			if (writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
 			{
 				return 1; // write error
 			}
 		}
 		else
 		{
-			if (read_bytes(buffer, 4))
+			if (readBytes(buffer, 4))
 			{
 				return 1; // read error
 			}
-			ah = read_u32_littleendian(buffer);
-			// Don't need to subtract 4 off payload_length because read_bytes
+			ah = readU32LittleEndian(buffer);
+			// Don't need to subtract 4 off payload_length because readBytes
 			// has already done so.
-			if (check_and_sign_by_ah(ah, payload_length))
+			if (validateAndSignTransaction(ah, payload_length))
 			{
 				return 1; // read or write error
 			}
@@ -650,20 +651,20 @@ u8 process_packet(void)
 
 	case 0x0b:
 		// Load wallet.
-		r = expect_length(32);
+		r = expectLength(32);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (read_bytes(buffer, 32))
+			if (readBytes(buffer, 32))
 			{
 				return 1; // read error
 			}
-			set_encryption_key(buffer);
-			set_tweak_key(&(buffer[16]));
-			if (translate_wallet_error (init_wallet(), 0, NULL))
+			setEncryptionKey(buffer);
+			setTweakKey(&(buffer[16]));
+			if (translateWalletError (initWallet(), 0, NULL))
 			{
 				return 1; // write error
 			}
@@ -672,7 +673,7 @@ u8 process_packet(void)
 
 	case 0x0c:
 		// Unload wallet.
-		r = expect_length(0);
+		r = expectLength(0);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
@@ -680,8 +681,8 @@ u8 process_packet(void)
 		if (!r)
 		{
 			volatile u8 *buffer_alias;
-			clear_keys();
-			sanitise_ram();
+			clearEncryptionKeys();
+			sanitiseRam();
 			buffer_alias = buffer;
 			for (i = 0; i < 32; i++)
 			{
@@ -691,7 +692,7 @@ u8 process_packet(void)
 			{
 				buffer_alias[i] = 0x0;
 			}
-			if (translate_wallet_error (uninit_wallet(), 0, NULL))
+			if (translateWalletError(uninitWallet(), 0, NULL))
 			{
 				return 1; // write error
 			}
@@ -700,23 +701,23 @@ u8 process_packet(void)
 
 	case 0x0d:
 		// Format storage.
-		r = expect_length(0);
+		r = expectLength(0);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (ask_user(ASKUSER_FORMAT))
+			if (askUser(ASKUSER_FORMAT))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
+				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
 			}
 			else
 			{
-				if (format_storage())
+				if (formatStorage())
 				{
 					return 1; // write error
 				}
@@ -726,18 +727,18 @@ u8 process_packet(void)
 
 	case 0x0e:
 		// Change wallet encryption key.
-		r = expect_length(32);
+		r = expectLength(32);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (read_bytes(buffer, 32))
+			if (readBytes(buffer, 32))
 			{
 				return 1; // read error
 			}
-			if (translate_wallet_error (change_encryption_key(buffer), 0, NULL))
+			if (translateWalletError(changeEncryptionKey(buffer), 0, NULL))
 			{
 				return 1; // write error
 			}
@@ -746,27 +747,27 @@ u8 process_packet(void)
 
 	case 0x0f:
 		// Change wallet name.
-		r = expect_length(40);
+		r = expectLength(40);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (read_bytes(buffer, 40))
+			if (readBytes(buffer, 40))
 			{
 				return 1; // read error
 			}
-			if (ask_user(ASKUSER_CHANGE_NAME))
+			if (askUser(ASKUSER_CHANGE_NAME))
 			{
-				if (put_string(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
+				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
 				{
 					return 1; // write error
 				}
 			}
 			else
 			{
-				if (translate_wallet_error (change_wallet_name(buffer), 0, NULL))
+				if (translateWalletError(changeWalletName(buffer), 0, NULL))
 				{
 					return 1; // write error
 				}
@@ -776,14 +777,14 @@ u8 process_packet(void)
 
 	case 0x10:
 		// List wallets.
-		r = expect_length(0);
+		r = expectLength(0);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (list_wallets())
+			if (listWallets())
 			{
 				return 1; // write error
 			}
@@ -792,11 +793,11 @@ u8 process_packet(void)
 
 	default:
 		// Unknown command.
-		if (read_and_ignore_input())
+		if (readAndIgnoreInput())
 		{
 			return 1; // read error
 		}
-		if (put_string(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
+		if (writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
 		{
 			return 1; // write error
 		}
@@ -813,23 +814,23 @@ u8 process_packet(void)
 
 #ifdef INTERFACE_STUBS
 
-u8 stream_get_one_byte(u8 *onebyte)
+u8 streamGetOneByte(u8 *one_byte)
 {
-	*onebyte = 0;
+	*one_byte = 0;
 	return 0; // success
 }
 
-u8 stream_put_one_byte(u8 onebyte)
+u8 streamPutOneByte(u8 one_byte)
 {
-	// Reference onebyte to make certain compilers happy
-	if (onebyte > 1000)
+	// Reference one_byte to make certain compilers happy
+	if (one_byte > 1000)
 	{
 		return 1;
 	}
 	return 0; // success
 }
 
-u16 get_string_length(string_set set, u8 spec)
+u16 getStringLength(StringSet set, u8 spec)
 {
 	// Reference set and spec to make certain compilers happy
 	if (set == spec)
@@ -839,7 +840,7 @@ u16 get_string_length(string_set set, u8 spec)
 	return 0;
 }
 
-char get_string(string_set set, u8 spec, u16 pos)
+char getString(StringSet set, u8 spec, u16 pos)
 {
 	// Reference set, spec and pos to make certain compilers happy
 	if ((pos == set) && (set == spec))
@@ -849,7 +850,7 @@ char get_string(string_set set, u8 spec, u16 pos)
 	return 0;
 }
 
-u8 ask_user(askuser_command command)
+u8 askUser(AskUserCommand command)
 {
 	// Reference command to make certain compilers happy
 	if (command == 99)
@@ -867,9 +868,9 @@ static u8 *stream;
 static int stream_ptr;
 static int stream_length;
 
-// Sets input stream (what will be read by stream_get_one_byte()) to the
+// Sets input stream (what will be read by streamGetOneByte()) to the
 // contents of a buffer.
-static void set_input_stream(const u8 *buffer, int length)
+static void setInputStream(const u8 *buffer, int length)
 {
 	if (stream != NULL)
 	{
@@ -881,24 +882,24 @@ static void set_input_stream(const u8 *buffer, int length)
 	stream_ptr = 0;
 }
 
-// Get one byte from the contents of the buffer set by set_input_stream().
-u8 stream_get_one_byte(u8 *onebyte)
+// Get one byte from the contents of the buffer set by setInputStream().
+u8 streamGetOneByte(u8 *one_byte)
 {
 	if (stream_ptr >= stream_length)
 	{
 		return 1; // end of stream
 	}
-	*onebyte = stream[stream_ptr++];
+	*one_byte = stream[stream_ptr++];
 	return 0; // success
 }
 
-u8 stream_put_one_byte(u8 onebyte)
+u8 streamPutOneByte(u8 one_byte)
 {
-	printf(" %02x", (int)onebyte);
+	printf(" %02x", (int)one_byte);
 	return 0; // success
 }
 
-static const char *get_string_internal(string_set set, u8 spec)
+static const char *getStringInternal(StringSet set, u8 spec)
 {
 	if (set == STRINGSET_MISC)
 	{
@@ -955,19 +956,19 @@ static const char *get_string_internal(string_set set, u8 spec)
 	{
 		switch (spec)
 		{
-		case TX_INVALID_FORMAT:
+		case TRANSACTION_INVALID_FORMAT:
 			return "Format of transaction is unknown or invalid";
 			break;
-		case TX_TOO_MANY_INPUTS:
+		case TRANSACTION_TOO_MANY_INPUTS:
 			return "Too many inputs in transaction";
 			break;
-		case TX_TOO_MANY_OUTPUTS:
+		case TRANSACTION_TOO_MANY_OUTPUTS:
 			return "Too many outputs in transaction";
 			break;
-		case TX_TOO_LARGE:
+		case TRANSACTION_TOO_LARGE:
 			return "Transaction's size is too large";
 			break;
-		case TX_NONSTANDARD:
+		case TRANSACTION_NON_STANDARD:
 			return "Transaction is non-standard";
 			break;
 		default:
@@ -982,18 +983,18 @@ static const char *get_string_internal(string_set set, u8 spec)
 	}
 }
 
-u16 get_string_length(string_set set, u8 spec)
+u16 getStringLength(StringSet set, u8 spec)
 {
-	return (u16)strlen(get_string_internal(set, spec));
+	return (u16)strlen(getStringInternal(set, spec));
 }
 
-char get_string(string_set set, u8 spec, u16 pos)
+char getString(StringSet set, u8 spec, u16 pos)
 {
-	assert(pos < get_string_length(set, spec));
-	return get_string_internal(set, spec)[pos];
+	assert(pos < getStringLength(set, spec));
+	return getStringInternal(set, spec)[pos];
 }
 
-u8 ask_user(askuser_command command)
+u8 askUser(AskUserCommand command)
 {
 	int c;
 
@@ -1163,58 +1164,58 @@ static const u8 test_stream_change_name[] = {
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
-static void send_one_test_stream(const u8 *test_stream, int size)
+static void sendOneTestStream(const u8 *test_stream, int size)
 {
 	int r;
 
-	set_input_stream(test_stream, size);
-	r = process_packet();
+	setInputStream(test_stream, size);
+	r = processPacket();
 	printf("\n");
-	printf("process_packet() returned: %d\n", r);
+	printf("processPacket() returned: %d\n", r);
 }
 
 int main(void)
 {
 	int i;
 
-	wallet_test_init();
-	init_wallet();
+	initWalletTest();
+	initWallet();
 
 	printf("Listing wallets...\n");
-	send_one_test_stream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
+	sendOneTestStream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
 	printf("Creating new wallet...\n");
-	send_one_test_stream(test_stream_new_wallet, sizeof(test_stream_new_wallet));
+	sendOneTestStream(test_stream_new_wallet, sizeof(test_stream_new_wallet));
 	printf("Listing wallets...\n");
-	send_one_test_stream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
+	sendOneTestStream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
 	for(i = 0; i < 4; i++)
 	{
 		printf("Creating new address...\n");
-		send_one_test_stream(test_stream_new_address, sizeof(test_stream_new_address));
+		sendOneTestStream(test_stream_new_address, sizeof(test_stream_new_address));
 	}
 	printf("Getting number of addresses...\n");
-	send_one_test_stream(test_stream_get_num_addresses, sizeof(test_stream_get_num_addresses));
+	sendOneTestStream(test_stream_get_num_addresses, sizeof(test_stream_get_num_addresses));
 	printf("Getting address 1...\n");
-	send_one_test_stream(test_stream_get_address1, sizeof(test_stream_get_address1));
+	sendOneTestStream(test_stream_get_address1, sizeof(test_stream_get_address1));
 	printf("Getting address 0...\n");
-	send_one_test_stream(test_stream_get_address0, sizeof(test_stream_get_address0));
+	sendOneTestStream(test_stream_get_address0, sizeof(test_stream_get_address0));
 	printf("Signing transaction...\n");
-	send_one_test_stream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
+	sendOneTestStream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
 	//printf("Formatting...\n");
-	//send_one_test_stream(test_stream_format, sizeof(test_stream_format));
+	//sendOneTestStream(test_stream_format, sizeof(test_stream_format));
 	printf("Loading wallet using incorrect key...\n");
-	send_one_test_stream(test_stream_load_incorrect, sizeof(test_stream_load_incorrect));
+	sendOneTestStream(test_stream_load_incorrect, sizeof(test_stream_load_incorrect));
 	printf("Loading wallet using correct key...\n");
-	send_one_test_stream(test_stream_load_correct, sizeof(test_stream_load_correct));
+	sendOneTestStream(test_stream_load_correct, sizeof(test_stream_load_correct));
 	printf("Changing wallet key...\n");
-	send_one_test_stream(test_stream_change_key, sizeof(test_stream_change_key));
+	sendOneTestStream(test_stream_change_key, sizeof(test_stream_change_key));
 	printf("Unloading wallet...\n");
-	send_one_test_stream(test_stream_unload, sizeof(test_stream_unload));
+	sendOneTestStream(test_stream_unload, sizeof(test_stream_unload));
 	printf("Loading wallet using changed key...\n");
-	send_one_test_stream(test_stream_load_with_changed_key, sizeof(test_stream_load_with_changed_key));
+	sendOneTestStream(test_stream_load_with_changed_key, sizeof(test_stream_load_with_changed_key));
 	printf("Changing name...\n");
-	send_one_test_stream(test_stream_change_name, sizeof(test_stream_change_name));
+	sendOneTestStream(test_stream_change_name, sizeof(test_stream_change_name));
 	printf("Listing wallets...\n");
-	send_one_test_stream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
+	sendOneTestStream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
 
 	exit(0);
 }

@@ -23,18 +23,18 @@
 #include "bignum256.h"
 #include "sha256.h"
 
-static const u8 base58_shiftlist[16] PROGMEM = {
+static const u8 base58_shift_list[16] PROGMEM = {
 0x00, 0x1d, 0x80, 0x0e, 0x40, 0x07, 0xa0, 0x03,
 0xd0, 0x01, 0xe8, 0x00, 0x74, 0x00, 0x3a, 0x00};
 
-static const u8 base10_shiftlist[16] PROGMEM = {
+static const u8 base10_shift_list[16] PROGMEM = {
 0x00, 0x05, 0x80, 0x02, 0x40, 0x01, 0xa0, 0x00,
 0x50, 0x00, 0x28, 0x00, 0x14, 0x00, 0x0a, 0x00};
 
-static const char base10_charlist[10] PROGMEM = {
+static const char base10_char_list[10] PROGMEM = {
 '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
 
-static const char base58_charlist[58] PROGMEM = {
+static const char base58_char_list[58] PROGMEM = {
 '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A',
 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L',
 'M', 'N', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W',
@@ -43,10 +43,10 @@ static const char base58_charlist[58] PROGMEM = {
 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
 
 #ifdef TEST
-static void bigprint_varsize(u8 *number, u8 size, u8 bigendian)
+static void bigPrintVariableSize(u8 *number, u8 size, u8 big_endian)
 {
 	u8 i;
-	if (bigendian)
+	if (big_endian)
 	{
 		for (i = 0; i < size; i++)
 		{
@@ -64,15 +64,17 @@ static void bigprint_varsize(u8 *number, u8 size, u8 bigendian)
 #endif // #ifdef TEST
 
 // Divide op1 by an 8-bit unsigned integer n, placing the result in r.
-// The 8-bit unsigned integer is specified by shiftlist, which is
+// The 8-bit unsigned integer is specified by shift_list, which is
 // an array of 8 little-endian 16-bit unsigned integers which are:
 // n << 7, n << 6, n << 5, ..., n << 0.
 // temp is a temporary work area. Its contents will be overwritten with junk.
 // The remainder will be written into op1.
 // op1 and temp must be an array of size + 1 bytes. r only needs to be an
 // array of size bytes.
-// r, op1 and temp cannot alias each other.
-static void bigdivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shiftlist)
+// Warning: r, op1 and temp cannot alias each other.
+// Another warning: for platforms that use the PROGMEM attribute, the
+// shift_list array must have that attribute.
+static void bigDivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shift_list)
 {
 	u8 i;
 	u8 j;
@@ -91,11 +93,11 @@ static void bigdivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shiftlist)
 		bit = 0x80;
 		for (j = 0; j < 8; j++)
 		{
-			temp[i] = LOOKUP_BYTE(&(shiftlist[j * 2]));
-			temp[i + 1] = LOOKUP_BYTE(&(shiftlist[j * 2 + 1]));
-			if (bigcmp_varsize(temp, op1, (u8)(size + 1)) != BIGCMP_GREATER)
+			temp[i] = LOOKUP_BYTE(&(shift_list[j * 2]));
+			temp[i + 1] = LOOKUP_BYTE(&(shift_list[j * 2 + 1]));
+			if (bigCompareVariableSize(temp, op1, (u8)(size + 1)) != BIGCMP_GREATER)
 			{
-				bigsubtract_varsize(op1, op1, temp, (u8)(size + 1));
+				bigSubtractVariableSizeNoModulo(op1, op1, temp, (u8)(size + 1));
 				r[i] |= bit;
 			}
 			bit >>= 1;
@@ -109,7 +111,7 @@ static void bigdivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shiftlist)
 // out should point to a char array which has space for at least 22 characters
 // (including the terminating null).
 // in is 64-bit, unsigned, little-endian integer with the amount.
-void amount_to_text(char *out, u8 *in)
+void amountToText(char *out, u8 *in)
 {
 	u8 op1[9];
 	u8 temp[9];
@@ -123,6 +125,7 @@ void amount_to_text(char *out, u8 *in)
 		r[i] = in[i];
 	}
 
+	// Write amount into a string like: "000000000000.00000000".
 	index = 20;
 	for (i = 0; i < 20; i++)
 	{
@@ -130,16 +133,16 @@ void amount_to_text(char *out, u8 *in)
 		{
 			op1[j] = r[j];
 		}
-		bigdivide(r, op1, temp, 8, base10_shiftlist);
+		bigDivide(r, op1, temp, 8, base10_shift_list);
 		if (i == 8)
 		{
 			out[index--] = '.';
 		}
-		out[index--] = LOOKUP_BYTE(&(base10_charlist[op1[0]]));
+		out[index--] = LOOKUP_BYTE(&(base10_char_list[op1[0]]));
 	}
 	out[21] = '\0';
 
-	// Truncate trailing zeroes up to the decimal point
+	// Truncate trailing zeroes up to the decimal point.
 	for (i = 20; i > 11; i--)
 	{
 		if ((out[i] == '0') || (out[i] == '.'))
@@ -152,7 +155,7 @@ void amount_to_text(char *out, u8 *in)
 		}
 	}
 
-	// Remove leading zeroes up to one zero before the decimal point
+	// Remove leading zeroes up to one zero before the decimal point.
 	for (i = 0; i < 11; i++)
 	{
 		if (out[0] == '0')
@@ -169,13 +172,13 @@ void amount_to_text(char *out, u8 *in)
 	}
 }
 
-// Convert 160-bit hash to BitCoin address. The hash should be specified by
+// Convert 160-bit hash to Bitcoin address. The hash should be specified by
 // in, which should point to an array of 20 bytes containing the hash in
-// big-endian format (as is typical for hashes). The BitCoin address will
+// big-endian format (as is typical for hashes). The Bitcoin address will
 // be written to out, in the format of a null-terminated string.
 // out should point to a buffer with space for at least 36 chars (this
 // includes the terminating null).
-void hash_to_addr(char *out, u8 *in)
+void hashToAddr(char *out, u8 *in)
 {
 	u8 r[25];
 	u8 op1[26];
@@ -183,28 +186,28 @@ void hash_to_addr(char *out, u8 *in)
 	u8 index;
 	u8 i;
 	u8 j;
-	u8 leadingzerobytes;
-	hash_state hs;
+	u8 leading_zero_bytes;
+	HashState hs;
 
-	// Prepend address version and append checksum
-	sha256_begin(&hs);
+	// Prepend address version and append checksum.
+	sha256Begin(&hs);
 	r[24] = ADDRESSVERSION;
-	sha256_writebyte(&hs, ADDRESSVERSION);
+	sha256WriteByte(&hs, ADDRESSVERSION);
 	for (i = 0; i < 20; i++)
 	{
 		r[23 - i] = in[i];
-		sha256_writebyte(&hs, in[i]);
+		sha256WriteByte(&hs, in[i]);
 	}
-	sha256_finishdouble(&hs);
-	write_u32_littleendian(r, hs.H[0]);
+	sha256FinishDouble(&hs);
+	writeU32LittleEndian(r, hs.h[0]);
 
-	// Count number of leading zero bytes
-	leadingzerobytes = 0;
+	// Count number of leading zero bytes.
+	leading_zero_bytes = 0;
 	for (i = 24; i < 25; i--)
 	{
 		if (r[i] == 0)
 		{
-			leadingzerobytes++;
+			leading_zero_bytes++;
 		}
 		else
 		{
@@ -212,7 +215,7 @@ void hash_to_addr(char *out, u8 *in)
 		}
 	}
 
-	// Convert to base 58
+	// Convert to base 58.
 	index = 34;
 	for (i = 0; i < 35; i++)
 	{
@@ -220,12 +223,12 @@ void hash_to_addr(char *out, u8 *in)
 		{
 			op1[j] = r[j];
 		}
-		bigdivide(r, op1, temp, 25, base58_shiftlist);
-		out[index--] = LOOKUP_BYTE(&(base58_charlist[op1[0]]));
+		bigDivide(r, op1, temp, 25, base58_shift_list);
+		out[index--] = LOOKUP_BYTE(&(base58_char_list[op1[0]]));
 	}
 	out[35] = '\0';
 
-	// Remove leading zeroes
+	// Remove leading zeroes.
 	for (i = 0; i < 35; i++)
 	{
 		if (out[0] == '1')
@@ -242,8 +245,8 @@ void hash_to_addr(char *out, u8 *in)
 	}
 
 	// Insert leading zeroes equal in number to the number of input leading
-	// zero bytes
-	for (i = 0; i < leadingzerobytes; i++)
+	// zero bytes.
+	for (i = 0; i < leading_zero_bytes; i++)
 	{
 		for (j = 34; j < 35; j--)
 		{
@@ -255,19 +258,19 @@ void hash_to_addr(char *out, u8 *in)
 
 #ifdef TEST
 
-struct base10test_struct
+struct Base10TestStruct
 {
 	u8 value[8];
 	char *text;
 };
 
-struct base58test_struct
+struct Base58TestStruct
 {
 	u8 hash[20];
 	char *addr;
 };
 
-const struct base10test_struct base10tests[] = {
+const struct Base10TestStruct base10_tests[] = {
 {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, "0"},
 {{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, "0.00000001"},
 {{0x0a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, "0.0000001"},
@@ -292,10 +295,10 @@ const struct base10test_struct base10tests[] = {
 {{0xf0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, "92233720368.54775792"},
 {{0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, "92233720368.5477579"}};
 
-// Some of these are real BitCoin addresses, obtained from blockexplorer
+// Some of these are real Bitcoin addresses, obtained from blockexplorer
 // and from forums.
-// Others were generated using http://blockexplorer.com/q/hashtoaddress
-const struct base58test_struct base58tests[] = {
+// Others were generated using http://blockexplorer.com/q/hashtoaddress.
+const struct base58test_struct base58_tests[] = {
 {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
   "1111111111111111111114oLvT2"},
@@ -361,26 +364,26 @@ int main(void)
 {
 	char text[22];
 	char addr[36];
-	int numtests;
+	int num_tests;
 	int i;
 	int succeeded;
 	int failed;
 
 	succeeded = 0;
 	failed = 0;
-	numtests = sizeof(base10tests) / sizeof(struct base10test_struct);
 
-	for (i = 0; i < numtests; i++)
+	num_tests = sizeof(base10_tests) / sizeof(struct Base10TestStruct);
+	for (i = 0; i < num_tests; i++)
 	{
-		amount_to_text(text, (u8 *)base10tests[i].value);
-		if (strcmp(base10tests[i].text, text))
+		amountToText(text, (u8 *)base10_tests[i].value);
+		if (strcmp(base10_tests[i].text, text))
 		{
 			printf("Base10 test number %d failed\n", i);
 			printf("Input: ");
-			bigprint_varsize((u8 *)base10tests[i].value, 8, 0);
+			bigPrintVariableSize((u8 *)base10_tests[i].value, 8, 0);
 			printf("\n");
 			printf("Got: %s\n", text);
-			printf("Expected: %s\n", base10tests[i].text);
+			printf("Expected: %s\n", base10_tests[i].text);
 			failed++;
 		}
 		else
@@ -389,19 +392,18 @@ int main(void)
 		}
 	}
 
-	numtests = sizeof(base58tests) / sizeof(struct base58test_struct);
-
-	for (i = 0; i < numtests; i++)
+	num_tests = sizeof(base58tests) / sizeof(struct Base58TestStruct);
+	for (i = 0; i < num_tests; i++)
 	{
-		hash_to_addr(addr, (u8 *)base58tests[i].hash);
-		if (strcmp(base58tests[i].addr, addr))
+		hashToAddr(addr, (u8 *)base58tests[i].hash);
+		if (strcmp(base58_tests[i].addr, addr))
 		{
 			printf("Base58 test number %d failed\n", i);
 			printf("Input: ");
-			bigprint_varsize((u8 *)base58tests[i].hash, 20, 1);
+			bigPrintVariableSize((u8 *)base58_tests[i].hash, 20, 1);
 			printf("\n");
 			printf("Got:      %s\n", addr);
-			printf("Expected: %s\n", base58tests[i].addr);
+			printf("Expected: %s\n", base58_tests[i].addr);
 			failed++;
 		}
 		else

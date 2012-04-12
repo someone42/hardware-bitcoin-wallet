@@ -12,8 +12,8 @@
 #include "common.h"
 #include "bignum256.h"
 
-extern void xor16bytes(u8 *r, u8 *op1);
-extern void get_random_256(bignum256 n);
-extern void generate_deterministic_256(bignum256 out, u8 *seed, u32 num);
+extern void xor16Bytes(u8 *r, u8 *op1);
+extern void getRandom256(BigNum256 n);
+extern void generateDeterministic256(BigNum256 out, u8 *seed, u32 num);
 
 #endif // #ifndef PRANDOM_H_INCLUDED

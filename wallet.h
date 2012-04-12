@@ -12,10 +12,10 @@
 #include "common.h"
 #include "ecdsa.h"
 
-// A value which has a one-to-one association with BitCoin addresses. Handles
+// A value which has a one-to-one association with Bitcoin addresses. Handles
 // are more efficient to deal with than the actual addresses themselves, since
 // they are much smaller.
-typedef u32 address_handle;
+typedef u32 AddressHandle;
 
 // For functions which return an address_handle, this is an address handle
 // which indicates that an error occurred.
@@ -25,8 +25,8 @@ typedef u32 address_handle;
 // than this.
 #define MAX_ADDRESSES		0xFFFFFFFE
 
-// Return values for wallet_get_last_error()
-typedef enum wallet_errors_type
+// Return values for walletGetLastError()
+typedef enum WalletErrorsEnum
 {
 	// No error actually occurred.
 	WALLET_NO_ERROR				=	0,
@@ -46,23 +46,23 @@ typedef enum wallet_errors_type
 	WALLET_END_OF_LIST			=	7,
 	// Invalid address handle.
 	WALLET_INVALID_HANDLE		=	8
-} wallet_errors;
+} WalletErrors;
 
-extern wallet_errors wallet_get_last_error(void);
-extern wallet_errors init_wallet(void);
-extern wallet_errors uninit_wallet(void);
-extern wallet_errors sanitise_nv_storage(u32 start, u32 end);
-extern wallet_errors new_wallet(u8 *name);
-extern address_handle make_new_address(u8 *out_address, point_affine *out_pubkey);
-extern wallet_errors get_address_and_pubkey(u8 *out_address, point_affine *out_pubkey, address_handle ah);
-extern u32 get_num_addresses(void);
-extern wallet_errors get_privkey(u8 *out, address_handle ah);
-extern wallet_errors change_encryption_key(u8 *new_key);
-extern wallet_errors change_wallet_name(u8 *new_name);
-extern wallet_errors get_wallet_info(u8 *out_version, u8 *out_name);
+extern WalletErrors walletGetLastError(void);
+extern WalletErrors initWallet(void);
+extern WalletErrors uninitWallet(void);
+extern WalletErrors sanitiseNonVolatileStorage(u32 start, u32 end);
+extern WalletErrors newWallet(u8 *name);
+extern AddressHandle makeNewAddress(u8 *out_address, PointAffine *out_public_key);
+extern WalletErrors getAddressAndPublicKey(u8 *out_address, PointAffine *out_public_key, AddressHandle ah);
+extern u32 getNumAddresses(void);
+extern WalletErrors getPrivateKey(u8 *out, AddressHandle ah);
+extern WalletErrors changeEncryptionKey(u8 *new_key);
+extern WalletErrors changeWalletName(u8 *new_name);
+extern WalletErrors getWalletInfo(u8 *out_version, u8 *out_name);
 
 #ifdef TEST
-extern void wallet_test_init(void);
+extern void initWalletTest(void);
 #endif // #ifdef TEST
 
 #endif // #ifndef WALLET_H_INCLUDED

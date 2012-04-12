@@ -28,7 +28,7 @@
 #endif // #ifdef TEST
 
 // XOR 16 bytes specified by r with the 16 bytes specified by op1.
-void xor16bytes(u8 *r, u8 *op1)
+void xor16Bytes(u8 *r, u8 *op1)
 {
 	u8 i;
 
@@ -48,69 +48,69 @@ void xor16bytes(u8 *r, u8 *op1)
 // Entropy is accumulated by running the cipher in CBC mode (albeit with a
 // changing key) until the total entropy as reported by the hardware number
 // generator is at least 256 * ENTROPY_SAFETY_FACTOR bits.
-void get_random_256(bignum256 n)
+void getRandom256(BigNum256 n)
 {
-	u16 totalentropy;
+	u16 total_entropy;
 	u8 key[32];
-	u8 randbytes[32];
-	u8 expkey[EXPKEY_SIZE];
+	u8 random_bytes[32];
+	u8 expanded_key[EXPANDED_KEY_SIZE];
 	u8 i;
 
-	totalentropy = 0;
+	total_entropy = 0;
 	for (i = 0; i < 32; i++)
 	{
 		n[i] = 0;
 	}
-	while (totalentropy < (256 * ENTROPY_SAFETY_FACTOR))
+	while (total_entropy < (256 * ENTROPY_SAFETY_FACTOR))
 	{
-		totalentropy = (u16)(totalentropy + hardware_random_bytes(key, 32));
-		totalentropy = (u16)(totalentropy + hardware_random_bytes(randbytes, 32));
+		total_entropy = (u16)(total_entropy + hardwareRandomBytes(key, 32));
+		total_entropy = (u16)(total_entropy + hardwareRandomBytes(random_bytes, 32));
 		// Mix plaintext with output of previous round.
-		xor16bytes(n, randbytes);
-		aes_expand_key(expkey, &(key[0]));
-		aes_encrypt(&(n[16]), &(n[0]), expkey);
-		xor16bytes(&(n[16]), &(randbytes[16]));
-		aes_expand_key(expkey, &(key[16]));
-		aes_encrypt(&(n[0]), &(n[16]), expkey);
+		xor16Bytes(n, random_bytes);
+		aesExpandKey(expanded_key, &(key[0]));
+		aesEncrypt(&(n[16]), &(n[0]), expanded_key);
+		xor16Bytes(&(n[16]), &(random_bytes[16]));
+		aesExpandKey(expanded_key, &(key[16]));
+		aesEncrypt(&(n[0]), &(n[16]), expanded_key);
 	}
 }
 
 // First part of deterministic 256-bit number generation.
-// See comments to generate_deterministic_256() for details.
+// See comments to generateDeterministic256() for details.
 // It was split into two parts to most efficiently use stack space.
-static NOINLINE void generate_deterministic_256_part1(u8 *hash, u8 *seed, u32 num)
+static NOINLINE void generateDeterministic256Part1(u8 *hash, u8 *seed, u32 num)
 {
 	u8 i;
-	hash_state hs;
+	HashState hs;
 
-	sha256_begin(&hs);
+	sha256Begin(&hs);
 	for (i = 32; i < 64; i++)
 	{
-		sha256_writebyte(&hs, seed[i]);
+		sha256WriteByte(&hs, seed[i]);
 	}
 	for (i = 0; i < 4; i++)
 	{
-		sha256_writebyte(&hs, 0);
+		sha256WriteByte(&hs, 0);
 	}
-	sha256_writebyte(&hs, (u8)(num >> 24));
-	sha256_writebyte(&hs, (u8)(num >> 16));
-	sha256_writebyte(&hs, (u8)(num >> 8));
-	sha256_writebyte(&hs, (u8)num);
-	sha256_finish(&hs);
-	convertHtobytearray(hash, &hs, 1);
+	sha256WriteByte(&hs, (u8)(num >> 24));
+	sha256WriteByte(&hs, (u8)(num >> 16));
+	sha256WriteByte(&hs, (u8)(num >> 8));
+	sha256WriteByte(&hs, (u8)num);
+	sha256Finish(&hs);
+	writeHashToByteArray(hash, &hs, 1);
 }
 
 // Second part of deterministic 256-bit number generation.
-// See comments to generate_deterministic_256() for details.
+// See comments to generateDeterministic256() for details.
 // It was split into two parts to most efficiently use stack space.
-static NOINLINE void generate_deterministic_256_part2(bignum256 out, u8 *hash, u8 *seed)
+static NOINLINE void generateDeterministic256Part2(BigNum256 out, u8 *hash, u8 *seed)
 {
-	u8 expkey[EXPKEY_SIZE];
+	u8 expanded_key[EXPANDED_KEY_SIZE];
 
-	aes_expand_key(expkey, &(seed[0]));
-	aes_encrypt(&(out[0]), &(hash[0]), expkey);
-	aes_expand_key(expkey, &(seed[16]));
-	aes_encrypt(&(out[16]), &(hash[16]), expkey);
+	aesExpandKey(expanded_key, &(seed[0]));
+	aesEncrypt(&(out[0]), &(hash[0]), expanded_key);
+	aesExpandKey(expanded_key, &(seed[16]));
+	aesEncrypt(&(out[16]), &(hash[16]), expanded_key);
 }
 
 // Use a combination of cryptographic primitives to deterministically
@@ -132,35 +132,21 @@ static NOINLINE void generate_deterministic_256_part2(bignum256 out, u8 *hash, u
 // Note: out is little-endian, so the first encrypted half of the hash
 // goes into the least-significant 256 bits while the second encrypted
 // half goes into the most-significant 256 bits.
-void generate_deterministic_256(bignum256 out, u8 *seed, u32 num)
+void generateDeterministic256(BigNum256 out, u8 *seed, u32 num)
 {
 	u8 hash[32];
 
-	generate_deterministic_256_part1(hash, seed, num);
-	generate_deterministic_256_part2(out, hash, seed);
+	generateDeterministic256Part1(hash, seed, num);
+	generateDeterministic256Part2(out, hash, seed);
 }
 
-#ifdef INTERFACE_STUBS
+#if defined(TEST) || defined(INTERFACE_STUBS)
 
 extern int rand(void);
 
-u16 hardware_random_bytes(u8 *buffer, u8 n)
-{
-	int i;
-	for (i = 0; i < n; i++)
-	{
-		buffer[0] = (u8)(rand() & 0xff);
-	}
-	return (u16)(n << 3);
-}
-
-#endif // #ifdef INTERFACE_STUBS
-
-#ifdef TEST
-
 // The purpose of this "random" byte source is to test the entropy
-// accumulation behaviour of get_random_256().
-u16 hardware_random_bytes(u8 *buffer, u8 n)
+// accumulation behaviour of getRandom256().
+u16 hardwareRandomBytes(u8 *buffer, u8 n)
 {
 	int i;
 
@@ -172,6 +158,10 @@ u16 hardware_random_bytes(u8 *buffer, u8 n)
 	return 8;
 }
 
+#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
+
+#ifdef TEST
+
 // A proper test suite for randomness would be quite big, so this test
 // spits out samples into random.dat, where they can be analysed using
 // an external program.
@@ -179,14 +169,14 @@ int main(int argc, char **argv)
 {
 	u8 r[32];
 	int i, j;
-	int nsamples;
+	int num_samples;
 	FILE *f;
 	u8 seed[64];
 	u8 keys[64][32];
 	u8 key2[32];
 
 	// Before outputting samples, do a sanity check that
-	// generate_deterministic_256() actually has different outputs when
+	// generateDeterministic256() actually has different outputs when
 	// each byte of the seed is changed.
 	for (i = 0; i < 64; i++)
 	{
@@ -195,47 +185,47 @@ int main(int argc, char **argv)
 			seed[j] = 0;
 		}
 		seed[i] = 1;
-		generate_deterministic_256(keys[i], seed, 0);
+		generateDeterministic256(keys[i], seed, 0);
 		for (j = 0; j < i; j++)
 		{
-			if (bigcmp(keys[i], keys[j]) == BIGCMP_EQUAL)
+			if (bigCompare(keys[i], keys[j]) == BIGCMP_EQUAL)
 			{
-				printf("generate_deterministic_256() is ignoring byte %d of seed\n", i);
+				printf("generateDeterministic256() is ignoring byte %d of seed\n", i);
 				exit(1);
 			}
 		}
 	}
-	// Check that generate_deterministic_256() isn't ignoring num.
+	// Check that generateDeterministic256() isn't ignoring num.
 	for (j = 0; j < 64; j++)
 	{
 		seed[j] = 0;
 	}
 	seed[0] = 1;
-	generate_deterministic_256(key2, seed, 1);
+	generateDeterministic256(key2, seed, 1);
 	for (j = 0; j < 64; j++)
 	{
-		if (bigcmp(key2, keys[j]) == BIGCMP_EQUAL)
+		if (bigCompare(key2, keys[j]) == BIGCMP_EQUAL)
 		{
-			printf("generate_deterministic_256() is ignoring num\n");
+			printf("generateDeterministic256() is ignoring num\n");
 			exit(1);
 		}
 	}
-	// Check that generate_deterministic_256() is actually deterministic
-	generate_deterministic_256(key2, seed, 0);
-	if (bigcmp(key2, keys[0]) != BIGCMP_EQUAL)
+	// Check that generateDeterministic256() is actually deterministic
+	generateDeterministic256(key2, seed, 0);
+	if (bigCompare(key2, keys[0]) != BIGCMP_EQUAL)
 	{
-		printf("generate_deterministic_256() is not deterministic\n");
+		printf("generateDeterministic256() is not deterministic\n");
 		exit(1);
 	}
 
 	if (argc != 2)
 	{
-		printf("Usage: %s <n>, where <n> is number of 128-bit samples to take\n", argv[0]);
+		printf("Usage: %s <n>, where <n> is number of 256-bit samples to take\n", argv[0]);
 		printf("Samples will go into random.dat\n");
 		exit(1);
 	}
-	sscanf(argv[1], "%d", &nsamples);
-	if (nsamples <= 0)
+	sscanf(argv[1], "%d", &num_samples);
+	if (num_samples <= 0)
 	{
 		printf("Invalid number of samples specified\n");
 		exit(1);
@@ -248,9 +238,9 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	srand(42);
-	for (i = 0; i < nsamples; i++)
+	for (i = 0; i < num_samples; i++)
 	{
-		get_random_256(r);
+		getRandom256(r);
 		fwrite(r, 32, 1, f);
 	}
 	fclose(f);

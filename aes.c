@@ -29,7 +29,7 @@
 #include "aes.h"
 
 // Forward s-box
-static const u8 Sbox[256] PROGMEM = {
+static const u8 sbox[256] PROGMEM = {
 0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
 0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
@@ -48,7 +48,7 @@ static const u8 Sbox[256] PROGMEM = {
 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16};
 
 // Inverse s-box
-static const u8 InvSbox[256] PROGMEM = {
+static const u8 inv_sbox[256] PROGMEM = {
 0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
 0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
 0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
@@ -66,51 +66,51 @@ static const u8 InvSbox[256] PROGMEM = {
 0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
 0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d};
 
-// All the Xtimes?fn() functions implement modular multiplication of their
+// All the xTimes?InGF() functions implement modular multiplication of their
 // argument by some constant under the field GF(2 ^ 8) with the reducing
 // polynomial x ^ 8 + x ^ 4 + x ^ 3 + x + 1.
 
-static u8 Xtimes2fn(u8 x)
+static u8 xTimes2InGF(u8 x)
 {
 	// ((unsigned int)(-(int)(x >> 7)) & 0x1b) is equivalent to
 	// (x & 0x80 ? 0x1b : 0) but is more timing attack resistant.
 	return (u8)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (x + x));
 }
 
-static u8 Xtimes3fn(u8 x)
+static u8 xTimes3InGF(u8 x)
 {
-	return (u8)(Xtimes2fn(x) ^ x);
+	return (u8)(xTimes2InGF(x) ^ x);
 }
 
-static u8 Xtimes4fn(u8 x)
+static u8 xTimes4InGF(u8 x)
 {
-	return Xtimes2fn(Xtimes2fn(x));
+	return xTimes2InGF(xTimes2InGF(x));
 }
 
-static u8 Xtimes8fn(u8 x)
+static u8 xTimes8InGF(u8 x)
 {
-	return Xtimes2fn(Xtimes4fn(x));
+	return xTimes2InGF(xTimes4InGF(x));
 }
 
-static u8 Xtimes9fn(u8 x)
+static u8 xTimes9InGF(u8 x)
 {
-	return (u8)(Xtimes8fn(x) ^ x);
+	return (u8)(xTimes8InGF(x) ^ x);
 }
 
-static u8 XtimesBfn(u8 x)
+static u8 xTimesBInGF(u8 x)
 {
-	return (u8)(Xtimes9fn(x) ^ Xtimes2fn(x));
+	return (u8)(xTimes9InGF(x) ^ xTimes2InGF(x));
 }
 
-static u8 XtimesDfn(u8 x)
+static u8 xTimesDInGF(u8 x)
 {
 	// Note that x * 13 is not the same as x * 11 + x * 2 under GF(2 ^ 8)
-	return (u8)(Xtimes9fn(x) ^ Xtimes4fn(x));
+	return (u8)(xTimes9InGF(x) ^ xTimes4InGF(x));
 }
 
-static u8 XtimesEfn(u8 x)
+static u8 xTimesEInGF(u8 x)
 {
-	return (u8)(Xtimes8fn(x) ^ Xtimes4fn(x) ^ Xtimes2fn(x));
+	return (u8)(xTimes8InGF(x) ^ xTimes4InGF(x) ^ xTimes2InGF(x));
 }
 
 static void copy16(u8 *out, u8 *in)
@@ -131,7 +131,7 @@ static void copy16(u8 *out, u8 *in)
 // row1 - shifted left (or right) 1
 // row2 - shifted left (or right) 2
 // row3 - shifted left (or right) 3
-static void ShiftOrInvShiftRows(u8 *state, u8 shift_or_inv)
+static void shiftOrInvShiftRows(u8 *state, u8 shift_or_inv)
 {
 	u8 tmp[16];
 	u8 i, j;
@@ -145,11 +145,11 @@ static void ShiftOrInvShiftRows(u8 *state, u8 shift_or_inv)
 		{
 			if (shift_or_inv == 5)
 			{
-				tmp[o1] = LOOKUP_BYTE(&(Sbox[state[o2]]));
+				tmp[o1] = LOOKUP_BYTE(&(sbox[state[o2]]));
 			}
 			else
 			{
-				tmp[o1] = LOOKUP_BYTE(&(InvSbox[state[o2]]));
+				tmp[o1] = LOOKUP_BYTE(&(inv_sbox[state[o2]]));
 			}
 			o1 = (u8)((o1 + 4) & 15);
 			o2 = (u8)((o2 + 4) & 15);
@@ -162,7 +162,7 @@ static void ShiftOrInvShiftRows(u8 *state, u8 shift_or_inv)
 }
 
 // Recombine and mix each row in a column.
-static void MixSubColumns(u8 *state)
+static void mixSubColumns(u8 *state)
 {
 	u8 tmp[16];
 	u8 i;
@@ -175,10 +175,10 @@ static void MixSubColumns(u8 *state)
 	for (i = 0; i < 16; i++)
 	{
 		tmp[i] = (u8)(
-			Xtimes2fn(LOOKUP_BYTE(&(Sbox[state[o1]])))
-			^ Xtimes3fn(LOOKUP_BYTE(&(Sbox[state[o2]])))
-			^ LOOKUP_BYTE(&(Sbox[state[o3]]))
-			^ LOOKUP_BYTE(&(Sbox[state[o4]])));
+			xTimes2InGF(LOOKUP_BYTE(&(sbox[state[o1]])))
+			^ xTimes3InGF(LOOKUP_BYTE(&(sbox[state[o2]])))
+			^ LOOKUP_BYTE(&(sbox[state[o3]]))
+			^ LOOKUP_BYTE(&(sbox[state[o4]])));
 		otemp = o1;
 		o1 = o2;
 		o2 = o3;
@@ -197,7 +197,7 @@ static void MixSubColumns(u8 *state)
 }
 
 // Restore and un-mix each row in a column.
-static void InvMixSubColumns(u8 *state)
+static void invMixSubColumns(u8 *state)
 {
 	u8 tmp[16];
 	u8 i;
@@ -212,10 +212,10 @@ static void InvMixSubColumns(u8 *state)
 	for (i = 0; i < 16; i++)
 	{
 		tmp[idx] = (u8)(
-			XtimesEfn(state[o1])
-			^ XtimesBfn(state[o2])
-			^ XtimesDfn(state[o3])
-			^ Xtimes9fn(state[o4]));
+			xTimesEInGF(state[o1])
+			^ xTimesBInGF(state[o2])
+			^ xTimesDInGF(state[o3])
+			^ xTimes9InGF(state[o4]));
 		idx = (u8)((idx + 5) & 15);
 		otemp = o1;
 		o1 = o2;
@@ -233,12 +233,12 @@ static void InvMixSubColumns(u8 *state)
 
 	for (i = 0; i < 16; i++)
 	{
-		state[i] = LOOKUP_BYTE(&(InvSbox[tmp[i]]));
+		state[i] = LOOKUP_BYTE(&(inv_sbox[tmp[i]]));
 	}
 }
 
 // Encrypt/decrypt columns of the key.
-static void AddRoundKey(u32 *state, u32 *key)
+static void addRoundKey(u32 *state, u32 *key)
 {
 	u8 idx;
 
@@ -248,87 +248,87 @@ static void AddRoundKey(u32 *state, u32 *key)
 	}
 }
 
-static const u8 Rcon[11] = {
+static const u8 r_con[11] = {
 0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36};
 
 // Expand the key by 16 bytes for each round.
 // Input (key): 16 bytes
-// Output (expkey): 176 bytes
-void aes_expand_key(u8 *expkey, u8 *key)
+// Output (expanded_key): 176 bytes
+void aesExpandKey(u8 *expanded_key, u8 *key)
 {
 	u8 tmp0, tmp1, tmp2, tmp3, tmp4;
 	u8 idx;
 
-	copy16(expkey, key);
+	copy16(expanded_key, key);
 
 	for (idx = 16; idx < 176; idx = (u8)(idx + 4))
 	{
-		tmp0 = expkey[idx - 4];
-		tmp1 = expkey[idx - 3];
-		tmp2 = expkey[idx - 2];
-		tmp3 = expkey[idx - 1];
+		tmp0 = expanded_key[idx - 4];
+		tmp1 = expanded_key[idx - 3];
+		tmp2 = expanded_key[idx - 2];
+		tmp3 = expanded_key[idx - 1];
 		if ((idx & 15) == 0)
 		{
 			tmp4 = tmp3;
-			tmp3 = LOOKUP_BYTE(&(Sbox[tmp0]));
-			tmp0 = (u8)(LOOKUP_BYTE(&(Sbox[tmp1])) ^ Rcon[idx >> 4]);
-			tmp1 = LOOKUP_BYTE(&(Sbox[tmp2]));
-			tmp2 = LOOKUP_BYTE(&(Sbox[tmp4]));
+			tmp3 = LOOKUP_BYTE(&(sbox[tmp0]));
+			tmp0 = (u8)(LOOKUP_BYTE(&(sbox[tmp1])) ^ r_con[idx >> 4]);
+			tmp1 = LOOKUP_BYTE(&(sbox[tmp2]));
+			tmp2 = LOOKUP_BYTE(&(sbox[tmp4]));
 		}
 
-		expkey[idx + 0] = (u8)(expkey[idx - 16 + 0] ^ tmp0);
-		expkey[idx + 1] = (u8)(expkey[idx - 16 + 1] ^ tmp1);
-		expkey[idx + 2] = (u8)(expkey[idx - 16 + 2] ^ tmp2);
-		expkey[idx + 3] = (u8)(expkey[idx - 16 + 3] ^ tmp3);
+		expanded_key[idx + 0] = (u8)(expanded_key[idx - 16 + 0] ^ tmp0);
+		expanded_key[idx + 1] = (u8)(expanded_key[idx - 16 + 1] ^ tmp1);
+		expanded_key[idx + 2] = (u8)(expanded_key[idx - 16 + 2] ^ tmp2);
+		expanded_key[idx + 3] = (u8)(expanded_key[idx - 16 + 3] ^ tmp3);
 	}
 }
 
 // Encrypt one 128 bit block.
 // in is the plaintext, a 16-byte array. The ciphertext will be placed in
-// out, which should also be a 16-byte array. expkey should point to a
-// 176-byte array containing the expanded key (see aes_expand_key()).
-void aes_encrypt(u8 *out, u8 *in, u8 *expkey)
+// out, which should also be a 16-byte array. expanded_key should point to a
+// 176-byte array containing the expanded key (see aesExpandKey()).
+void aesEncrypt(u8 *out, u8 *in, u8 *expanded_key)
 {
 	u8 round;
 
 	copy16(out, in);
 
-	AddRoundKey((u32 *)out, (u32 *)expkey);
+	addRoundKey((u32 *)out, (u32 *)expanded_key);
 
 	for (round = 1; round < 11; round++)
 	{
 		if (round < 10)
 		{
-			MixSubColumns(out);
+			mixSubColumns(out);
 		}
 		else
 		{
-			ShiftOrInvShiftRows(out, 5);
+			shiftOrInvShiftRows(out, 5);
 		}
 
-		AddRoundKey((u32 *)out, ((u32 *)expkey) + round * 4);
+		addRoundKey((u32 *)out, ((u32 *)expanded_key) + round * 4);
 	}
 }
 
 // Decrypt one 128-bit block.
 // in is the ciphertext, a 16-byte array. The plaintext will be placed in
-// out, which should also be a 16-byte array. expkey should point to a
-// 176-byte array containing the expanded key (see aes_expand_key()).
-void aes_decrypt(u8 *out, u8 *in, u8 *expkey)
+// out, which should also be a 16-byte array. expanded_key should point to a
+// 176-byte array containing the expanded key (see aesExpandKey()).
+void aesDecrypt(u8 *out, u8 *in, u8 *expanded_key)
 {
 	u8 round;
 
 	copy16(out, in);
 
-	AddRoundKey((u32 *)out, ((u32 *)expkey) + 40);
-	ShiftOrInvShiftRows(out, 13);
+	addRoundKey((u32 *)out, ((u32 *)expanded_key) + 40);
+	shiftOrInvShiftRows(out, 13);
 
 	for (round = 10; round--; )
 	{
-		AddRoundKey((u32 *)out, ((u32 *)expkey) + round * 4);
+		addRoundKey((u32 *)out, ((u32 *)expanded_key) + round * 4);
 		if (round != 0)
 		{
-			InvMixSubColumns(out);
+			invMixSubColumns(out);
 		}
 	}
 }
@@ -338,23 +338,23 @@ void aes_decrypt(u8 *out, u8 *in, u8 *expkey)
 static int succeeded;
 static int failed;
 
-static void skipwhitespace(FILE *f)
+static void skipWhiteSpace(FILE *f)
 {
-	int onechar;
+	int one_char;
 	do
 	{
-		onechar = fgetc(f);
-	} while ((onechar == ' ') || (onechar == '\t') || (onechar == '\n') || (onechar == '\r'));
-	ungetc(onechar, f);
+		one_char = fgetc(f);
+	} while ((one_char == ' ') || (one_char == '\t') || (one_char == '\n') || (one_char == '\r'));
+	ungetc(one_char, f);
 }
 
-static void skipline(FILE *f)
+static void skipLine(FILE *f)
 {
-	int onechar;
+	int one_char;
 	do
 	{
-		onechar = fgetc(f);
-	} while (onechar != '\n');
+		one_char = fgetc(f);
+	} while (one_char != '\n');
 }
 
 static void print16(u8 *buffer)
@@ -366,25 +366,25 @@ static void print16(u8 *buffer)
 	}
 }
 
-static void scantestvectors(char *filename)
+static void scanTestVectors(char *filename)
 {
-	FILE *f;
-	int testnumber;
-	int isencrypt;
+	FILE *test_vector_file;
+	int test_number;
+	int is_encrypt;
 	int i;
 	int j;
 	int value;
-	int seencount;
-	int testfailed;
+	int seen_count;
+	int test_failed;
 	char buffer[16];
 	u8 key[16];
 	u8 plaintext[16];
 	u8 ciphertext[16];
-	u8 compare[16];
-	u8 expkey[EXPKEY_SIZE];
+	u8 compare_text[16];
+	u8 expanded_key[EXPANDED_KEY_SIZE];
 
-	f = fopen(filename, "r");
-	if (f == NULL)
+	test_vector_file = fopen(filename, "r");
+	if (test_vector_file == NULL)
 	{
 		printf("Could not open %s, please get it \
 (\"AES Known Answer Test (KAT) Vectors\") \
@@ -392,29 +392,29 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		exit(1);
 	}
 
-	testnumber = 1;
+	test_number = 1;
 	for (i = 0; i < 9; i++)
 	{
-		skipline(f);
+		skipLine(test_vector_file);
 	}
-	isencrypt = 1;
-	while (!feof(f))
+	is_encrypt = 1;
+	while (!feof(test_vector_file))
 	{
 		// Check for [DECRYPT]
-		skipwhitespace(f);
-		seencount = 0;
-		while (!seencount)
+		skipWhiteSpace(test_vector_file);
+		seen_count = 0;
+		while (!seen_count)
 		{
-			fgets(buffer, 6, f);
-			skipline(f);
-			skipwhitespace(f);
+			fgets(buffer, 6, test_vector_file);
+			skipLine(test_vector_file);
+			skipWhiteSpace(test_vector_file);
 			if (!strcmp(buffer, "[DECR"))
 			{
-				isencrypt = 0;
+				is_encrypt = 0;
 			}
 			else if (!strcmp(buffer, "COUNT"))
 			{
-				seencount = 1;
+				seen_count = 1;
 			}
 			else
 			{
@@ -424,7 +424,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		}
 
 		// Get key
-		fgets(buffer, 7, f);
+		fgets(buffer, 7, test_vector_file);
 		if (strcmp(buffer, "KEY = "))
 		{
 			printf("Parse error; expected \"KEY = \"\n");
@@ -432,19 +432,19 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		}
 		for (i = 0; i < 16; i++)
 		{
-			fscanf(f, "%02x", &value);
+			fscanf(test_vector_file, "%02x", &value);
 			key[i] = (u8)value;
 		}
-		skipwhitespace(f);
+		skipWhiteSpace(test_vector_file);
 		// Get plaintext/ciphertext
-		// The order is: plaintext, then ciphertext for encrypt.
-		// The order is: ciphertext, then plaintext for decrypt.
+		// For encryption tests, the order is: plaintext, then ciphertext.
+		// For decryption tests, the order is: ciphertext, then plaintext.
 		for (j = 0; j < 2; j++)
 		{
-			if (((isencrypt) && (j == 0))
-				|| ((!isencrypt) && (j != 0)))
+			if (((is_encrypt) && (j == 0))
+				|| ((!is_encrypt) && (j != 0)))
 			{
-				fgets(buffer, 13, f);
+				fgets(buffer, 13, test_vector_file);
 				if (strcmp(buffer, "PLAINTEXT = "))
 				{
 					printf("Parse error; expected \"PLAINTEXT = \"\n");
@@ -452,13 +452,13 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 				}
 				for (i = 0; i < 16; i++)
 				{
-					fscanf(f, "%02x", &value);
+					fscanf(test_vector_file, "%02x", &value);
 					plaintext[i] = (u8)value;
 				}
 			}
 			else
 			{
-				fgets(buffer, 14, f);
+				fgets(buffer, 14, test_vector_file);
 				if (strcmp(buffer, "CIPHERTEXT = "))
 				{
 					printf("Parse error; expected \"CIPHERTEXT = \"\n");
@@ -466,38 +466,38 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 				}
 				for (i = 0; i < 16; i++)
 				{
-					fscanf(f, "%02x", &value);
+					fscanf(test_vector_file, "%02x", &value);
 					ciphertext[i] = (u8)value;
 				}
 			}
-			skipwhitespace(f);
+			skipWhiteSpace(test_vector_file);
 		} // end for (j = 0; j < 2; j++)
 		// Do encryption/decryption and compare
-		aes_expand_key(expkey, key);
-		testfailed = 0;
-		if (isencrypt)
+		aesExpandKey(expanded_key, key);
+		test_failed = 0;
+		if (is_encrypt)
 		{
-			aes_encrypt(compare, plaintext, expkey);
-			if (memcmp(compare, ciphertext, 16))
+			aesEncrypt(compare_text, plaintext, expanded_key);
+			if (memcmp(compare_text, ciphertext, 16))
 			{
-				testfailed = 1;
+				test_failed = 1;
 			}
 		}
 		else
 		{
-			aes_decrypt(compare, ciphertext, expkey);
-			if (memcmp(compare, plaintext, 16))
+			aesDecrypt(compare_text, ciphertext, expanded_key);
+			if (memcmp(compare_text, plaintext, 16))
 			{
-				testfailed = 1;
+				test_failed = 1;
 			}
 		}
-		if (!testfailed)
+		if (!test_failed)
 		{
 			succeeded++;
 		}
 		else
 		{
-			printf("Test %d failed\n", testnumber);
+			printf("Test %d failed\n", test_number);
 			printf("Key: ");
 			print16(key);
 			printf("\nPlaintext: ");
@@ -507,19 +507,19 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			printf("\n");
 			failed++;
 		}
-		testnumber++;
+		test_number++;
 	}
-	fclose(f);
+	fclose(test_vector_file);
 }
 
 int main(void)
 {
 	succeeded = 0;
 	failed = 0;
-	scantestvectors("ECBVarTxt128.rsp");
-	scantestvectors("ECBVarKey128.rsp");
-	scantestvectors("ECBKeySbox128.rsp");
-	scantestvectors("ECBGFSbox128.rsp");
+	scanTestVectors("ECBVarTxt128.rsp");
+	scanTestVectors("ECBVarKey128.rsp");
+	scanTestVectors("ECBKeySbox128.rsp");
+	scanTestVectors("ECBGFSbox128.rsp");
 	printf("Tests which succeeded: %d\n", succeeded);
 	printf("Tests which failed: %d\n", failed);
 	exit(0);

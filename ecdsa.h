@@ -15,7 +15,7 @@
 // A point on the elliptic curve, in affine coordinates. Affine
 // coordinates are the (x, y) that satisfy the elliptic curve
 // equation y ^ 2 = x ^ 3 + a * x + b.
-typedef struct point_affine_type
+typedef struct PointAffineStruct
 {
 	u8 x[32];
 	u8 y[32];
@@ -23,11 +23,11 @@ typedef struct point_affine_type
 	// point at infinity and all other structure members are considered
 	// invalid.
 	u8 is_point_at_infinity;
-} point_affine;
+} PointAffine;
 
-extern void set_to_G(point_affine *p);
-extern void set_field_to_p(void);
-extern void point_multiply(point_affine *p, bignum256 k);
-extern u8 ecdsa_sign(bignum256 r, bignum256 s, bignum256 hash, bignum256 privatekey, bignum256 k);
+extern void setToG(PointAffine *p);
+extern void setFieldToP(void);
+extern void pointMultiply(PointAffine *p, BigNum256 k);
+extern u8 ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k);
 
 #endif // #ifndef ECDSA_H_INCLUDED

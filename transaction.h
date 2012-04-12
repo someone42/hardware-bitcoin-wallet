@@ -12,26 +12,26 @@
 #include "common.h"
 #include "bignum256.h"
 
-typedef enum tx_errors_type
+typedef enum TransactionErrorsEnum
 {
 	// No error actually occurred.
-	TX_NO_ERROR					=	0,
+	TRANSACTION_NO_ERROR				=	0,
 	// Format of transaction is unknown or invalid.
-	TX_INVALID_FORMAT			=	1,
+	TRANSACTION_INVALID_FORMAT			=	1,
 	// Too many inputs in transaction.
-	TX_TOO_MANY_INPUTS			=	2,
+	TRANSACTION_TOO_MANY_INPUTS			=	2,
 	// Too many outputs in transaction.
-	TX_TOO_MANY_OUTPUTS			=	3,
+	TRANSACTION_TOO_MANY_OUTPUTS		=	3,
 	// Transaction's size (in bytes) is too large.
-	TX_TOO_LARGE				=	4,
+	TRANSACTION_TOO_LARGE				=	4,
 	// Transaction not recognised (i.e. non-standard).
-	TX_NONSTANDARD				=	5,
+	TRANSACTION_NON_STANDARD			=	5,
 	// Read error occurred when trying to read from input stream.
-	TX_READ_ERROR				=	6
-} tx_errors;
+	TRANSACTION_READ_ERROR				=	6
+} TransactionErrors;
 
-extern u16 get_transaction_num_inputs(void);
-extern tx_errors parse_transaction(bignum256 sighash, bignum256 txhash, u32 length);
-extern u8 sign_transaction(u8 *signature, bignum256 sighash, bignum256 privatekey);
+extern u16 getTransactionNumInputs(void);
+extern TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, u32 length);
+extern u8 signTransaction(u8 *signature, BigNum256 sig_hash, BigNum256 private_key);
 
 #endif // #ifndef TRANSACTION_H_INCLUDED

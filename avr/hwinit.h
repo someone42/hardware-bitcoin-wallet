@@ -9,8 +9,7 @@
 #ifndef HWINIT_H_INCLUDED
 #define HWINIT_H_INCLUDED
 
-extern void init_adc(void);
-extern void init_usart(void);
-extern void init_lcd_and_input(void);
+extern void initAdc(void);
+extern void initUsart(void);
 
 #endif // #ifndef HWINIT_H_INCLUDED

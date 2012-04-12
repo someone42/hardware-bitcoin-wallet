@@ -56,7 +56,7 @@
 // Set one of the digital output pins based on the Arduino pin mapping.
 // pin is the Arduino pin number (0 to 13 inclusive) and value is non-zero
 // for output high and zero for output low.
-static inline void write_arduino_pin(const u8 pin, const u8 value)
+static inline void writeArduinoPin(const u8 pin, const u8 value)
 {
 	u8 bit;
 
@@ -94,16 +94,16 @@ static inline void write_arduino_pin(const u8 pin, const u8 value)
 // a 2x safety factor.
 static void write4(u8 value)
 {
-	write_arduino_pin(D4_PIN, (u8)(value & 0x01));
-	write_arduino_pin(D5_PIN, (u8)(value & 0x02));
-	write_arduino_pin(D6_PIN, (u8)(value & 0x04));
-	write_arduino_pin(D7_PIN, (u8)(value & 0x08));
+	writeArduinoPin(D4_PIN, (u8)(value & 0x01));
+	writeArduinoPin(D5_PIN, (u8)(value & 0x02));
+	writeArduinoPin(D6_PIN, (u8)(value & 0x04));
+	writeArduinoPin(D7_PIN, (u8)(value & 0x08));
 	_delay_us(2);
-	write_arduino_pin(E_PIN, 0);
+	writeArduinoPin(E_PIN, 0);
 	_delay_us(2);
-	write_arduino_pin(E_PIN, 1);
+	writeArduinoPin(E_PIN, 1);
 	_delay_us(2);
-	write_arduino_pin(E_PIN, 0);
+	writeArduinoPin(E_PIN, 0);
 	_delay_us(2);
 	// From page 24 of the datasheet, most commands require 37 us to complete.
 	_delay_us(74);
@@ -119,7 +119,7 @@ static void write8(u8 value)
 
 // Set one of the Arduino digital I/O pins to be an input pin with
 // internal pull-up enabled.
-static inline void set_arduino_pin_input(const u8 pin)
+static inline void setArduinoPinInput(const u8 pin)
 {
 	u8 bit;
 
@@ -140,7 +140,7 @@ static inline void set_arduino_pin_input(const u8 pin)
 
 // Returns non-zero if the Arduino digital I/O pin is high, returns 0 if it
 // is low.
-static inline u8 sample_arduino_pin(const u8 pin)
+static inline u8 sampleArduinoPin(const u8 pin)
 {
 	u8 bit;
 
@@ -198,7 +198,7 @@ ISR(TIMER0_COMPA_vect)
 				}
 				else
 				{
-					write_arduino_pin(RS_PIN, 0);
+					writeArduinoPin(RS_PIN, 0);
 					write8(0x1c);
 					scroll_pos--;
 				}
@@ -211,7 +211,7 @@ ISR(TIMER0_COMPA_vect)
 				}
 				else
 				{
-					write_arduino_pin(RS_PIN, 0);
+					writeArduinoPin(RS_PIN, 0);
 					write8(0x18);
 					scroll_pos++;
 				}
@@ -220,7 +220,7 @@ ISR(TIMER0_COMPA_vect)
 		scroll_counter = SCROLL_SPEED;
 	}
 
-	temp = sample_arduino_pin(ACCEPT_PIN);
+	temp = sampleArduinoPin(ACCEPT_PIN);
 	if ((accept_button && temp) || (!accept_button && !temp))
 	{
 		// Mismatching state; accumulate debounce counter until threshold
@@ -235,7 +235,7 @@ ISR(TIMER0_COMPA_vect)
 	{
 		accept_debounce = 0;
 	}
-	temp = sample_arduino_pin(CANCEL_PIN);
+	temp = sampleArduinoPin(CANCEL_PIN);
 	if ((cancel_button && temp) || (!cancel_button && !temp))
 	{
 		// Mismatching state; accumulate debounce counter until threshold
@@ -252,21 +252,21 @@ ISR(TIMER0_COMPA_vect)
 	}
 }
 
-static void clear_lcd(void)
+static void clearLcd(void)
 {
 	current_column = 0;
 	max_line_size = 0;
 	scroll_pos = 0;
 	scroll_direction = 0;
 	scroll_counter = SCROLL_SPEED;
-	write_arduino_pin(RS_PIN, 0);
+	writeArduinoPin(RS_PIN, 0);
 	write8(0x01); // clear display
 	_delay_ms(10);
 }
 
 // See page 46 of the datasheet. All delays have a 2x safety factor.
 // This also sets up timer 0 to fire an interrupt every 5 ms.
-void init_lcd_and_input(void)
+void initLcdAndInput(void)
 {
 	cli();
 	TCCR0A = _BV(WGM01);
@@ -276,15 +276,15 @@ void init_lcd_and_input(void)
 	TIMSK0 = _BV(OCIE0A);
 	scroll_counter = 1000; // make sure no attempt at scrolling is made yet
 	MCUCR = (u8)(MCUCR & ~_BV(PUD));
-	set_arduino_pin_input(ACCEPT_PIN);
-	set_arduino_pin_input(CANCEL_PIN);
+	setArduinoPinInput(ACCEPT_PIN);
+	setArduinoPinInput(CANCEL_PIN);
 	accept_button = 0;
 	cancel_button = 0;
 	accept_debounce = 0;
 	cancel_debounce = 0;
 	sei();
-	write_arduino_pin(E_PIN, 0);
-	write_arduino_pin(RS_PIN, 0);
+	writeArduinoPin(E_PIN, 0);
+	writeArduinoPin(RS_PIN, 0);
 	_delay_ms(80);
 	write4(3);
 	_delay_ms(8.2);
@@ -295,16 +295,16 @@ void init_lcd_and_input(void)
 	// Now in 4-bit mode.
 	write8(0x28); // function set: 4-bit mode, 2 lines, 5x8 dots
 	write8(0x0c); // display on/off control: display on, no cursor
-	clear_lcd();
+	clearLcd();
 	write8(0x06); // entry mode set: increment, no display shift
 	list_index = 0;
 }
 
 // If line is zero, this sets the cursor to the start of the first line,
 // otherwise this sets the cursor to the start of the second line.
-static void goto_start_of_line(u8 line)
+static void gotoStartOfLine(u8 line)
 {
-	write_arduino_pin(RS_PIN, 0);
+	writeArduinoPin(RS_PIN, 0);
 	if (!line)
 	{
 		write8(0x80);
@@ -320,11 +320,11 @@ static void goto_start_of_line(u8 line)
 // column 40 are dropped.
 // If is_progmem is non-zero, then str is treated as a pointer to program
 // memory.
-static void write_string(char *str, u8 is_progmem)
+static void writeString(char *str, u8 is_progmem)
 {
 	char c;
 
-	write_arduino_pin(RS_PIN, 1);
+	writeArduinoPin(RS_PIN, 1);
 	if (is_progmem)
 	{
 		c = (char)pgm_read_byte(str);
@@ -356,12 +356,12 @@ static void write_string(char *str, u8 is_progmem)
 }
 
 // Notify the user interface that the transaction parser has seen a new
-// BitCoin amount/address pair. Both the amount and address are
+// Bitcoin amount/address pair. Both the amount and address are
 // null-terminated text strings such as "0.01" and
 // "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn" respectively. If no error occurred,
 // return 0. If there was not enough space to store the amount/address pair,
 // then return some non-zero value.
-u8 new_output_seen(char *textamount, char *textaddress)
+u8 newOutputSeen(char *text_amount, char *text_address)
 {
 	char *amount_dest;
 	char *address_dest;
@@ -372,23 +372,23 @@ u8 new_output_seen(char *textamount, char *textaddress)
 	}
 	amount_dest = list_amount[list_index];
 	address_dest = list_address[list_index];
-	strncpy(amount_dest, textamount, 22);
-	strncpy(address_dest, textaddress, 36);
+	strncpy(amount_dest, text_amount, 22);
+	strncpy(address_dest, text_address, 36);
 	amount_dest[21] = '\0';
 	address_dest[35] = '\0';
 	list_index++;
 	return 0;
 }
 
-// Notify the user interface that the list of BitCoin amount/address pairs
+// Notify the user interface that the list of Bitcoin amount/address pairs
 // should be cleared.
-void clear_outputs_seen(void)
+void clearOutputsSeen(void)
 {
 	list_index = 0;
 }
 
 // Wait until neither accept nor cancel are being pressed.
-static void wait_for_no_button_press(void)
+static void waitForNoButtonPress(void)
 {
 	do
 	{
@@ -398,7 +398,7 @@ static void wait_for_no_button_press(void)
 
 // Wait until accept or cancel is pressed. Returns 0 if the accept button
 // was pressed, non-zero if the cancel button was pressed.
-static u8 wait_for_button_press(void)
+static u8 waitForButtonPress(void)
 {
 	u8 current_accept_button;
 	u8 current_cancel_button;
@@ -435,47 +435,48 @@ static char str_change_line0[] PROGMEM = "Change the name";
 static char str_change_line1[] PROGMEM = "of your wallet?";
 static char str_unknown_line0[] PROGMEM = "Unknown command in ask_user()";
 static char str_unknown_line1[] PROGMEM = "Press any button to continue";
+static char str_stream_error[] PROGMEM = "Stream error";
 
 // Ask user if they want to allow some action. Returns 0 if the user
 // accepted, non-zero if the user denied.
-u8 ask_user(askuser_command command)
+u8 askUser(AskUserCommand command)
 {
 	u8 i;
 	u8 r; // what will be returned
 
-	clear_lcd();
+	clearLcd();
 
 	if (command == ASKUSER_NUKE_WALLET)
 	{
-		wait_for_no_button_press();
-		goto_start_of_line(0);
-		write_string(str_delete_line0, 1);
-		goto_start_of_line(1);
-		write_string(str_delete_line1, 1);
-		r = wait_for_button_press();
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_delete_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_delete_line1, 1);
+		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_NEW_ADDRESS)
 	{
-		wait_for_no_button_press();
-		goto_start_of_line(0);
-		write_string(str_new_line0, 1);
-		goto_start_of_line(1);
-		write_string(str_new_line1, 1);
-		r = wait_for_button_press();
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_new_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_new_line1, 1);
+		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_SIGN_TRANSACTION)
 	{
 		for (i = 0; i < list_index; i++)
 		{
-			clear_lcd();
-			wait_for_no_button_press();
-			goto_start_of_line(0);
-			write_string(str_sign_part0, 1);
-			write_string(list_amount[i], 0);
-			write_string(str_sign_part1, 1);
-			goto_start_of_line(1);
-			write_string(list_address[i], 0);
-			r = wait_for_button_press();
+			clearLcd();
+			waitForNoButtonPress();
+			gotoStartOfLine(0);
+			writeString(str_sign_part0, 1);
+			writeString(list_amount[i], 0);
+			writeString(str_sign_part1, 1);
+			gotoStartOfLine(1);
+			writeString(list_address[i], 0);
+			r = waitForButtonPress();
 			if (r)
 			{
 				// All outputs must be confirmed in order for a transaction
@@ -487,32 +488,41 @@ u8 ask_user(askuser_command command)
 	}
 	else if (command == ASKUSER_FORMAT)
 	{
-		wait_for_no_button_press();
-		goto_start_of_line(0);
-		write_string(str_format_line0, 1);
-		goto_start_of_line(1);
-		write_string(str_format_line1, 1);
-		r = wait_for_button_press();
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_format_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_format_line1, 1);
+		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_CHANGE_NAME)
 	{
-		wait_for_no_button_press();
-		goto_start_of_line(0);
-		write_string(str_change_line0, 1);
-		goto_start_of_line(1);
-		write_string(str_change_line1, 1);
-		r = wait_for_button_press();
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_change_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_change_line1, 1);
+		r = waitForButtonPress();
 	}
 	else
 	{
-		wait_for_no_button_press();
-		goto_start_of_line(0);
-		write_string(str_unknown_line0, 1);
-		goto_start_of_line(1);
-		write_string(str_unknown_line1, 1);
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_unknown_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_unknown_line1, 1);
+		waitForButtonPress();
 		r = 1; // unconditionally deny
 	}
 
-	clear_lcd();
+	clearLcd();
 	return r;
+}
+
+// Notify user of stream error via. LCD.
+void streamError(void)
+{
+	clearLcd();
+	gotoStartOfLine(0);
+	writeString(str_stream_error, 1);
 }

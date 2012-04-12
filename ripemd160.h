@@ -16,8 +16,8 @@
 #include "common.h"
 #include "hash.h"
 
-extern void ripemd160_begin(hash_state *hs);
-extern void ripemd160_writebyte(hash_state *hs, u8 byte);
-extern void ripemd160_finish(hash_state *hs);
+extern void ripemd160Begin(HashState *hs);
+extern void ripemd160WriteByte(HashState *hs, u8 byte);
+extern void ripemd160Finish(HashState *hs);
 
 #endif // #ifndef RIPEMD160_H_INCLUDED

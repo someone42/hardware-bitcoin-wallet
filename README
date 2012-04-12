@@ -1,7 +1,7 @@
-Hardware BitCoin Wallet
+Hardware Bitcoin Wallet
 by someone42, unless stated otherwise
 
-A minimal BitCoin (see http://bitcoin.org/ ) wallet for embedded devices. The
+A minimal Bitcoin (see http://bitcoin.org/ ) wallet for embedded devices. The
 wallet is responsible for parsing transactions, prompting the user and signing
 transactions. It is not aware of the blockchain and communicates with a
 BitCoin client ("the host" from the point of view of the code here) via. a

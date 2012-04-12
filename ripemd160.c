@@ -91,7 +91,7 @@ static u32 f4(u32 x, u32 y, u32 z)
 }
 
 // Update hash based on 512-bit block M.
-static void ripemd160_block(hash_state *hs)
+static void ripemd160Block(HashState *hs)
 {
 	// 1 = unprimed, 2 = primed.
 	// A to E and T are the variables used in the pseudo-code of Appendix A
@@ -106,15 +106,15 @@ static void ripemd160_block(hash_state *hs)
 	u8 j;
 	u8 fnselector;
 
-	A1 = hs->H[0];
+	A1 = hs->h[0];
 	A2 = A1;
-	B1 = hs->H[1];
+	B1 = hs->h[1];
 	B2 = B1;
-	C1 = hs->H[2];
+	C1 = hs->h[2];
 	C2 = C1;
-	D1 = hs->H[3];
+	D1 = hs->h[3];
 	D2 = D1;
-	E1 = hs->H[4];
+	E1 = hs->h[4];
 	E2 = E1;
 	for (j = 0; j < 80; j++)
 	{
@@ -152,52 +152,52 @@ static void ripemd160_block(hash_state *hs)
 			K2 = 0x00000000;
 			break;
 		}
-		T = rol(A1 + R1 + hs->M[LOOKUP_BYTE(&(r1[j]))] + K1, LOOKUP_BYTE(&(s1[j]))) + E1;
+		T = rol(A1 + R1 + hs->m[LOOKUP_BYTE(&(r1[j]))] + K1, LOOKUP_BYTE(&(s1[j]))) + E1;
 		A1 = E1;
 		E1 = D1;
 		D1 = rol(C1, 10);
 		C1 = B1;
 		B1 = T;
-		T = rol(A2 + R2 + hs->M[LOOKUP_BYTE(&(r2[j]))] + K2, LOOKUP_BYTE(&(s2[j]))) + E2;
+		T = rol(A2 + R2 + hs->m[LOOKUP_BYTE(&(r2[j]))] + K2, LOOKUP_BYTE(&(s2[j]))) + E2;
 		A2 = E2;
 		E2 = D2;
 		D2 = rol(C2, 10);
 		C2 = B2;
 		B2 = T;
 	}
-	T = hs->H[1] + C1 + D2;
-	hs->H[1] = hs->H[2] + D1 + E2;
-	hs->H[2] = hs->H[3] + E1 + A2;
-	hs->H[3] = hs->H[4] + A1 + B2;
-	hs->H[4] = hs->H[0] + B1 + C2;
-	hs->H[0] = T;
+	T = hs->h[1] + C1 + D2;
+	hs->h[1] = hs->h[2] + D1 + E2;
+	hs->h[2] = hs->h[3] + E1 + A2;
+	hs->h[3] = hs->h[4] + A1 + B2;
+	hs->h[4] = hs->h[0] + B1 + C2;
+	hs->h[0] = T;
 }
 
 // Begin calculating hash for new message.
-void ripemd160_begin(hash_state *hs)
+void ripemd160Begin(HashState *hs)
 {
-	hs->messagelength = 0;
-	hs->hash_block = ripemd160_block;
-	hs->isbigendian = 0;
-	hs->H[0] = 0x67452301;
-	hs->H[1] = 0xefcdab89;
-	hs->H[2] = 0x98badcfe;
-	hs->H[3] = 0x10325476;
-	hs->H[4] = 0xc3d2e1f0;
+	hs->message_length = 0;
+	hs->hashBlock = ripemd160Block;
+	hs->is_big_endian = 0;
+	hs->h[0] = 0x67452301;
+	hs->h[1] = 0xefcdab89;
+	hs->h[2] = 0x98badcfe;
+	hs->h[3] = 0x10325476;
+	hs->h[4] = 0xc3d2e1f0;
 	clearM(hs);
 }
 
 // Send one more byte to be hashed.
-void ripemd160_writebyte(hash_state *hs, u8 byte)
+void ripemd160WriteByte(HashState *hs, u8 byte)
 {
-	hash_writebyte(hs, byte);
+	hashWriteByte(hs, byte);
 }
 
 // Finish off hashing message (write padding and length) and calculate
 // final hash.
-void ripemd160_finish(hash_state *hs)
+void ripemd160Finish(HashState *hs)
 {
-	hash_finish(hs);
+	hashFinish(hs);
 }
 
 #ifdef TEST
@@ -205,23 +205,23 @@ void ripemd160_finish(hash_state *hs)
 static int succeeded;
 static int failed;
 
-static u32 H[5];
+static u32 h[5];
 
-// Result is returned in H.
+// Result is returned in h.
 static void ripemd160(u8 *message, u32 length)
 {
 	u32 i;
-	hash_state hs;
+	HashState hs;
 
-	ripemd160_begin(&hs);
+	ripemd160Begin(&hs);
 	for (i = 0; i < length; i++)
 	{
-		ripemd160_writebyte(&hs, message[i]);
+		ripemd160WriteByte(&hs, message[i]);
 	}
-	ripemd160_finish(&hs);
+	ripemd160Finish(&hs);
 	for (i = 0; i < 5; i++)
 	{
-		H[i] = hs.H[i];
+		h[i] = hs.h[i];
 	}
 }
 
@@ -229,7 +229,7 @@ static void ripemd160(u8 *message, u32 length)
 // paper.
 #define NUMTESTS 8
 
-static const char *teststrings[NUMTESTS] = {
+static const char *test_strings[NUMTESTS] = {
 "",
 "a",
 "abc",
@@ -239,7 +239,7 @@ static const char *teststrings[NUMTESTS] = {
 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
 "12345678901234567890123456789012345678901234567890123456789012345678901234567890"};
 
-static const u32 testhashes[5 * NUMTESTS] = {
+static const u32 test_hashes[5 * NUMTESTS] = {
 0x9c1185a5, 0xc5e9fc54, 0x61280897, 0x7ee8f548, 0xb2258d31,
 0x0bdc9d2d, 0x256b3ee9, 0xdaae347b, 0xe6f4dc83, 0x5a467ffe,
 0x8eb208f7, 0xe05d987a, 0x9b044a8e, 0x98c6b087, 0xf15a0bfc,
@@ -253,20 +253,20 @@ int main(void)
 {
 	int i;
 	char *str;
-	u32 *compareH;
+	u32 *compare_h;
 
 	succeeded = 0;
 	failed = 0;
 	for (i = 0; i < NUMTESTS; i++)
 	{
-		str = (char *)teststrings[i];
+		str = (char *)test_strings[i];
 		ripemd160((u8 *)str, strlen(str));
-		compareH = (u32 *)&(testhashes[i * 5]);
-		if ((H[0] == compareH[0]) && (H[1] == compareH[1])
-			&& (H[2] == compareH[2]) && (H[3] == compareH[3])
-			&& (H[4] == compareH[4]))
+		compare_h = (u32 *)&(test_hashes[i * 5]);
+		if ((h[0] == compare_h[0]) && (h[1] == compare_h[1])
+			&& (h[2] == compare_h[2]) && (h[3] == compare_h[3])
+			&& (h[4] == compare_h[4]))
 		{
-			//printf("%08x%08x%08x%08x%08x\n", H[0], H[1], H[2], H[3], H[4]);
+			//printf("%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4]);
 			succeeded++;
 		}
 		else
@@ -276,16 +276,16 @@ int main(void)
 			failed++;
 		}
 	}
-	// Million "a" test
+	// Million "a" test.
 	str = malloc(1000000);
 	memset(str, 'a', 1000000);
 	ripemd160((u8 *)str, 1000000);
 	free(str);
-	if ((H[0] == 0x52783243) && (H[1] == 0xc1697bdb)
-		&& (H[2] == 0xe16d37f9) && (H[3] == 0x7f68f083)
-		&& (H[4] == 0x25dc1528))
+	if ((h[0] == 0x52783243) && (h[1] == 0xc1697bdb)
+		&& (h[2] == 0xe16d37f9) && (h[3] == 0x7f68f083)
+		&& (h[4] == 0x25dc1528))
 	{
-		//printf("%08x%08x%08x%08x%08x\n", H[0], H[1], H[2], H[3], H[4]);
+		//printf("%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4]);
 		succeeded++;
 	}
 	else

@@ -48,7 +48,7 @@ static u32 tx_acknowledge;
 // Initialises USART0 with the parameters:
 // baud rate 57600, 8 data bits, no parity bit, 1 start bit, 0 stop bits.
 // This also clears the transmit/receive buffers.
-void init_usart(void)
+void initUsart(void)
 {
 	u8 temp;
 
@@ -124,9 +124,9 @@ ISR(USART_UDRE_vect)
 	}
 }
 
-// Send one byte through USART0. This will block if the transmit buffer is
-// full.
-static void usart_send(u8 data)
+// Send one byte through USART0. If the transmit buffer is full, this will
+// block until it isn't.
+static void usartSend(u8 data)
 {
 	u8 send_immediately;
 
@@ -164,7 +164,7 @@ static void usart_send(u8 data)
 
 // Receive one byte through USART0. If there isn't a byte in the receive
 // buffer, this will block until there is.
-static u8 usart_receive(void)
+static u8 usartReceive(void)
 {
 	u8 r;
 
@@ -184,11 +184,11 @@ static u8 usart_receive(void)
 }
 
 // Grab one byte from the communication stream, placing that byte
-// in *onebyte. If no error occurred, return 0, otherwise return a non-zero
+// in *one_byte. If no error occurred, return 0, otherwise return a non-zero
 // value to indicate a read error.
-u8 stream_get_one_byte(u8 *onebyte)
+u8 streamGetOneByte(u8 *one_byte)
 {
-	*onebyte = usart_receive();
+	*one_byte = usartReceive();
 	rx_acknowledge--;
 	if (rx_acknowledge == 0)
 	{
@@ -197,11 +197,11 @@ u8 stream_get_one_byte(u8 *onebyte)
 		u8 i;
 
 		rx_acknowledge = RX_BUFFER_SIZE;
-		write_u32_littleendian(buffer, rx_acknowledge);
-		usart_send(0xff);
+		writeU32LittleEndian(buffer, rx_acknowledge);
+		usartSend(0xff);
 		for (i = 0; i < 4; i++)
 		{
-			usart_send(buffer[i]);
+			usartSend(buffer[i]);
 		}
 	}
 	if (rx_buffer_overrun)
@@ -215,9 +215,9 @@ u8 stream_get_one_byte(u8 *onebyte)
 // Send one byte to the communication stream.
 // If no error occurred, return 0, otherwise return a non-zero value
 // to indicate a write error.
-u8 stream_put_one_byte(u8 onebyte)
+u8 streamPutOneByte(u8 one_byte)
 {
-	usart_send(onebyte);
+	usartSend(one_byte);
 	tx_acknowledge--;
 	if (tx_acknowledge == 0)
 	{
@@ -228,12 +228,12 @@ u8 stream_put_one_byte(u8 onebyte)
 		do
 		{
 			// do nothing
-		} while (usart_receive() != 0xff);
+		} while (usartReceive() != 0xff);
 		for (i = 0; i < 4; i++)
 		{
-			buffer[i] = usart_receive();
+			buffer[i] = usartReceive();
 		}
-		tx_acknowledge = read_u32_littleendian(buffer);
+		tx_acknowledge = readU32LittleEndian(buffer);
 	}
 	return 0;
 }
@@ -242,7 +242,7 @@ extern void __bss_start;
 
 // This is a separate function so that the saved variables in sanitise_ram()
 // won't get mangled.
-static NOINLINE void sanitise_ram_internal(void)
+static NOINLINE void sanitiseRamInternal(void)
 {
 	volatile u16 i;
 
@@ -272,7 +272,7 @@ static NOINLINE void sanitise_ram_internal(void)
 // counters, because clearing those would cause them to go out of sync
 // with the host (causing one or the other to stall waiting for
 // acknowledgement).
-void sanitise_ram(void)
+void sanitiseRam(void)
 {
 	u32 saved_rx_acknowledge;
 	u32 saved_tx_acknowledge;
@@ -293,7 +293,7 @@ void sanitise_ram(void)
 
 	saved_rx_acknowledge = rx_acknowledge;
 	saved_tx_acknowledge = tx_acknowledge;
-	sanitise_ram_internal();
+	sanitiseRamInternal();
 	rx_acknowledge = saved_rx_acknowledge;
 	tx_acknowledge = saved_tx_acknowledge;
 }

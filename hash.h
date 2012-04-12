@@ -13,32 +13,31 @@
 #include "common.h"
 
 // Container for common hash state.
-typedef struct hash_state_type
+typedef struct HashStateStruct
 {
 	// Where final hash will be placed. Depending on the size of the hash
 	// function's output, not all entries will be filled.
-	u32 H[8];
-	// Current index into M, ranges from 0 to 15.
-	u8 indexM;
+	u32 h[8];
+	// Current index into m, ranges from 0 to 15.
+	u8 index_m;
 	// Current byte within (32-bit) word. For big-endian hash functions,
 	// 0 = MSB, 3 = LSB. For little-endian hash functions, 0 = LSB, 3 = MSB.
-	u8 bytepositionM;
+	u8 byte_position_m;
 	// If this is non-zero, each (32-bit) word in the message buffer will be
 	// loaded in a big-endian manner. If this is zero, the words will be
 	// loaded in a little-endian manner.
-	u8 isbigendian;
+	u8 is_big_endian;
 	// 512-bit message buffer.
-	u32 M[16];
+	u32 m[16];
 	// Total length of message; updated as bytes are written.
-	u32 messagelength;
+	u32 message_length;
 	// Callback to update hash when message buffer is full.
-	void (*hash_block)(struct hash_state_type *hs2);
-} hash_state;
+	void (*hashBlock)(struct HashStateStruct *hs2);
+} HashState;
 
-extern void clearM(hash_state *hs);
-extern void hash_writebyte(hash_state *hs, u8 byte);
-extern void write_u32_littleendian(u8 *out, u32 in);
-extern void hash_finish(hash_state *hs);
-extern void convertHtobytearray(u8 *out, hash_state *hs, u8 bigendian);
+extern void clearM(HashState *hs);
+extern void hashWriteByte(HashState *hs, u8 byte);
+extern void hashFinish(HashState *hs);
+extern void writeHashToByteArray(u8 *out, HashState *hs, u8 big_endian);
 
 #endif // #ifndef HASH_H_INCLUDED

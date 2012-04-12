@@ -19,8 +19,8 @@
 // Write to non-volatile storage. address is a byte offset specifying where
 // in non-volatile storage to start writing to. data is a pointer to the
 // data to be written and length is the number of bytes to write. See
-// nonvolatile_return for return values.
-nonvolatile_return nonvolatile_write(u8 *data, u32 address, u8 length)
+// NonVolatileReturn for return values.
+NonVolatileReturn nonVolatileWrite(u8 *data, u32 address, u8 length)
 {
 	if ((address > EEPROM_SIZE)
 		|| ((address + (u32)length) > EEPROM_SIZE))
@@ -38,8 +38,8 @@ nonvolatile_return nonvolatile_write(u8 *data, u32 address, u8 length)
 // Read from non-volatile storage. address is a byte offset specifying where
 // in non-volatile storage to start reading from. data is a pointer to the
 // buffer which will receive the data and length is the number of bytes to
-// read. See nonvolatile_return for return values.
-nonvolatile_return nonvolatile_read(u8 *data, u32 address, u8 length)
+// read. See NonVolatileReturn for return values.
+NonVolatileReturn nonVolatileRead(u8 *data, u32 address, u8 length)
 {
 	if ((address > EEPROM_SIZE)
 		|| ((address + (u32)length) > EEPROM_SIZE))
@@ -55,7 +55,7 @@ nonvolatile_return nonvolatile_read(u8 *data, u32 address, u8 length)
 }
 
 // Ensure that all buffered writes are committed to non-volatile storage.
-void nonvolatile_flush(void)
+void nonVolatileFlush(void)
 {
 	// Nothing to do.
 }
