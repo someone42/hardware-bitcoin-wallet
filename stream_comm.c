@@ -39,22 +39,22 @@
 // The transaction hash of the most recently approved transaction. This is
 // stored so that if a transaction needs to be signed multiple times (eg.
 // if it has more than one input), the user doesn't have to confirm every one.
-static u8 prev_transaction_hash[32];
+static uint8_t prev_transaction_hash[32];
 // 0 means disregard prev_transaction_hash, non-zero means that
 // prev_transaction_hash is valid for prev_transaction_hash_valid more
 // transactions (eg. if prev_transaction_hash_valid is 2, then
 // prev_transaction_hash can be considered valid for the approval of 2 more
 // transactions).
-static u16 prev_transaction_hash_valid;
+static uint16_t prev_transaction_hash_valid;
 
 // Length of current packet's payload.
-static u32 payload_length;
+static uint32_t payload_length;
 
 // Write a number of bytes to the output stream. Returns 0 on success,
 // non-zero on failure.
-static u8 writeBytes(u8 *buffer, u16 length)
+static uint8_t writeBytes(uint8_t *buffer, uint16_t length)
 {
-	u16 i;
+	uint16_t i;
 
 	for (i = 0; i < length; i++)
 	{
@@ -69,11 +69,11 @@ static u8 writeBytes(u8 *buffer, u16 length)
 // Sends a packet with a device string as payload. spec specifies the device
 // string to send and command specifies the command of the packet.
 // This returns 0 on success or non-zero if there was a write error.
-static u8 writeString(StringSet set, u8 spec, u8 command)
+static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
 {
-	u8 buffer[5];
-	u16 length;
-	u16 i;
+	uint8_t buffer[5];
+	uint16_t length;
+	uint16_t i;
 
 	buffer[0] = command;
 	length = getStringLength(set, spec);
@@ -84,7 +84,7 @@ static u8 writeString(StringSet set, u8 spec, u8 command)
 	}
 	for (i = 0; i < length; i++)
 	{
-		if (streamPutOneByte((u8)getString(set, spec, i)))
+		if (streamPutOneByte((uint8_t)getString(set, spec, i)))
 		{
 			return 1; // write error
 		}
@@ -98,9 +98,9 @@ static u8 writeString(StringSet set, u8 spec, u8 command)
 // packet. Otherwise, if the return value indicates failure, the payload is
 // a (text) error message.
 // This returns 0 on success or non-zero if there was a write error.
-static u8 translateWalletError(WalletErrors r, u8 length, u8 *data)
+static uint8_t translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
 {
-	u8 buffer[5];
+	uint8_t buffer[5];
 
 	if (r == WALLET_NO_ERROR)
 	{
@@ -117,7 +117,7 @@ static u8 translateWalletError(WalletErrors r, u8 length, u8 *data)
 	}
 	else
 	{
-		return writeString(STRINGSET_WALLET, (u8)r, 0x03);
+		return writeString(STRINGSET_WALLET, (uint8_t)r, 0x03);
 	}
 
 	return 0;
@@ -126,9 +126,9 @@ static u8 translateWalletError(WalletErrors r, u8 length, u8 *data)
 // Read a number (specified by length) of bytes from the input stream
 // and place those bytes into a buffer. Returns 0 on success, non-zero on
 // failure.
-static u8 readBytes(u8 *buffer, u8 length)
+static uint8_t readBytes(uint8_t *buffer, uint8_t length)
 {
-	u8 i;
+	uint8_t i;
 
 	for (i = 0; i < length; i++)
 	{
@@ -144,7 +144,7 @@ static u8 readBytes(u8 *buffer, u8 length)
 // Format non-volatile storage, erasing its contents and replacing it with
 // random data.
 // This returns 0 on success or non-zero if there was a write error.
-u8 formatStorage(void)
+uint8_t formatStorage(void)
 {
 	if (translateWalletError(sanitiseNonVolatileStorage(0, 0xffffffff), 0, NULL))
 	{
@@ -159,11 +159,11 @@ u8 formatStorage(void)
 // associated with the address handle ah. If the signing process was
 // successful, the signature is also sent as a success packet.
 // This has the same return values as validateAndSignTransaction().
-static NOINLINE u8 signTransactionByAddressHandle(AddressHandle ah, u8 *sig_hash)
+static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t *sig_hash)
 {
-	u8 signature[73];
-	u8 private_key[32];
-	u8 signature_length;
+	uint8_t signature[73];
+	uint8_t private_key[32];
+	uint8_t signature_length;
 
 	signature_length = 0;
 	if (getPrivateKey(private_key, ah) == WALLET_NO_ERROR)
@@ -182,12 +182,12 @@ static NOINLINE u8 signTransactionByAddressHandle(AddressHandle ah, u8 *sig_hash
 // if they accept it. A non-zero value will be written to *out_confirmed if
 // the user accepted it, otherwise a zero value will be written.
 // This has the same return values as validateAndSignTransaction().
-static NOINLINE u8 parseTransactionAndAsk(u8 *out_confirmed, u8 *sig_hash, u32 transaction_length)
+static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *sig_hash, uint32_t transaction_length)
 {
-	u8 confirmed;
-	u8 i;
+	uint8_t confirmed;
+	uint8_t i;
 	TransactionErrors r;
-	u8 transaction_hash[32];
+	uint8_t transaction_hash[32];
 
 	// Validate transaction and calculate hashes of it.
 	*out_confirmed = 0;
@@ -199,7 +199,7 @@ static NOINLINE u8 parseTransactionAndAsk(u8 *out_confirmed, u8 *sig_hash, u32 t
 	}
 	if (r != TRANSACTION_NO_ERROR)
 	{
-		if (writeString(STRINGSET_TRANSACTION, (u8)r, 0x03))
+		if (writeString(STRINGSET_TRANSACTION, (uint8_t)r, 0x03))
 		{
 			return 1; // write error
 		}
@@ -267,11 +267,11 @@ static NOINLINE u8 parseTransactionAndAsk(u8 *out_confirmed, u8 *sig_hash, u32 t
 // occurred"; 0 will be returned even if the transaction was rejected.
 // This function will always consume transaction_length bytes from the input
 // stream, except when a read error occurs.
-static NOINLINE u8 validateAndSignTransaction(AddressHandle ah, u32 transaction_length)
+static NOINLINE uint8_t validateAndSignTransaction(AddressHandle ah, uint32_t transaction_length)
 {
-	u8 confirmed;
-	u8 r;
-	u8 sig_hash[32];
+	uint8_t confirmed;
+	uint8_t r;
+	uint8_t sig_hash[32];
 
 	r = parseTransactionAndAsk(&confirmed, sig_hash, transaction_length);
 	if (r)
@@ -299,12 +299,12 @@ static NOINLINE u8 validateAndSignTransaction(AddressHandle ah, u32 transaction_
 // If generate_new is non-zero, the address handle of the generated
 // address is also prepended to the output packet.
 // Returns 1 if a read or write error occurred, otherwise returns 0.
-static NOINLINE u8 getAndSendAddressAndPublicKey(u8 generate_new)
+static NOINLINE uint8_t getAndSendAddressAndPublicKey(uint8_t generate_new)
 {
 	AddressHandle ah;
 	PointAffine public_key;
-	u8 address[20];
-	u8 buffer[5];
+	uint8_t address[20];
+	uint8_t buffer[5];
 	WalletErrors r;
 
 	if (generate_new)
@@ -384,11 +384,11 @@ static NOINLINE u8 getAndSendAddressAndPublicKey(u8 generate_new)
 
 // Send a packet containing a list of wallets.
 // Returns 1 if a write error occurred, otherwise returns 0.
-static NOINLINE u8 listWallets(void)
+static NOINLINE uint8_t listWallets(void)
 {
-	u8 version[4];
-	u8 name[40];
-	u8 buffer[5];
+	uint8_t version[4];
+	uint8_t name[40];
+	uint8_t buffer[5];
 
 	if (getWalletInfo(version, name) != WALLET_NO_ERROR)
 	{
@@ -420,9 +420,9 @@ static NOINLINE u8 listWallets(void)
 
 // Read but ignore payload_length bytes from input stream.
 // Returns 0 on success, non-zero if there was a read error.
-static u8 readAndIgnoreInput(void)
+static uint8_t readAndIgnoreInput(void)
 {
-	u8 junk;
+	uint8_t junk;
 
 	if (payload_length)
 	{
@@ -447,7 +447,7 @@ static u8 readAndIgnoreInput(void)
 // 1 for length != desired_length.
 // EXPECT_LENGTH_IO_ERROR for read error,
 // EXPECT_LENGTH_IO_ERROR + 1 for write error,
-static u8 expectLength(const u8 desired_length)
+static uint8_t expectLength(const uint8_t desired_length)
 {
 	if (payload_length != desired_length)
 	{
@@ -477,12 +477,12 @@ void initStreamComm(void)
 // received successfully, non-zero if an error occurred. 0 will still
 // be returned if a command failed; here, "an error" means a problem
 // reading/writing from/to the stream.
-u8 processPacket(void)
+uint8_t processPacket(void)
 {
-	u8 command;
-	u8 buffer[40];
-	u8 i;
-	u8 r;
+	uint8_t command;
+	uint8_t buffer[40];
+	uint8_t i;
+	uint8_t r;
 	AddressHandle ah;
 
 	if (streamGetOneByte(&command))
@@ -680,7 +680,7 @@ u8 processPacket(void)
 		}
 		if (!r)
 		{
-			volatile u8 *buffer_alias;
+			volatile uint8_t *buffer_alias;
 			clearEncryptionKeys();
 			sanitiseRam();
 			buffer_alias = buffer;
@@ -814,13 +814,13 @@ u8 processPacket(void)
 
 #ifdef INTERFACE_STUBS
 
-u8 streamGetOneByte(u8 *one_byte)
+uint8_t streamGetOneByte(uint8_t *one_byte)
 {
 	*one_byte = 0;
 	return 0; // success
 }
 
-u8 streamPutOneByte(u8 one_byte)
+uint8_t streamPutOneByte(uint8_t one_byte)
 {
 	// Reference one_byte to make certain compilers happy
 	if (one_byte > 1000)
@@ -830,7 +830,7 @@ u8 streamPutOneByte(u8 one_byte)
 	return 0; // success
 }
 
-u16 getStringLength(StringSet set, u8 spec)
+uint16_t getStringLength(StringSet set, uint8_t spec)
 {
 	// Reference set and spec to make certain compilers happy
 	if (set == spec)
@@ -840,7 +840,7 @@ u16 getStringLength(StringSet set, u8 spec)
 	return 0;
 }
 
-char getString(StringSet set, u8 spec, u16 pos)
+char getString(StringSet set, uint8_t spec, uint16_t pos)
 {
 	// Reference set, spec and pos to make certain compilers happy
 	if ((pos == set) && (set == spec))
@@ -850,7 +850,7 @@ char getString(StringSet set, u8 spec, u16 pos)
 	return 0;
 }
 
-u8 askUser(AskUserCommand command)
+uint8_t askUser(AskUserCommand command)
 {
 	// Reference command to make certain compilers happy
 	if (command == 99)
@@ -864,13 +864,13 @@ u8 askUser(AskUserCommand command)
 
 #ifdef TEST
 
-static u8 *stream;
+static uint8_t *stream;
 static int stream_ptr;
 static int stream_length;
 
 // Sets input stream (what will be read by streamGetOneByte()) to the
 // contents of a buffer.
-static void setInputStream(const u8 *buffer, int length)
+static void setInputStream(const uint8_t *buffer, int length)
 {
 	if (stream != NULL)
 	{
@@ -883,7 +883,7 @@ static void setInputStream(const u8 *buffer, int length)
 }
 
 // Get one byte from the contents of the buffer set by setInputStream().
-u8 streamGetOneByte(u8 *one_byte)
+uint8_t streamGetOneByte(uint8_t *one_byte)
 {
 	if (stream_ptr >= stream_length)
 	{
@@ -893,13 +893,13 @@ u8 streamGetOneByte(u8 *one_byte)
 	return 0; // success
 }
 
-u8 streamPutOneByte(u8 one_byte)
+uint8_t streamPutOneByte(uint8_t one_byte)
 {
 	printf(" %02x", (int)one_byte);
 	return 0; // success
 }
 
-static const char *getStringInternal(StringSet set, u8 spec)
+static const char *getStringInternal(StringSet set, uint8_t spec)
 {
 	if (set == STRINGSET_MISC)
 	{
@@ -983,18 +983,18 @@ static const char *getStringInternal(StringSet set, u8 spec)
 	}
 }
 
-u16 getStringLength(StringSet set, u8 spec)
+uint16_t getStringLength(StringSet set, uint8_t spec)
 {
-	return (u16)strlen(getStringInternal(set, spec));
+	return (uint16_t)strlen(getStringInternal(set, spec));
 }
 
-char getString(StringSet set, u8 spec, u16 pos)
+char getString(StringSet set, uint8_t spec, uint16_t pos)
 {
 	assert(pos < getStringLength(set, spec));
 	return getStringInternal(set, spec)[pos];
 }
 
-u8 askUser(AskUserCommand command)
+uint8_t askUser(AskUserCommand command)
 {
 	int c;
 
@@ -1035,7 +1035,7 @@ u8 askUser(AskUserCommand command)
 }
 
 // Create new wallet
-static const u8 test_stream_new_wallet[] = {
+static const uint8_t test_stream_new_wallet[] = {
 0x04, 0x48, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1048,25 +1048,25 @@ static const u8 test_stream_new_wallet[] = {
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
 // Create new address
-static const u8 test_stream_new_address[] = {
+static const uint8_t test_stream_new_address[] = {
 0x05, 0x00, 0x00, 0x00, 0x00};
 
 // Get number of addresses
-static const u8 test_stream_get_num_addresses[] = {
+static const uint8_t test_stream_get_num_addresses[] = {
 0x06, 0x00, 0x00, 0x00, 0x00};
 
 // Get address 1
-static const u8 test_stream_get_address1[] = {
+static const uint8_t test_stream_get_address1[] = {
 0x09, 0x04, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00, 0x00};
 
 // Get address 0 (which is an invalid address handle)
-static const u8 test_stream_get_address0[] = {
+static const uint8_t test_stream_get_address0[] = {
 0x09, 0x04, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Sign something
-static u8 test_stream_sign_tx[] = {
+static uint8_t test_stream_sign_tx[] = {
 0x0a, 0x98, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00,
 // transaction data is below
@@ -1112,11 +1112,11 @@ static u8 test_stream_sign_tx[] = {
 };
 
 // Format storage
-static const u8 test_stream_format[] = {
+static const uint8_t test_stream_format[] = {
 0x0d, 0x00, 0x00, 0x00, 0x00};
 
 // Load wallet using correct key
-static const u8 test_stream_load_correct[] = {
+static const uint8_t test_stream_load_correct[] = {
 0x0b, 0x20, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1124,7 +1124,7 @@ static const u8 test_stream_load_correct[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Load wallet using incorrect key
-static const u8 test_stream_load_incorrect[] = {
+static const uint8_t test_stream_load_incorrect[] = {
 0x0b, 0x20, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1132,11 +1132,11 @@ static const u8 test_stream_load_incorrect[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Unload wallet
-static const u8 test_stream_unload[] = {
+static const uint8_t test_stream_unload[] = {
 0x0c, 0x00, 0x00, 0x00, 0x00};
 
 // Change encryption key
-static const u8 test_stream_change_key[] = {
+static const uint8_t test_stream_change_key[] = {
 0x0e, 0x20, 0x00, 0x00, 0x00,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1144,7 +1144,7 @@ static const u8 test_stream_change_key[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // Load with new encryption key
-static const u8 test_stream_load_with_changed_key[] = {
+static const uint8_t test_stream_load_with_changed_key[] = {
 0x0b, 0x20, 0x00, 0x00, 0x00,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1152,11 +1152,11 @@ static const u8 test_stream_load_with_changed_key[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // List wallets
-static const u8 test_stream_list_wallets[] = {
+static const uint8_t test_stream_list_wallets[] = {
 0x10, 0x00, 0x00, 0x00, 0x00};
 
 // Change wallet name
-static const u8 test_stream_change_name[] = {
+static const uint8_t test_stream_change_name[] = {
 0x0f, 0x28, 0x00, 0x00, 0x00,
 0x71, 0x71, 0x71, 0x72, 0x70, 0x74, 0x20, 0x20,
 0x68, 0x68, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
@@ -1164,7 +1164,7 @@ static const u8 test_stream_change_name[] = {
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
-static void sendOneTestStream(const u8 *test_stream, int size)
+static void sendOneTestStream(const uint8_t *test_stream, int size)
 {
 	int r;
 

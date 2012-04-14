@@ -39,7 +39,7 @@ static const char str_UNKNOWN[] PROGMEM = "Unknown error";
 // to get the character from. set specifies which set of strings to use.
 // The interpretation of spec depends on set; see the comments near StringSet
 // for clarification.
-char getString(StringSet set, u8 spec, u16 pos)
+char getString(StringSet set, uint8_t spec, uint16_t pos)
 {
 	if (set == STRINGSET_MISC)
 	{
@@ -127,23 +127,23 @@ char getString(StringSet set, u8 spec, u16 pos)
 
 // Get the length of one of the device's strings. See getString() for what
 // set and spec refer to.
-u16 getStringLength(StringSet set, u8 spec)
+uint16_t getStringLength(StringSet set, uint8_t spec)
 {
 	if (set == STRINGSET_MISC)
 	{
 		switch (spec)
 		{
 		case MISCSTR_VERSION:
-			return (u16)(sizeof(str_MISCSTR_VERSION) - 1);
+			return (uint16_t)(sizeof(str_MISCSTR_VERSION) - 1);
 			break;
 		case MISCSTR_PERMISSION_DENIED:
-			return (u16)(sizeof(str_MISCSTR_PERMISSION_DENIED) - 1);
+			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED) - 1);
 			break;
 		case MISCSTR_INVALID_PACKET:
-			return (u16)(sizeof(str_MISCSTR_INVALID_PACKET) - 1);
+			return (uint16_t)(sizeof(str_MISCSTR_INVALID_PACKET) - 1);
 			break;
 		default:
-			return (u16)(sizeof(str_UNKNOWN) - 1);
+			return (uint16_t)(sizeof(str_UNKNOWN) - 1);
 			break;
 		}
 	}
@@ -152,31 +152,31 @@ u16 getStringLength(StringSet set, u8 spec)
 		switch (spec)
 		{
 		case WALLET_FULL:
-			return (u16)(sizeof(str_WALLET_FULL) - 1);
+			return (uint16_t)(sizeof(str_WALLET_FULL) - 1);
 			break;
 		case WALLET_EMPTY:
-			return (u16)(sizeof(str_WALLET_EMPTY) - 1);
+			return (uint16_t)(sizeof(str_WALLET_EMPTY) - 1);
 			break;
 		case WALLET_READ_ERROR:
-			return (u16)(sizeof(str_WALLET_READ_ERROR) - 1);
+			return (uint16_t)(sizeof(str_WALLET_READ_ERROR) - 1);
 			break;
 		case WALLET_WRITE_ERROR:
-			return (u16)(sizeof(str_WALLET_WRITE_ERROR) - 1);
+			return (uint16_t)(sizeof(str_WALLET_WRITE_ERROR) - 1);
 			break;
 		case WALLET_ADDRESS_NOT_FOUND:
-			return (u16)(sizeof(str_WALLET_ADDRESS_NOT_FOUND) - 1);
+			return (uint16_t)(sizeof(str_WALLET_ADDRESS_NOT_FOUND) - 1);
 			break;
 		case WALLET_NOT_THERE:
-			return (u16)(sizeof(str_WALLET_NOT_THERE) - 1);
+			return (uint16_t)(sizeof(str_WALLET_NOT_THERE) - 1);
 			break;
 		case WALLET_END_OF_LIST:
-			return (u16)(sizeof(str_WALLET_END_OF_LIST) - 1);
+			return (uint16_t)(sizeof(str_WALLET_END_OF_LIST) - 1);
 			break;
 		case WALLET_INVALID_HANDLE:
-			return (u16)(sizeof(str_WALLET_INVALID_HANDLE) - 1);
+			return (uint16_t)(sizeof(str_WALLET_INVALID_HANDLE) - 1);
 			break;
 		default:
-			return (u16)(sizeof(str_UNKNOWN) - 1);
+			return (uint16_t)(sizeof(str_UNKNOWN) - 1);
 			break;
 		}
 	}
@@ -185,31 +185,31 @@ u16 getStringLength(StringSet set, u8 spec)
 		switch (spec)
 		{
 		case TRANSACTION_INVALID_FORMAT:
-			return (u16)(sizeof(str_TRANSACTION_INVALID_FORMAT) - 1);
+			return (uint16_t)(sizeof(str_TRANSACTION_INVALID_FORMAT) - 1);
 			break;
 		case TRANSACTION_TOO_MANY_INPUTS:
-			return (u16)(sizeof(str_TRANSACTION_TOO_MANY_INPUTS) - 1);
+			return (uint16_t)(sizeof(str_TRANSACTION_TOO_MANY_INPUTS) - 1);
 			break;
 		case TRANSACTION_TOO_MANY_OUTPUTS:
-			return (u16)(sizeof(str_TRANSACTION_TOO_MANY_OUTPUTS) - 1);
+			return (uint16_t)(sizeof(str_TRANSACTION_TOO_MANY_OUTPUTS) - 1);
 			break;
 		case TRANSACTION_TOO_LARGE:
-			return (u16)(sizeof(str_TRANSACTION_TOO_LARGE) - 1);
+			return (uint16_t)(sizeof(str_TRANSACTION_TOO_LARGE) - 1);
 			break;
 		case TRANSACTION_NON_STANDARD:
-			return (u16)(sizeof(str_TRANSACTION_NON_STANDARD) - 1);
+			return (uint16_t)(sizeof(str_TRANSACTION_NON_STANDARD) - 1);
 			break;
 		case TRANSACTION_READ_ERROR:
-			return (u16)(sizeof(str_TRANSACTION_READ_ERROR) - 1);
+			return (uint16_t)(sizeof(str_TRANSACTION_READ_ERROR) - 1);
 			break;
 		default:
-			return (u16)(sizeof(str_UNKNOWN) - 1);
+			return (uint16_t)(sizeof(str_UNKNOWN) - 1);
 			break;
 		}
 	}
 	else
 	{
-		return (u16)(sizeof(str_UNKNOWN) - 1);
+		return (uint16_t)(sizeof(str_UNKNOWN) - 1);
 	}
 }
 

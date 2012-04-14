@@ -13,7 +13,7 @@
 // Clears m and resets byte_position_m/index_m.
 void clearM(HashState *hs)
 {
-	u8 i;
+	uint8_t i;
 
 	hs->index_m = 0;
 	hs->byte_position_m = 0;
@@ -26,9 +26,9 @@ void clearM(HashState *hs)
 // Send one more byte to be hashed.
 // Writes to m and updates byte_position_m/index_m.
 // The function hashBlock() will be called if a block is full.
-void hashWriteByte(HashState *hs, u8 byte)
+void hashWriteByte(HashState *hs, uint8_t byte)
 {
-	u8 pos; // corrected for endianness
+	uint8_t pos; // corrected for endianness
 
 	hs->message_length++;
 	if (hs->is_big_endian)
@@ -37,29 +37,29 @@ void hashWriteByte(HashState *hs, u8 byte)
 	}
 	else
 	{
-		pos = (u8)(3 - hs->byte_position_m);
+		pos = (uint8_t)(3 - hs->byte_position_m);
 	}
 	switch (pos)
 	{
 	case 0:
-		hs->m[hs->index_m] |= ((u32)byte << 24);
+		hs->m[hs->index_m] |= ((uint32_t)byte << 24);
 		break;
 	case 1:
-		hs->m[hs->index_m] |= ((u32)byte << 16);
+		hs->m[hs->index_m] |= ((uint32_t)byte << 16);
 		break;
 	case 2:
-		hs->m[hs->index_m] |= ((u32)byte << 8);
+		hs->m[hs->index_m] |= ((uint32_t)byte << 8);
 		break;
 	case 3:
 	default:
-		hs->m[hs->index_m] |= ((u32)byte);
+		hs->m[hs->index_m] |= ((uint32_t)byte);
 		break;
 	}
 	if (hs->byte_position_m == 3)
 	{
 		hs->index_m++;
 	}
-	hs->byte_position_m = (u8)((hs->byte_position_m + 1) & 3);
+	hs->byte_position_m = (uint8_t)((hs->byte_position_m + 1) & 3);
 	if (hs->index_m == 16)
 	{
 		hs->hashBlock(hs);
@@ -71,16 +71,16 @@ void hashWriteByte(HashState *hs, u8 byte)
 // final hash.
 void hashFinish(HashState *hs)
 {
-	u32 length_bits;
-	u8 i;
-	u8 buffer[8];
+	uint32_t length_bits;
+	uint8_t i;
+	uint8_t buffer[8];
 
 	// Subsequent calls to hashWriteByte() will keep incrementing
 	// message_length, so the calculation of length (in bits) must be
 	// done before padding.
 	length_bits = hs->message_length << 3;
 
-	hashWriteByte(hs, (u8)0x80);
+	hashWriteByte(hs, (uint8_t)0x80);
 	while ((hs->index_m != 14) || (hs->byte_position_m != 0))
 	{
 		hashWriteByte(hs, 0);
@@ -117,9 +117,9 @@ void hashFinish(HashState *hs)
 // big-endian way (useful for computing the first hash of a double
 // SHA-256 hash). If big_endian is zero, then the hash will be written in
 // little-endian way (useful for sending off to a signing function).
-void writeHashToByteArray(u8 *out, HashState *hs, u8 big_endian)
+void writeHashToByteArray(uint8_t *out, HashState *hs, uint8_t big_endian)
 {
-	u8 i;
+	uint8_t i;
 
 	if (big_endian)
 	{

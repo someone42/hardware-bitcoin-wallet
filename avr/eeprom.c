@@ -20,10 +20,10 @@
 // in non-volatile storage to start writing to. data is a pointer to the
 // data to be written and length is the number of bytes to write. See
 // NonVolatileReturn for return values.
-NonVolatileReturn nonVolatileWrite(u8 *data, u32 address, u8 length)
+NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
 {
 	if ((address > EEPROM_SIZE)
-		|| ((address + (u32)length) > EEPROM_SIZE))
+		|| ((address + (uint32_t)length) > EEPROM_SIZE))
 	{
 		return NV_INVALID_ADDRESS;
 	}
@@ -39,10 +39,10 @@ NonVolatileReturn nonVolatileWrite(u8 *data, u32 address, u8 length)
 // in non-volatile storage to start reading from. data is a pointer to the
 // buffer which will receive the data and length is the number of bytes to
 // read. See NonVolatileReturn for return values.
-NonVolatileReturn nonVolatileRead(u8 *data, u32 address, u8 length)
+NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
 {
 	if ((address > EEPROM_SIZE)
-		|| ((address + (u32)length) > EEPROM_SIZE))
+		|| ((address + (uint32_t)length) > EEPROM_SIZE))
 	{
 		return NV_INVALID_ADDRESS;
 	}

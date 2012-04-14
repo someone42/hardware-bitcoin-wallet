@@ -30,8 +30,8 @@ typedef enum TransactionErrorsEnum
 	TRANSACTION_READ_ERROR				=	6
 } TransactionErrors;
 
-extern u16 getTransactionNumInputs(void);
-extern TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, u32 length);
-extern u8 signTransaction(u8 *signature, BigNum256 sig_hash, BigNum256 private_key);
+extern uint16_t getTransactionNumInputs(void);
+extern TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length);
+extern uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 private_key);
 
 #endif // #ifndef TRANSACTION_H_INCLUDED

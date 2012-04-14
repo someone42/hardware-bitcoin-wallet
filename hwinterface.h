@@ -76,19 +76,19 @@ typedef enum MiscStringsEnum
 // to get the character from. set specifies which set of strings to use.
 // The interpretation of spec depends on set; see the comments near StringSet
 // for clarification.
-extern char getString(StringSet set, u8 spec, u16 pos);
+extern char getString(StringSet set, uint8_t spec, uint16_t pos);
 // Get the length of one of the device's strings. See getString() for what
 // set and spec refer to.
-extern u16 getStringLength(StringSet set, u8 spec);
+extern uint16_t getStringLength(StringSet set, uint8_t spec);
 
 // Grab one byte from the communication stream, placing that byte
 // in *one_byte. If no error occurred, return 0, otherwise return a non-zero
 // value to indicate a read error.
-extern u8 streamGetOneByte(u8 *one_byte);
+extern uint8_t streamGetOneByte(uint8_t *one_byte);
 // Send one byte to the communication stream.
 // If no error occurred, return 0, otherwise return a non-zero value
 // to indicate a write error.
-extern u8 streamPutOneByte(u8 one_byte);
+extern uint8_t streamPutOneByte(uint8_t one_byte);
 
 // Notify the user interface that the transaction parser has seen a new
 // Bitcoin amount/address pair. Both the amount and address are
@@ -96,18 +96,18 @@ extern u8 streamPutOneByte(u8 one_byte);
 // "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn" respectively. If no error occurred,
 // return 0. If there was not enough space to store the amount/address pair,
 // then return some non-zero value.
-extern u8 newOutputSeen(char *text_amount, char *text_address);
+extern uint8_t newOutputSeen(char *text_amount, char *text_address);
 // Notify the user interface that the list of Bitcoin amount/address pairs
 // should be cleared.
 extern void clearOutputsSeen(void);
 // Ask user if they want to allow some action. Returns 0 if the user
 // accepted, non-zero if the user denied.
-extern u8 askUser(AskUserCommand command);
+extern uint8_t askUser(AskUserCommand command);
 
 // Fill buffer with n random bytes. Return an estimate of the total number
 // of bits (not bytes) of entropy in the buffer. Do not use pseudo-random
 // number generators to fill the buffer, except for testing.
-extern u16 hardwareRandomBytes(u8 *buffer, u8 n);
+extern uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n);
 
 // Non-volatile storage must have a size which is a multiple of 128 bytes.
 // If the size of the storage area is not a multiple of 128 bytes, then the
@@ -120,12 +120,12 @@ extern u16 hardwareRandomBytes(u8 *buffer, u8 n);
 // NonVolatileReturn for return values.
 // Warning: writes may be buffered; use nonVolatileFlush() to be sure that
 // data is actually written to non-volatile storage.
-extern NonVolatileReturn nonVolatileWrite(u8 *data, u32 address, u8 length);
+extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length);
 // Read from non-volatile storage. address is a byte offset specifying where
 // in non-volatile storage to start reading from. data is a pointer to the
 // buffer which will receive the data and length is the number of bytes to
 // read. See NonVolatileReturn for return values.
-extern NonVolatileReturn nonVolatileRead(u8 *data, u32 address, u8 length);
+extern NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length);
 // Ensure that all buffered writes are committed to non-volatile storage.
 extern void nonVolatileFlush(void);
 

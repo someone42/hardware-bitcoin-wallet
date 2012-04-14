@@ -56,14 +56,14 @@
 // Set one of the digital output pins based on the Arduino pin mapping.
 // pin is the Arduino pin number (0 to 13 inclusive) and value is non-zero
 // for output high and zero for output low.
-static inline void writeArduinoPin(const u8 pin, const u8 value)
+static inline void writeArduinoPin(const uint8_t pin, const uint8_t value)
 {
-	u8 bit;
+	uint8_t bit;
 
 	bit = 1;
 	if (pin < 8)
 	{
-		bit = (u8)(bit << pin);
+		bit = (uint8_t)(bit << pin);
 		DDRD |= bit;
 		if (value)
 		{
@@ -71,12 +71,12 @@ static inline void writeArduinoPin(const u8 pin, const u8 value)
 		}
 		else
 		{
-			PORTD = (u8)(PORTD & ~bit);
+			PORTD = (uint8_t)(PORTD & ~bit);
 		}
 	}
 	else
 	{
-		bit = (u8)(bit << (pin - 8));
+		bit = (uint8_t)(bit << (pin - 8));
 		DDRB |= bit;
 		if (value)
 		{
@@ -84,7 +84,7 @@ static inline void writeArduinoPin(const u8 pin, const u8 value)
 		}
 		else
 		{
-			PORTB = (u8)(PORTB & ~bit);
+			PORTB = (uint8_t)(PORTB & ~bit);
 		}
 	}
 }
@@ -92,12 +92,12 @@ static inline void writeArduinoPin(const u8 pin, const u8 value)
 // Write the least-significant 4 bits of value to the HD44780.
 // See page 49 of the datasheet for EN timing. All delays have at least
 // a 2x safety factor.
-static void write4(u8 value)
+static void write4(uint8_t value)
 {
-	writeArduinoPin(D4_PIN, (u8)(value & 0x01));
-	writeArduinoPin(D5_PIN, (u8)(value & 0x02));
-	writeArduinoPin(D6_PIN, (u8)(value & 0x04));
-	writeArduinoPin(D7_PIN, (u8)(value & 0x08));
+	writeArduinoPin(D4_PIN, (uint8_t)(value & 0x01));
+	writeArduinoPin(D5_PIN, (uint8_t)(value & 0x02));
+	writeArduinoPin(D6_PIN, (uint8_t)(value & 0x04));
+	writeArduinoPin(D7_PIN, (uint8_t)(value & 0x08));
 	_delay_us(2);
 	writeArduinoPin(E_PIN, 0);
 	_delay_us(2);
@@ -111,79 +111,79 @@ static void write4(u8 value)
 
 // Write 8 bits to the HD44780 using write4() twice.
 // Warning: have you set RS_PIN to your desired value?
-static void write8(u8 value)
+static void write8(uint8_t value)
 {
-	write4((u8)(value >> 4));
+	write4((uint8_t)(value >> 4));
 	write4(value);
 }
 
 // Set one of the Arduino digital I/O pins to be an input pin with
 // internal pull-up enabled.
-static inline void setArduinoPinInput(const u8 pin)
+static inline void setArduinoPinInput(const uint8_t pin)
 {
-	u8 bit;
+	uint8_t bit;
 
 	bit = 1;
 	if (pin < 8)
 	{
-		bit = (u8)(bit << pin);
-		DDRD = (u8)(DDRD & ~bit);
+		bit = (uint8_t)(bit << pin);
+		DDRD = (uint8_t)(DDRD & ~bit);
 		PORTD |= bit;
 	}
 	else
 	{
-		bit = (u8)(bit << (pin - 8));
-		DDRB = (u8)(DDRB & ~bit);
+		bit = (uint8_t)(bit << (pin - 8));
+		DDRB = (uint8_t)(DDRB & ~bit);
 		PORTB |= bit;
 	}
 }
 
 // Returns non-zero if the Arduino digital I/O pin is high, returns 0 if it
 // is low.
-static inline u8 sampleArduinoPin(const u8 pin)
+static inline uint8_t sampleArduinoPin(const uint8_t pin)
 {
-	u8 bit;
+	uint8_t bit;
 
 	bit = 1;
 	if (pin < 8)
 	{
-		bit = (u8)(bit << pin);
-		return (u8)(PIND & bit);
+		bit = (uint8_t)(bit << pin);
+		return (uint8_t)(PIND & bit);
 	}
 	else
 	{
-		bit = (u8)(bit << (pin - 8));
-		return (u8)(PINB & bit);
+		bit = (uint8_t)(bit << (pin - 8));
+		return (uint8_t)(PINB & bit);
 	}
 }
 
 // 0-based column index.
-static u8 current_column;
+static uint8_t current_column;
 // Largest size (in number of characters) of either line.
-static u8 max_line_size;
+static uint8_t max_line_size;
 // Scroll position (0 = leftmost) in number of characters.
-static u8 scroll_pos;
+static uint8_t scroll_pos;
 // 0 = towards the right (text appears to move left), non-zero = towards
 // the left (text appears to move right).
-static u8 scroll_direction;
+static uint8_t scroll_direction;
 // Countdown to next scroll.
-static u16 scroll_counter;
+static uint16_t scroll_counter;
 // Status of accept/cancel buttons; 0 = not pressed, non-zero = pressed.
-static volatile u8 accept_button;
-static volatile u8 cancel_button;
+static volatile uint8_t accept_button;
+static volatile uint8_t cancel_button;
 // Debounce counters for accept/cancel buttons
-static u8 accept_debounce;
-static u8 cancel_debounce;
+static uint8_t accept_debounce;
+static uint8_t cancel_debounce;
 
 // Storage for amount/address pairs.
 static char list_amount[MAX_OUTPUTS][22];
 static char list_address[MAX_OUTPUTS][36];
-static u8 list_index;
+static uint8_t list_index;
 
 // This does the scrolling and checks the state of the buttons.
 ISR(TIMER0_COMPA_vect)
 {
-	u8 temp;
+	uint8_t temp;
 
 	scroll_counter--;
 	if (scroll_counter == 0)
@@ -228,7 +228,7 @@ ISR(TIMER0_COMPA_vect)
 		accept_debounce++;
 		if (accept_debounce == DEBOUNCE_COUNT)
 		{
-			accept_button = (u8)!accept_button;
+			accept_button = (uint8_t)!accept_button;
 		}
 	}
 	else
@@ -243,7 +243,7 @@ ISR(TIMER0_COMPA_vect)
 		cancel_debounce++;
 		if (cancel_debounce == DEBOUNCE_COUNT)
 		{
-			cancel_button = (u8)!cancel_button;
+			cancel_button = (uint8_t)!cancel_button;
 		}
 	}
 	else
@@ -275,7 +275,7 @@ void initLcdAndInput(void)
 	OCR0A = 78; // (16000000 / 1024) * 0.005
 	TIMSK0 = _BV(OCIE0A);
 	scroll_counter = 1000; // make sure no attempt at scrolling is made yet
-	MCUCR = (u8)(MCUCR & ~_BV(PUD));
+	MCUCR = (uint8_t)(MCUCR & ~_BV(PUD));
 	setArduinoPinInput(ACCEPT_PIN);
 	setArduinoPinInput(CANCEL_PIN);
 	accept_button = 0;
@@ -302,7 +302,7 @@ void initLcdAndInput(void)
 
 // If line is zero, this sets the cursor to the start of the first line,
 // otherwise this sets the cursor to the start of the second line.
-static void gotoStartOfLine(u8 line)
+static void gotoStartOfLine(uint8_t line)
 {
 	writeArduinoPin(RS_PIN, 0);
 	if (!line)
@@ -320,7 +320,7 @@ static void gotoStartOfLine(u8 line)
 // column 40 are dropped.
 // If is_progmem is non-zero, then str is treated as a pointer to program
 // memory.
-static void writeString(char *str, u8 is_progmem)
+static void writeString(char *str, uint8_t is_progmem)
 {
 	char c;
 
@@ -336,7 +336,7 @@ static void writeString(char *str, u8 is_progmem)
 	str++;
 	while ((c != 0) && (current_column < 40))
 	{
-		write8((u8)c);
+		write8((uint8_t)c);
 		if (is_progmem)
 		{
 			c = (char)pgm_read_byte(str);
@@ -361,7 +361,7 @@ static void writeString(char *str, u8 is_progmem)
 // "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn" respectively. If no error occurred,
 // return 0. If there was not enough space to store the amount/address pair,
 // then return some non-zero value.
-u8 newOutputSeen(char *text_amount, char *text_address)
+uint8_t newOutputSeen(char *text_amount, char *text_address)
 {
 	char *amount_dest;
 	char *address_dest;
@@ -398,10 +398,10 @@ static void waitForNoButtonPress(void)
 
 // Wait until accept or cancel is pressed. Returns 0 if the accept button
 // was pressed, non-zero if the cancel button was pressed.
-static u8 waitForButtonPress(void)
+static uint8_t waitForButtonPress(void)
 {
-	u8 current_accept_button;
-	u8 current_cancel_button;
+	uint8_t current_accept_button;
+	uint8_t current_cancel_button;
 
 	do
 	{
@@ -439,10 +439,10 @@ static char str_stream_error[] PROGMEM = "Stream error";
 
 // Ask user if they want to allow some action. Returns 0 if the user
 // accepted, non-zero if the user denied.
-u8 askUser(AskUserCommand command)
+uint8_t askUser(AskUserCommand command)
 {
-	u8 i;
-	u8 r; // what will be returned
+	uint8_t i;
+	uint8_t r; // what will be returned
 
 	clearLcd();
 

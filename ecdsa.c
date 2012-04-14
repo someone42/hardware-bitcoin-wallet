@@ -42,46 +42,46 @@
 // doubling don't have to use inversion (division), which is very slow.
 typedef struct PointJacobianStruct
 {
-	u8 x[32];
-	u8 y[32];
-	u8 z[32];
+	uint8_t x[32];
+	uint8_t y[32];
+	uint8_t z[32];
 	// If is_point_at_infinity is non-zero, then this point represents the
 	// point at infinity and all other structure members are considered
 	// invalid.
-	u8 is_point_at_infinity;
+	uint8_t is_point_at_infinity;
 } PointJacobian;
 
 // The prime number used to define the prime field for secp256k1.
-static const u8 secp256k1_p[32] = {
+static const uint8_t secp256k1_p[32] = {
 0x2f, 0xfc, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-static const u8 secp256k1_complement_p[5] = {
+static const uint8_t secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
 // The order of the base point used in secp256k1.
-static const u8 secp256k1_n[32] = {
+static const uint8_t secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-static const u8 secp256k1_complement_n[17] = {
+static const uint8_t secp256k1_complement_n[17] = {
 0xbf, 0xbe, 0xc9, 0x2f, 0x73, 0xa1, 0x2d, 0x40,
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
 
 // The x component of the base point G used in secp256k1.
-static const u8 secp256k1_Gx[32] PROGMEM = {
+static const uint8_t secp256k1_Gx[32] PROGMEM = {
 0x98, 0x17, 0xf8, 0x16, 0x5b, 0x81, 0xf2, 0x59,
 0xd9, 0x28, 0xce, 0x2d, 0xdb, 0xfc, 0x9b, 0x02,
 0x07, 0x0b, 0x87, 0xce, 0x95, 0x62, 0xa0, 0x55,
 0xac, 0xbb, 0xdc, 0xf9, 0x7e, 0x66, 0xbe, 0x79};
 
 // The y component of the base point G used in secp256k1.
-static const u8 secp256k1_Gy[32] PROGMEM = {
+static const uint8_t secp256k1_Gy[32] PROGMEM = {
 0xb8, 0xd4, 0x10, 0xfb, 0x8f, 0xd0, 0x47, 0x9c,
 0x19, 0x54, 0x85, 0xa6, 0x48, 0xb4, 0x17, 0xfd,
 0xa8, 0x08, 0x11, 0x0e, 0xfc, 0xfb, 0xa4, 0x5d,
@@ -90,7 +90,7 @@ static const u8 secp256k1_Gy[32] PROGMEM = {
 #ifdef TEST
 static void bigPrint(BigNum256 number)
 {
-	u8 i;
+	uint8_t i;
 	for (i = 31; i < 32; i--)
 	{
 		printf("%02x", number[i]);
@@ -115,8 +115,8 @@ static void affineToJacobian(PointJacobian *out, PointAffine *in)
 // is very slow because it involves inversion (division).
 static NOINLINE void jacobianToAffine(PointAffine *out, PointJacobian *in)
 {
-	u8 s[32];
-	u8 t[32];
+	uint8_t s[32];
+	uint8_t t[32];
 
 	out->is_point_at_infinity = in->is_point_at_infinity;
 	// If out->is_point_at_infinity != 0, the rest of this function consists
@@ -140,8 +140,8 @@ static NOINLINE void jacobianToAffine(PointAffine *out, PointJacobian *in)
 // from section 4 of that article.
 static NOINLINE void pointDouble(PointJacobian *p)
 {
-	u8 t[32];
-	u8 u[32];
+	uint8_t t[32];
+	uint8_t u[32];
 
 	// If p->is_point_at_infinity != 0, then the rest of this function will
 	// consist of dummy operations. Nothing else needs to be done since
@@ -188,14 +188,14 @@ static NOINLINE void pointDouble(PointJacobian *p)
 // junk must point at some memory area to redirect dummy writes to.
 static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffine *p2)
 {
-	u8 s[32];
-	u8 t[32];
-	u8 u[32];
-	u8 v[32];
-	u8 is_O;
-	u8 is_O2;
-	u8 cmp_xs;
-	u8 cmp_yt;
+	uint8_t s[32];
+	uint8_t t[32];
+	uint8_t u[32];
+	uint8_t v[32];
+	uint8_t is_O;
+	uint8_t is_O2;
+	uint8_t cmp_xs;
+	uint8_t cmp_yt;
 	PointJacobian *lookup[2];
 
 	lookup[0] = p1;
@@ -205,7 +205,7 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	// If p1 is O, then copy p2 into p1 and redirect all writes to the dummy
 	// write area.
 	// The following line does: "is_O = p1->is_point_at_infinity ? 1 : 0;"
-	is_O = (u8)((((u16)(-(int)p1->is_point_at_infinity)) >> 8) & 1);
+	is_O = (uint8_t)((((uint16_t)(-(int)p1->is_point_at_infinity)) >> 8) & 1);
 	affineToJacobian(lookup[1 - is_O], p2);
 	p1 = lookup[is_O];
 	lookup[0] = p1; // p1 might have changed
@@ -214,7 +214,7 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	// If p2 is O, then redirect all writes to the dummy write area. This
 	// preserves the value of p1.
 	// The following line does: "is_O2 = p2->is_point_at_infinity ? 1 : 0;"
-	is_O2 = (u8)((((u16)(-(int)p2->is_point_at_infinity)) >> 8) & 1);
+	is_O2 = (uint8_t)((((uint16_t)(-(int)p2->is_point_at_infinity)) >> 8) & 1);
 	p1 = lookup[is_O2];
 	lookup[0] = p1; // p1 might have changed
 
@@ -223,11 +223,11 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	bigMultiply(t, t, p2->y);
 	bigMultiply(s, s, p2->x);
 	// The following two lines do: "cmp_xs = bigCompare(p1->x, s) == BIGCMP_EQUAL ? 0 : 0xff;"
-	cmp_xs = (u8)(bigCompare(p1->x, s) ^ BIGCMP_EQUAL);
-	cmp_xs = (u8)(((u16)(-(int)cmp_xs)) >> 8);
+	cmp_xs = (uint8_t)(bigCompare(p1->x, s) ^ BIGCMP_EQUAL);
+	cmp_xs = (uint8_t)(((uint16_t)(-(int)cmp_xs)) >> 8);
 	// The following two lines do: "cmp_yt = bigCompare(p1->y, t) == BIGCMP_EQUAL ? 0 : 0xff;"
-	cmp_yt = (u8)(bigCompare(p1->y, t) ^ BIGCMP_EQUAL);
-	cmp_yt = (u8)(((u16)(-(int)cmp_yt)) >> 8);
+	cmp_yt = (uint8_t)(bigCompare(p1->y, t) ^ BIGCMP_EQUAL);
+	cmp_yt = (uint8_t)(((uint16_t)(-(int)cmp_yt)) >> 8);
 	// The following branch can never be taken when calling pointMultiply(),
 	// so its existence doesn't compromise timing regularity.
 	if ((cmp_xs | cmp_yt | is_O | is_O2) == 0)
@@ -239,7 +239,7 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	// p2 == -p1 when p1->x == s and p1->y != t.
 	// If p1->is_point_at_infinity is set, then all subsequent operations in
 	// this function become dummy operations.
-	p1->is_point_at_infinity = (u8)(p1->is_point_at_infinity | (~cmp_xs & cmp_yt & 1));
+	p1->is_point_at_infinity = (uint8_t)(p1->is_point_at_infinity | (~cmp_xs & cmp_yt & 1));
 	bigSubtract(s, s, p1->x);
 	// s now contains p2->x * p1->z ^ 2 - p1->x
 	bigSubtract(t, t, p1->y);
@@ -267,10 +267,10 @@ void pointMultiply(PointAffine *p, BigNum256 k)
 	PointJacobian accumulator;
 	PointJacobian junk;
 	PointAffine always_point_at_infinity;
-	u8 i;
-	u8 j;
-	u8 one_byte;
-	u8 one_bit;
+	uint8_t i;
+	uint8_t j;
+	uint8_t one_byte;
+	uint8_t one_bit;
 	PointAffine *lookup_affine[2];
 
 	accumulator.is_point_at_infinity = 1;
@@ -283,9 +283,9 @@ void pointMultiply(PointAffine *p, BigNum256 k)
 		for (j = 0; j < 8; j++)
 		{
 			pointDouble(&accumulator);
-			one_bit = (u8)((one_byte & 0x80) >> 7);
+			one_bit = (uint8_t)((one_byte & 0x80) >> 7);
 			pointAdd(&accumulator, &junk, lookup_affine[one_bit]);
-			one_byte = (u8)(one_byte << 1);
+			one_byte = (uint8_t)(one_byte << 1);
 		}
 	}
 	jacobianToAffine(p, &accumulator);
@@ -294,8 +294,8 @@ void pointMultiply(PointAffine *p, BigNum256 k)
 // Set the point p to the base point of secp256k1.
 void setToG(PointAffine *p)
 {
-	u8 buffer[32];
-	u8 i;
+	uint8_t buffer[32];
+	uint8_t i;
 
 	p->is_point_at_infinity = 0;
 	for (i = 0; i < 32; i++)
@@ -332,7 +332,7 @@ void setFieldToP(void)
 // "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
 // 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf,
 // section 4.1.3 ("Signing Operation").
-u8 ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k)
+uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k)
 {
 	PointAffine bigR;
 
@@ -377,7 +377,7 @@ u8 ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, Big
 #ifdef TEST
 
 // The curve parameter b of secp256k1. The other parameter, a, is zero.
-static const u8 secp256k1_b[32] = {
+static const uint8_t secp256k1_b[32] = {
 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -388,8 +388,8 @@ static int failed;
 
 static void checkPointIsOnCurve(PointAffine *p)
 {
-	u8 y_squared[32];
-	u8 x_cubed[32];
+	uint8_t y_squared[32];
+	uint8_t x_cubed[32];
 
 	if (p->is_point_at_infinity)
 	{
@@ -427,7 +427,7 @@ static void bigFRead(BigNum256 r, FILE *f)
 	for (i = 0; i < 32; i++)
 	{
 		fscanf(f, "%02x", &value);
-		r[i] = (u8)(value & 0xff);
+		r[i] = (uint8_t)(value & 0xff);
 	}
 }
 
@@ -453,10 +453,10 @@ static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNu
 	PointJacobian pj;
 	PointJacobian junk;
 	PointAffine result;
-	u8 temp1[32];
-	u8 temp2[32];
-	u8 k1[32];
-	u8 k2[32];
+	uint8_t temp1[32];
+	uint8_t temp2[32];
+	uint8_t k1[32];
+	uint8_t k2[32];
 
 	bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
 	bigModulo(temp1, hash);
@@ -493,13 +493,13 @@ int main(void)
 	PointJacobian p2;
 	PointJacobian junk;
 	PointAffine compare;
-	u8 temp[32];
-	u8 r[32];
-	u8 s[32];
-	u8 private_key[32];
-	u8 public_key_x[32];
-	u8 public_key_y[32];
-	u8 hash[32];
+	uint8_t temp[32];
+	uint8_t r[32];
+	uint8_t s[32];
+	uint8_t private_key[32];
+	uint8_t public_key_x[32];
+	uint8_t public_key_y[32];
+	uint8_t hash[32];
 	int i;
 	int j;
 	FILE *f;
@@ -675,8 +675,8 @@ int main(void)
 	{
 		setToG(&p);
 		bigSetZero(temp);
-		temp[0] = (u8)(i & 0xff);
-		temp[1] = (u8)((i >> 8) & 0xff);
+		temp[0] = (uint8_t)(i & 0xff);
+		temp[1] = (uint8_t)((i >> 8) & 0xff);
 		pointMultiply(&p, temp);
 		checkPointIsOnCurve(&p);
 	}
@@ -829,7 +829,7 @@ int main(void)
 			// Use a pseudo-random hash.
 			for (j = 0; j < 32; j++)
 			{
-				hash[j] = (u8)(rand() & 0xff);
+				hash[j] = (uint8_t)(rand() & 0xff);
 			}
 		}
 		skipWhiteSpace(f);
@@ -843,7 +843,7 @@ int main(void)
 		{
 			for (j = 0; j < 32; j++)
 			{
-				temp[j] = (u8)(rand() & 0xff);
+				temp[j] = (uint8_t)(rand() & 0xff);
 			}
 		} while (ecdsaSign(r, s, hash, private_key, temp));
 		if (crappyVerifySignature(r, s, hash, public_key_x, public_key_y))

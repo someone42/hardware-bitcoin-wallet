@@ -27,7 +27,7 @@
 #include "ripemd160.h"
 
 // Selection of message word for main rounds.
-static u8 r1[80] PROGMEM = {
+static uint8_t r1[80] PROGMEM = {
 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8,
 3, 10, 14, 4, 9, 15, 8, 1, 2, 7, 0, 6, 13, 11, 5, 12,
@@ -35,7 +35,7 @@ static u8 r1[80] PROGMEM = {
 4, 0, 5, 9, 7, 12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13};
 
 // Selection of message word for parallel rounds.
-static u8 r2[80] PROGMEM = {
+static uint8_t r2[80] PROGMEM = {
 5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12,
 6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2,
 15, 5, 1, 3, 7, 14, 6, 9, 11, 8, 12, 2, 10, 0, 4, 13,
@@ -43,7 +43,7 @@ static u8 r2[80] PROGMEM = {
 12, 15, 10, 4, 1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11};
 
 // Amount of rotate left for main rounds.
-static u8 s1[80] PROGMEM = {
+static uint8_t s1[80] PROGMEM = {
 11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8,
 7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12,
 11, 13, 6, 7, 14, 9, 13, 15, 14, 8, 13, 6, 5, 12, 7, 5,
@@ -51,7 +51,7 @@ static u8 s1[80] PROGMEM = {
 9, 15, 5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6};
 
 // Amount of rotate left for parallel rounds.
-static u8 s2[80] PROGMEM = {
+static uint8_t s2[80] PROGMEM = {
 8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6,
 9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11,
 9, 7, 15, 11, 8, 6, 6, 14, 12, 13, 5, 14, 13, 13, 7, 5,
@@ -59,33 +59,33 @@ static u8 s2[80] PROGMEM = {
 8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11};
 
 // Cyclic shift left (rotate left).
-static u32 rol(u32 x, u8 n)
+static uint32_t rol(uint32_t x, uint8_t n)
 {
 	return (x << n) | (x >> (32 - n));
 }
 
 // Five non-linear at bit level functions.
-static u32 f0(u32 x, u32 y, u32 z)
+static uint32_t f0(uint32_t x, uint32_t y, uint32_t z)
 {
 	return x ^ y ^ z;
 }
 
-static u32 f1(u32 x, u32 y, u32 z)
+static uint32_t f1(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & y) | (~x & z);
 }
 
-static u32 f2(u32 x, u32 y, u32 z)
+static uint32_t f2(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x | ~y) ^ z;
 }
 
-static u32 f3(u32 x, u32 y, u32 z)
+static uint32_t f3(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & z) | (y & ~z);
 }
 
-static u32 f4(u32 x, u32 y, u32 z)
+static uint32_t f4(uint32_t x, uint32_t y, uint32_t z)
 {
 	return x ^ (y | ~z);
 }
@@ -99,12 +99,12 @@ static void ripemd160Block(HashState *hs)
 	// K is the "added constant" for that round.
 	// R is the return value of the relevant non-linear at bit level
 	// function.
-	u32 A1, B1, C1, D1, E1;
-	u32 A2, B2, C2, D2, E2;
-	u32 T;
-	u32 K1, K2, R1, R2;
-	u8 j;
-	u8 fnselector;
+	uint32_t A1, B1, C1, D1, E1;
+	uint32_t A2, B2, C2, D2, E2;
+	uint32_t T;
+	uint32_t K1, K2, R1, R2;
+	uint8_t j;
+	uint8_t fnselector;
 
 	A1 = hs->h[0];
 	A2 = A1;
@@ -118,7 +118,7 @@ static void ripemd160Block(HashState *hs)
 	E2 = E1;
 	for (j = 0; j < 80; j++)
 	{
-		fnselector = (u8)(j >> 4);
+		fnselector = (uint8_t)(j >> 4);
 		switch(fnselector)
 		{
 		case 0:
@@ -188,7 +188,7 @@ void ripemd160Begin(HashState *hs)
 }
 
 // Send one more byte to be hashed.
-void ripemd160WriteByte(HashState *hs, u8 byte)
+void ripemd160WriteByte(HashState *hs, uint8_t byte)
 {
 	hashWriteByte(hs, byte);
 }
@@ -205,12 +205,12 @@ void ripemd160Finish(HashState *hs)
 static int succeeded;
 static int failed;
 
-static u32 h[5];
+static uint32_t h[5];
 
 // Result is returned in h.
-static void ripemd160(u8 *message, u32 length)
+static void ripemd160(uint8_t *message, uint32_t length)
 {
-	u32 i;
+	uint32_t i;
 	HashState hs;
 
 	ripemd160Begin(&hs);
@@ -239,7 +239,7 @@ static const char *test_strings[NUMTESTS] = {
 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
 "12345678901234567890123456789012345678901234567890123456789012345678901234567890"};
 
-static const u32 test_hashes[5 * NUMTESTS] = {
+static const uint32_t test_hashes[5 * NUMTESTS] = {
 0x9c1185a5, 0xc5e9fc54, 0x61280897, 0x7ee8f548, 0xb2258d31,
 0x0bdc9d2d, 0x256b3ee9, 0xdaae347b, 0xe6f4dc83, 0x5a467ffe,
 0x8eb208f7, 0xe05d987a, 0x9b044a8e, 0x98c6b087, 0xf15a0bfc,
@@ -253,15 +253,15 @@ int main(void)
 {
 	int i;
 	char *str;
-	u32 *compare_h;
+	uint32_t *compare_h;
 
 	succeeded = 0;
 	failed = 0;
 	for (i = 0; i < NUMTESTS; i++)
 	{
 		str = (char *)test_strings[i];
-		ripemd160((u8 *)str, strlen(str));
-		compare_h = (u32 *)&(test_hashes[i * 5]);
+		ripemd160((uint8_t *)str, strlen(str));
+		compare_h = (uint32_t *)&(test_hashes[i * 5]);
 		if ((h[0] == compare_h[0]) && (h[1] == compare_h[1])
 			&& (h[2] == compare_h[2]) && (h[3] == compare_h[3])
 			&& (h[4] == compare_h[4]))
@@ -279,7 +279,7 @@ int main(void)
 	// Million "a" test.
 	str = malloc(1000000);
 	memset(str, 'a', 1000000);
-	ripemd160((u8 *)str, 1000000);
+	ripemd160((uint8_t *)str, 1000000);
 	free(str);
 	if ((h[0] == 0x52783243) && (h[1] == 0xc1697bdb)
 		&& (h[2] == 0xe16d37f9) && (h[3] == 0x7f68f083)

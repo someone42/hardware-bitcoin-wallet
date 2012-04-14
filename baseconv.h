@@ -15,8 +15,8 @@
 // addresses. This should be 0x00 for the main network or 0x6f for testnet.
 #define ADDRESSVERSION		0x00
 
-extern void amountToText(char *out, u8 *in);
-extern void hashToAddr(char *out, u8 *in);
+extern void amountToText(char *out, uint8_t *in);
+extern void hashToAddr(char *out, uint8_t *in);
 
 #endif // #ifndef BASECONV_H_INCLUDED
 

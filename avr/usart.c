@@ -26,31 +26,31 @@
 #define RX_BUFFER_MASK	(RX_BUFFER_SIZE - 1)
 
 // The transmit/receive buffer.
-static volatile u8 tx_buffer[TX_BUFFER_SIZE];
-static volatile u8 rx_buffer[RX_BUFFER_SIZE];
+static volatile uint8_t tx_buffer[TX_BUFFER_SIZE];
+static volatile uint8_t rx_buffer[RX_BUFFER_SIZE];
 // Index in transmit/receive buffer of first character to send/be received.
-static volatile u8 tx_buffer_start;
-static volatile u8 rx_buffer_start;
+static volatile uint8_t tx_buffer_start;
+static volatile uint8_t rx_buffer_start;
 // Index + 1 in transmit/receive buffer of last character to send/be received.
-static volatile u8 tx_buffer_end;
-static volatile u8 rx_buffer_end;
+static volatile uint8_t tx_buffer_end;
+static volatile uint8_t rx_buffer_end;
 // Set to non-zero if transmit/receive buffer is full.
-static volatile u8 tx_buffer_full;
-static volatile u8 rx_buffer_full;
+static volatile uint8_t tx_buffer_full;
+static volatile uint8_t rx_buffer_full;
 // Set to non-zero if a receive buffer overrun occurs
-static volatile u8 rx_buffer_overrun;
+static volatile uint8_t rx_buffer_overrun;
 
 // Bytes to receive until sending next acknowledge.
-static u32 rx_acknowledge;
+static uint32_t rx_acknowledge;
 // Bytes to send until waiting for acknowledge.
-static u32 tx_acknowledge;
+static uint32_t tx_acknowledge;
 
 // Initialises USART0 with the parameters:
 // baud rate 57600, 8 data bits, no parity bit, 1 start bit, 0 stop bits.
 // This also clears the transmit/receive buffers.
 void initUsart(void)
 {
-	u8 temp;
+	uint8_t temp;
 
 	cli();
 	tx_buffer_start = 0;
@@ -70,14 +70,14 @@ void initUsart(void)
 	UBRR0L = UBRRL_VALUE;
 	// The datasheet says to set FE0, DOR0 and UPE0 to 0 whenever writing to
 	// UCSR0A.
-	temp = (u8)(UCSR0A & ~_BV(FE0) & ~_BV(DOR0) & ~_BV(UPE0) & ~_BV(U2X0) & ~_BV(MPCM0));
+	temp = (uint8_t)(UCSR0A & ~_BV(FE0) & ~_BV(DOR0) & ~_BV(UPE0) & ~_BV(U2X0) & ~_BV(MPCM0));
 #if USE_2X
 	temp |= _BV(U2X0);
 #endif // #if USE_2X
 	UCSR0A = temp;
 	UCSR0B = _BV(RXCIE0) | _BV(RXEN0) | _BV(TXEN0);
 	UCSR0C = _BV(UCSZ01) | _BV(UCSZ00);
-	PRR = (u8)(PRR & ~_BV(PRUSART0));
+	PRR = (uint8_t)(PRR & ~_BV(PRUSART0));
 	sei();
 }
 
@@ -87,7 +87,7 @@ ISR(USART_RX_vect)
 	{
 		// Uh oh, no space left in receive buffer. Still need to read UDR0
 		// to make USART happy.
-		u8 temp;
+		uint8_t temp;
 		temp = UDR0;
 		rx_buffer_overrun = 1;
 	}
@@ -95,7 +95,7 @@ ISR(USART_RX_vect)
 	{
 		rx_buffer[rx_buffer_end] = UDR0;
 		rx_buffer_end++;
-		rx_buffer_end = (u8)(rx_buffer_end & RX_BUFFER_MASK);
+		rx_buffer_end = (uint8_t)(rx_buffer_end & RX_BUFFER_MASK);
 		if (rx_buffer_start == rx_buffer_end)
 		{
 			rx_buffer_full = 1;
@@ -113,22 +113,22 @@ ISR(USART_UDRE_vect)
 	{
 		UDR0 = tx_buffer[tx_buffer_start];
 		tx_buffer_start++;
-		tx_buffer_start = (u8)(tx_buffer_start & TX_BUFFER_MASK);
+		tx_buffer_start = (uint8_t)(tx_buffer_start & TX_BUFFER_MASK);
 		tx_buffer_full = 0;
 	}
 	else
 	{
 		// Nothing left in transmit buffer; disable UDRE interrupt, otherwise
 		// it will continuously fire.
-		UCSR0B = (u8)(UCSR0B & ~_BV(UDRIE0));
+		UCSR0B = (uint8_t)(UCSR0B & ~_BV(UDRIE0));
 	}
 }
 
 // Send one byte through USART0. If the transmit buffer is full, this will
 // block until it isn't.
-static void usartSend(u8 data)
+static void usartSend(uint8_t data)
 {
-	u8 send_immediately;
+	uint8_t send_immediately;
 
 	cli();
 	send_immediately = 0;
@@ -152,7 +152,7 @@ static void usartSend(u8 data)
 		cli();
 		tx_buffer[tx_buffer_end] = data;
 		tx_buffer_end++;
-		tx_buffer_end = (u8)(tx_buffer_end & TX_BUFFER_MASK);
+		tx_buffer_end = (uint8_t)(tx_buffer_end & TX_BUFFER_MASK);
 		if (tx_buffer_start == tx_buffer_end)
 		{
 			tx_buffer_full = 1;
@@ -164,9 +164,9 @@ static void usartSend(u8 data)
 
 // Receive one byte through USART0. If there isn't a byte in the receive
 // buffer, this will block until there is.
-static u8 usartReceive(void)
+static uint8_t usartReceive(void)
 {
-	u8 r;
+	uint8_t r;
 
 	// The check in the loop doesn't need to be atomic, because the worst
 	// that can happen is that the loop spins one extra time.
@@ -177,7 +177,7 @@ static u8 usartReceive(void)
 	cli();
 	r = rx_buffer[rx_buffer_start];
 	rx_buffer_start++;
-	rx_buffer_start = (u8)(rx_buffer_start & RX_BUFFER_MASK);
+	rx_buffer_start = (uint8_t)(rx_buffer_start & RX_BUFFER_MASK);
 	rx_buffer_full = 0;
 	sei();
 	return r;
@@ -186,15 +186,15 @@ static u8 usartReceive(void)
 // Grab one byte from the communication stream, placing that byte
 // in *one_byte. If no error occurred, return 0, otherwise return a non-zero
 // value to indicate a read error.
-u8 streamGetOneByte(u8 *one_byte)
+uint8_t streamGetOneByte(uint8_t *one_byte)
 {
 	*one_byte = usartReceive();
 	rx_acknowledge--;
 	if (rx_acknowledge == 0)
 	{
 		// Send acknowledgement to other side.
-		u8 buffer[4];
-		u8 i;
+		uint8_t buffer[4];
+		uint8_t i;
 
 		rx_acknowledge = RX_BUFFER_SIZE;
 		writeU32LittleEndian(buffer, rx_acknowledge);
@@ -215,15 +215,15 @@ u8 streamGetOneByte(u8 *one_byte)
 // Send one byte to the communication stream.
 // If no error occurred, return 0, otherwise return a non-zero value
 // to indicate a write error.
-u8 streamPutOneByte(u8 one_byte)
+uint8_t streamPutOneByte(uint8_t one_byte)
 {
 	usartSend(one_byte);
 	tx_acknowledge--;
 	if (tx_acknowledge == 0)
 	{
 		// Need to wait for acknowledgement from other side.
-		u8 buffer[4];
-		u8 i;
+		uint8_t buffer[4];
+		uint8_t i;
 
 		do
 		{
@@ -244,7 +244,7 @@ extern void __bss_start;
 // won't get mangled.
 static NOINLINE void sanitiseRamInternal(void)
 {
-	volatile u16 i;
+	volatile uint16_t i;
 
 	// This is an awful abuse of C's type system.
 	// __bss_start is a symbol exported by the linker which conveniently
@@ -258,10 +258,10 @@ static NOINLINE void sanitiseRamInternal(void)
 	// because non-zero-initialised data is never used to store sensitive
 	// data - it's only used for lookup tables.
 	cli();
-	for (i = (u16)&__bss_start; i < (u16)&i; i++)
+	for (i = (uint16_t)&__bss_start; i < (uint16_t)&i; i++)
 	{
-		*((u8 *)i) = 0xff; // just to be sure
-		*((u8 *)i) = 0;
+		*((uint8_t *)i) = 0xff; // just to be sure
+		*((uint8_t *)i) = 0;
 	}
 	sei();
 }
@@ -274,8 +274,8 @@ static NOINLINE void sanitiseRamInternal(void)
 // acknowledgement).
 void sanitiseRam(void)
 {
-	u32 saved_rx_acknowledge;
-	u32 saved_tx_acknowledge;
+	uint32_t saved_rx_acknowledge;
+	uint32_t saved_tx_acknowledge;
 
 	// Wait until transmit buffer is empty.
 	while (tx_buffer_full)

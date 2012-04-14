@@ -38,8 +38,8 @@ FILE *wallet_test_file;
 #endif // #if defined(TEST) || defined(INTERFACE_STUBS)
 
 static WalletErrors last_error;
-static u8 wallet_loaded;
-static u32 num_addresses;
+static uint8_t wallet_loaded;
+static uint32_t num_addresses;
 
 // Returns the last error which occurred in any wallet function.
 // If no error occurred in the last wallet function that was called, this
@@ -102,10 +102,10 @@ void initWalletTest(void)
 // Calculate the checksum (SHA-256 hash) of the wallet. The result will be
 // written to hash, which must have space for 32 bytes.
 // Return values have the same meaning as they do for nonVolatileRead().
-static NonVolatileReturn calculateWalletChecksum(u8 *hash)
+static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 {
-	u16 i;
-	u8 buffer[4];
+	uint16_t i;
+	uint8_t buffer[4];
 	HashState hs;
 	NonVolatileReturn r;
 
@@ -152,10 +152,10 @@ static NonVolatileReturn calculateWalletChecksum(u8 *hash)
 // WALLET_NO_ERROR indicates success, anything else indicates failure.
 WalletErrors initWallet(void)
 {
-	u8 buffer[32];
-	u8 hash[32];
-	u8 i;
-	u32 version;
+	uint8_t buffer[32];
+	uint8_t hash[32];
+	uint8_t i;
+	uint32_t version;
 
 	wallet_loaded = 0;
 
@@ -223,13 +223,13 @@ WalletErrors uninitWallet(void)
 // end of the non-volatile storage area. This done so that using
 // start == 0 and end == 0xffffffff will clear the entire non-volatile storage
 // area.
-WalletErrors sanitiseNonVolatileStorage(u32 start, u32 end)
+WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 {
-	u8 buffer[32];
-	u32 address;
+	uint8_t buffer[32];
+	uint32_t address;
 	NonVolatileReturn r;
-	u8 pass;
-	u8 i;
+	uint8_t pass;
+	uint8_t i;
 
 	r = NV_NO_ERROR;
 	for (pass = 0; pass < 4; pass++)
@@ -298,7 +298,7 @@ WalletErrors sanitiseNonVolatileStorage(u32 start, u32 end)
 // Warning: a wallet must be loaded before calling this.
 static NonVolatileReturn writeWalletVersion(void)
 {
-	u8 buffer[4];
+	uint8_t buffer[4];
 
 	if (areEncryptionKeysNonZero())
 	{
@@ -318,7 +318,7 @@ static NonVolatileReturn writeWalletVersion(void)
 // indicates failure.
 static WalletErrors writeWalletChecksum(void)
 {
-	u8 hash[32];
+	uint8_t hash[32];
 
 	if (calculateWalletChecksum(hash) != NV_NO_ERROR)
 	{
@@ -337,9 +337,9 @@ static WalletErrors writeWalletChecksum(void)
 // anything else indicates failure.
 // If this returns WALLET_NO_ERROR, then the wallet will also be loaded.
 // Warning: this will erase the current one.
-WalletErrors newWallet(u8 *name)
+WalletErrors newWallet(uint8_t *name)
 {
-	u8 buffer[32];
+	uint8_t buffer[32];
 	WalletErrors r;
 
 	// Erase all traces of the existing wallet.
@@ -422,9 +422,9 @@ WalletErrors newWallet(u8 *name)
 // key to out_public_key. out_address must have space for 20 bytes.
 // Returns the address handle on success, or BAD_ADDRESS_HANDLE if an error
 // occurred.
-AddressHandle makeNewAddress(u8 *out_address, PointAffine *out_public_key)
+AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 {
-	u8 buffer[4];
+	uint8_t buffer[4];
 
 	if (!wallet_loaded)
 	{
@@ -461,12 +461,12 @@ AddressHandle makeNewAddress(u8 *out_address, PointAffine *out_public_key)
 // Given an address handle, generate the address and public key associated
 // with that address handle, placing the result in out. out must have space
 // for 20 bytes.
-WalletErrors getAddressAndPublicKey(u8 *out_address, PointAffine *out_public_key, AddressHandle ah)
+WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah)
 {
-	u8 buffer[32];
+	uint8_t buffer[32];
 	HashState hs;
 	WalletErrors r;
-	u8 i;
+	uint8_t i;
 
 	if (!wallet_loaded)
 	{
@@ -528,7 +528,7 @@ WalletErrors getAddressAndPublicKey(u8 *out_address, PointAffine *out_public_key
 
 // Get current number of addresses in wallet.
 // Returns 0 on error.
-u32 getNumAddresses(void)
+uint32_t getNumAddresses(void)
 {
 	if (!wallet_loaded)
 	{
@@ -549,9 +549,9 @@ u32 getNumAddresses(void)
 
 // Gets the 32-byte private key for a given address handle. out must have
 // space for 32 bytes.
-WalletErrors getPrivateKey(u8 *out, AddressHandle ah)
+WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 {
-	u8 seed[64];
+	uint8_t seed[64];
 
 	if (!wallet_loaded)
 	{
@@ -580,13 +580,13 @@ WalletErrors getPrivateKey(u8 *out, AddressHandle ah)
 
 // Change the encryption key for a wallet to the key specified by new_key.
 // new_key should point to an array of 32 bytes.
-WalletErrors changeEncryptionKey(u8 *new_key)
+WalletErrors changeEncryptionKey(uint8_t *new_key)
 {
-	u8 old_key[32];
-	u8 buffer[16];
+	uint8_t old_key[32];
+	uint8_t buffer[16];
 	NonVolatileReturn r;
-	u32 address;
-	u32 end;
+	uint32_t address;
+	uint32_t end;
 
 	if (!wallet_loaded)
 	{
@@ -637,7 +637,7 @@ WalletErrors changeEncryptionKey(u8 *new_key)
 // Change the name of the currently loaded wallet. name should point to 40
 // bytes (padded with spaces if necessary) containing the desired name of the
 // wallet.
-WalletErrors changeWalletName(u8 *new_name)
+WalletErrors changeWalletName(uint8_t *new_name)
 {
 	WalletErrors r;
 
@@ -672,7 +672,7 @@ WalletErrors changeWalletName(u8 *new_name)
 // version of the wallet and out_name will contain the (space-padded) name
 // of the wallet.
 // The wallet doesn't need to be loaded.
-WalletErrors getWalletInfo(u8 *out_version, u8 *out_name)
+WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
 {
 	if (nonVolatileRead(out_version, OFFSET_VERSION, 4) != NV_NO_ERROR)
 	{
@@ -694,10 +694,10 @@ WalletErrors getWalletInfo(u8 *out_version, u8 *out_name)
 // Size of storage area, in bytes.
 #define TEST_FILE_SIZE 1024
 
-NonVolatileReturn nonVolatileWrite(u8 *data, u32 address, u8 length)
+NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
 {
 	int i;
-	if ((address + (u32)length) > TEST_FILE_SIZE)
+	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
 	{
 		return NV_INVALID_ADDRESS;
 	}
@@ -712,9 +712,9 @@ NonVolatileReturn nonVolatileWrite(u8 *data, u32 address, u8 length)
 	return NV_NO_ERROR;
 }
 
-NonVolatileReturn nonVolatileRead(u8 *data, u32 address, u8 length)
+NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
 {
-	if ((address + (u32)length) > TEST_FILE_SIZE)
+	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
 	{
 		return NV_INVALID_ADDRESS;
 	}
@@ -744,8 +744,8 @@ static int failed;
 // they return WALLET_NOT_THERE somehow.
 static void checkFunctionsReturnWalletNotThere(void)
 {
-	u8 temp[128];
-	u32 check_num_addresses;
+	uint8_t temp[128];
+	uint32_t check_num_addresses;
 	AddressHandle ah;
 	PointAffine public_key;
 
@@ -810,16 +810,16 @@ static void checkFunctionsReturnWalletNotThere(void)
 
 int main(void)
 {
-	u8 temp[128];
-	u8 address1[20];
-	u8 address2[20];
-	u8 name[40];
-	u8 encryption_key[16];
-	u8 tweak_key[16];
-	u8 new_encryption_key[32];
-	u8 version[4];
-	u8 *address_buffer;
-	u8 one_byte;
+	uint8_t temp[128];
+	uint8_t address1[20];
+	uint8_t address2[20];
+	uint8_t name[40];
+	uint8_t encryption_key[16];
+	uint8_t tweak_key[16];
+	uint8_t new_encryption_key[32];
+	uint8_t version[4];
+	uint8_t *address_buffer;
+	uint8_t one_byte;
 	AddressHandle *handles_buffer;
 	AddressHandle ah;
 	PointAffine public_key;
@@ -1022,14 +1022,14 @@ int main(void)
 	abort = 0;
 	for (i = 0; i < RECORD_LENGTH; i++)
 	{
-		if (nonVolatileRead(&one_byte, (u32)i, 1) != NV_NO_ERROR)
+		if (nonVolatileRead(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
 			printf("NV read fail\n");
 			abort = 1;
 			break;
 		}
 		one_byte++;
-		if (nonVolatileWrite(&one_byte, (u32)i, 1) != NV_NO_ERROR)
+		if (nonVolatileWrite(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
 			printf("NV write fail\n");
 			abort = 1;
@@ -1042,7 +1042,7 @@ int main(void)
 			break;
 		}
 		one_byte--;
-		if (nonVolatileWrite(&one_byte, (u32)i, 1) != NV_NO_ERROR)
+		if (nonVolatileWrite(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
 			printf("NV write fail\n");
 			abort = 1;

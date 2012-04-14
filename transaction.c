@@ -32,31 +32,31 @@
 #include "hwinterface.h"
 #include "transaction.h"
 
-static u32 transaction_data_index;
-static u32 transaction_length;
-static u16 transaction_num_inputs;
-static u8 read_error_occurred;
-static u8 suppress_transaction_hash;
-static u8 suppress_both_hash;
+static uint32_t transaction_data_index;
+static uint32_t transaction_length;
+static uint16_t transaction_num_inputs;
+static uint8_t read_error_occurred;
+static uint8_t suppress_transaction_hash;
+static uint8_t suppress_both_hash;
 static HashState sig_hash_hs;
 static HashState transaction_hash_hs;
 
 // Returns the number of inputs from the most recent transaction parsed by
 // parseTransaction. Returns 0 if there was an error obtaining the number
 // of inputs.
-u16 getTransactionNumInputs(void)
+uint16_t getTransactionNumInputs(void)
 {
 	return transaction_num_inputs;
 }
 
 // Returns 0 on success and fills buffer with length bytes,
 // otherwise returns 1 to indicate an unexpected end of transaction data.
-static u8 getTransactionBytes(u8 *buffer, u8 length)
+static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 {
-	u8 i;
-	u8 one_byte;
+	uint8_t i;
+	uint8_t one_byte;
 
-	if (transaction_data_index + (u32)length > transaction_length)
+	if (transaction_data_index + (uint32_t)length > transaction_length)
 	{
 		return 1; // trying to read past end of transaction
 	}
@@ -85,7 +85,7 @@ static u8 getTransactionBytes(u8 *buffer, u8 length)
 }
 
 // Returns 0 if not at end of transaction data, otherwise returns 1.
-static u8 isEndOfTransactionData(void)
+static uint8_t isEndOfTransactionData(void)
 {
 	if (transaction_data_index >= transaction_length)
 	{
@@ -102,9 +102,9 @@ static u8 isEndOfTransactionData(void)
 // Returns 1 to indicate an unexpected end of transaction data.
 // Returns 2 to indicate that the varint is too large.
 // This only supports varints up to 2 ^ 32 - 1.
-static u8 getVarInt(u32 *out)
+static uint8_t getVarInt(uint32_t *out)
 {
-	u8 temp[4];
+	uint8_t temp[4];
 
 	if (getTransactionBytes(temp, 1))
 	{
@@ -120,7 +120,7 @@ static u8 getVarInt(u32 *out)
 		{
 			return 1; // unexpected end of transaction data
 		}
-		*out = (u32)(temp[0]) | ((u32)(temp[1]) << 8);
+		*out = (uint32_t)(temp[0]) | ((uint32_t)(temp[1]) << 8);
 	}
 	else if (temp[0] == 0xfe)
 	{
@@ -139,15 +139,15 @@ static u8 getVarInt(u32 *out)
 
 // See comments for parseTransaction() for description of what this does
 // and return values.
-static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 transaction_hash, u32 length)
+static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length)
 {
-	u8 temp[20];
-	u32 num_inputs;
-	u8 num_outputs;
-	u32 script_length;
-	u16 i;
-	u8 j;
-	u32 i32;
+	uint8_t temp[20];
+	uint32_t num_inputs;
+	uint8_t num_outputs;
+	uint32_t script_length;
+	uint16_t i;
+	uint8_t j;
+	uint32_t i32;
 	char text_amount[22];
 	char text_address[36];
 
@@ -189,7 +189,7 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	{
 		return TRANSACTION_TOO_MANY_INPUTS; // too many inputs
 	}
-	transaction_num_inputs = (u16)num_inputs;
+	transaction_num_inputs = (uint16_t)num_inputs;
 
 	// Process each input.
 	for (i = 0; i < num_inputs; i++)
@@ -347,10 +347,10 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 // Returns one of the values in TransactionErrors.
 // This will always read the number of bytes specified by length from the
 // input stream, even in the case of an invalid transaction.
-TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, u32 length)
+TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length)
 {
 	TransactionErrors r;
-	u8 junk;
+	uint8_t junk;
 
 	r = parseTransactionInternal(sig_hash, transaction_hash, length);
 	if (!read_error_occurred)
@@ -375,10 +375,10 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 }
 
 // Swap endian representation of a 256-bit integer.
-void swapEndian256(u8 *buffer)
+void swapEndian256(uint8_t *buffer)
 {
-	u8 i;
-	u8 temp;
+	uint8_t i;
+	uint8_t temp;
 
 	for (i = 0; i < 16; i++)
 	{
@@ -402,11 +402,11 @@ void swapEndian256(u8 *buffer)
 // have space for at least 73 bytes.
 // The return value is the length of the signature (including the
 // hash type byte).
-u8 signTransaction(u8 *signature, BigNum256 sig_hash, BigNum256 private_key)
+uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 private_key)
 {
-	u8 k[32];
-	u8 sequence_length;
-	u8 i;
+	uint8_t k[32];
+	uint8_t sequence_length;
+	uint8_t i;
 
 	// Place an extra leading zero in front of r and s, just in case their
 	// most significant bit is 1.
@@ -476,12 +476,12 @@ u8 signTransaction(u8 *signature, BigNum256 sig_hash, BigNum256 private_key)
 	signature[0] = 0x30; // SEQUENCE
 	signature[1] = sequence_length; // length of SEQUENCE
 	// 3 extra bytes: SEQUENCE/length and hashtype
-	return (u8)(sequence_length + 3);
+	return (uint8_t)(sequence_length + 3);
 }
 
 #if defined(TEST) || defined(INTERFACE_STUBS)
 
-u8 newOutputSeen(char *text_amount, char *text_address)
+uint8_t newOutputSeen(char *text_amount, char *text_address)
 {
 	printf("Amount: %s\n", text_amount);
 	printf("Address: %s\n", text_address);
@@ -496,7 +496,7 @@ void clearOutputsSeen(void)
 
 #ifdef TEST
 
-static const u8 test_tx1[] = {
+static const uint8_t test_tx1[] = {
 0x01, 0x00, 0x00, 0x00, // version
 0x01, // number of inputs
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee, // previous output
@@ -538,15 +538,15 @@ static const u8 test_tx1[] = {
 0x01, 0x00, 0x00, 0x00 // hashtype
 };
 
-static const u8 private_key[] = {
+static const uint8_t private_key[] = {
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee};
 
-static u8 *transaction_data;
+static uint8_t *transaction_data;
 
-u8 streamGetOneByte(u8 *one_byte)
+uint8_t streamGetOneByte(uint8_t *one_byte)
 {
 	*one_byte = transaction_data[transaction_data_index];
 	return 0; // success
@@ -555,9 +555,9 @@ u8 streamGetOneByte(u8 *one_byte)
 int main(void)
 {
 	size_t length;
-	u8 sig_hash[32];
-	u8 transaction_hash[32];
-	u8 signature[73];
+	uint8_t sig_hash[32];
+	uint8_t transaction_hash[32];
+	uint8_t signature[73];
 	int i;
 
 	srand(42);

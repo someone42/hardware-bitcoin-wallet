@@ -17,12 +17,12 @@
 #include "common.h"
 #include "hwinterface.h"
 
-extern void setTweakKey(u8 *in);
-extern void setEncryptionKey(u8 *in);
-extern void getEncryptionKeys(u8 *out);
-extern u8 areEncryptionKeysNonZero(void);
+extern void setTweakKey(uint8_t *in);
+extern void setEncryptionKey(uint8_t *in);
+extern void getEncryptionKeys(uint8_t *out);
+extern uint8_t areEncryptionKeysNonZero(void);
 extern void clearEncryptionKeys(void);
-extern NonVolatileReturn encryptedNonVolatileWrite(u8 *data, u32 address, u8 length);
-extern NonVolatileReturn encryptedNonVolatileRead(u8 *data, u32 address, u8 length);
+extern NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length);
+extern NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint8_t length);
 
 #endif // #ifndef XEX_H_INCLUDED

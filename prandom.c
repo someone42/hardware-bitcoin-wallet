@@ -28,9 +28,9 @@
 #endif // #ifdef TEST
 
 // XOR 16 bytes specified by r with the 16 bytes specified by op1.
-void xor16Bytes(u8 *r, u8 *op1)
+void xor16Bytes(uint8_t *r, uint8_t *op1)
 {
-	u8 i;
+	uint8_t i;
 
 	for (i = 0; i < 16; i++)
 	{
@@ -50,11 +50,11 @@ void xor16Bytes(u8 *r, u8 *op1)
 // generator is at least 256 * ENTROPY_SAFETY_FACTOR bits.
 void getRandom256(BigNum256 n)
 {
-	u16 total_entropy;
-	u8 key[32];
-	u8 random_bytes[32];
-	u8 expanded_key[EXPANDED_KEY_SIZE];
-	u8 i;
+	uint16_t total_entropy;
+	uint8_t key[32];
+	uint8_t random_bytes[32];
+	uint8_t expanded_key[EXPANDED_KEY_SIZE];
+	uint8_t i;
 
 	total_entropy = 0;
 	for (i = 0; i < 32; i++)
@@ -63,8 +63,8 @@ void getRandom256(BigNum256 n)
 	}
 	while (total_entropy < (256 * ENTROPY_SAFETY_FACTOR))
 	{
-		total_entropy = (u16)(total_entropy + hardwareRandomBytes(key, 32));
-		total_entropy = (u16)(total_entropy + hardwareRandomBytes(random_bytes, 32));
+		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(key, 32));
+		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, 32));
 		// Mix plaintext with output of previous round.
 		xor16Bytes(n, random_bytes);
 		aesExpandKey(expanded_key, &(key[0]));
@@ -78,9 +78,9 @@ void getRandom256(BigNum256 n)
 // First part of deterministic 256-bit number generation.
 // See comments to generateDeterministic256() for details.
 // It was split into two parts to most efficiently use stack space.
-static NOINLINE void generateDeterministic256Part1(u8 *hash, u8 *seed, u32 num)
+static NOINLINE void generateDeterministic256Part1(uint8_t *hash, uint8_t *seed, uint32_t num)
 {
-	u8 i;
+	uint8_t i;
 	HashState hs;
 
 	sha256Begin(&hs);
@@ -92,10 +92,10 @@ static NOINLINE void generateDeterministic256Part1(u8 *hash, u8 *seed, u32 num)
 	{
 		sha256WriteByte(&hs, 0);
 	}
-	sha256WriteByte(&hs, (u8)(num >> 24));
-	sha256WriteByte(&hs, (u8)(num >> 16));
-	sha256WriteByte(&hs, (u8)(num >> 8));
-	sha256WriteByte(&hs, (u8)num);
+	sha256WriteByte(&hs, (uint8_t)(num >> 24));
+	sha256WriteByte(&hs, (uint8_t)(num >> 16));
+	sha256WriteByte(&hs, (uint8_t)(num >> 8));
+	sha256WriteByte(&hs, (uint8_t)num);
 	sha256Finish(&hs);
 	writeHashToByteArray(hash, &hs, 1);
 }
@@ -103,9 +103,9 @@ static NOINLINE void generateDeterministic256Part1(u8 *hash, u8 *seed, u32 num)
 // Second part of deterministic 256-bit number generation.
 // See comments to generateDeterministic256() for details.
 // It was split into two parts to most efficiently use stack space.
-static NOINLINE void generateDeterministic256Part2(BigNum256 out, u8 *hash, u8 *seed)
+static NOINLINE void generateDeterministic256Part2(BigNum256 out, uint8_t *hash, uint8_t *seed)
 {
-	u8 expanded_key[EXPANDED_KEY_SIZE];
+	uint8_t expanded_key[EXPANDED_KEY_SIZE];
 
 	aesExpandKey(expanded_key, &(seed[0]));
 	aesEncrypt(&(out[0]), &(hash[0]), expanded_key);
@@ -132,9 +132,9 @@ static NOINLINE void generateDeterministic256Part2(BigNum256 out, u8 *hash, u8 *
 // Note: out is little-endian, so the first encrypted half of the hash
 // goes into the least-significant 256 bits while the second encrypted
 // half goes into the most-significant 256 bits.
-void generateDeterministic256(BigNum256 out, u8 *seed, u32 num)
+void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num)
 {
-	u8 hash[32];
+	uint8_t hash[32];
 
 	generateDeterministic256Part1(hash, seed, num);
 	generateDeterministic256Part2(out, hash, seed);
@@ -146,7 +146,7 @@ extern int rand(void);
 
 // The purpose of this "random" byte source is to test the entropy
 // accumulation behaviour of getRandom256().
-u16 hardwareRandomBytes(u8 *buffer, u8 n)
+uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 {
 	int i;
 
@@ -154,7 +154,7 @@ u16 hardwareRandomBytes(u8 *buffer, u8 n)
 	{
 		buffer[i] = 0;
 	}
-	buffer[0] = (u8)(rand() & 0xff);
+	buffer[0] = (uint8_t)(rand() & 0xff);
 	return 8;
 }
 
@@ -167,13 +167,13 @@ u16 hardwareRandomBytes(u8 *buffer, u8 n)
 // an external program.
 int main(int argc, char **argv)
 {
-	u8 r[32];
+	uint8_t r[32];
 	int i, j;
 	int num_samples;
 	FILE *f;
-	u8 seed[64];
-	u8 keys[64][32];
-	u8 key2[32];
+	uint8_t seed[64];
+	uint8_t keys[64][32];
+	uint8_t key2[32];
 
 	// Before outputting samples, do a sanity check that
 	// generateDeterministic256() actually has different outputs when

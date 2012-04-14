@@ -17,7 +17,7 @@
 // When this type is used, expect the identifier to have the type of a pointer
 // which points to a 32 byte array. Do not use this type when the pointer
 // points to an array which may not be exactly 32 bytes in size.
-typedef u8 * BigNum256;
+typedef uint8_t * BigNum256;
 
 // Return values for bigCompare(). These all must be unsigned and <= 127.
 // Also, BIGCMP_EQUAL must be 0 or some hacks in bigCompareVariableSize()
@@ -26,15 +26,15 @@ typedef u8 * BigNum256;
 #define BIGCMP_EQUAL		0
 #define BIGCMP_GREATER		1
 
-extern u8 bigCompareVariableSize(u8 *op1, u8 *op2, u8 size);
-extern u8 bigCompare(BigNum256 op1, BigNum256 op2);
-extern u8 bigIsZero(BigNum256 op1);
-extern u8 bigIsZeroVariableSize(u8 *op1, u8 size);
+extern uint8_t bigCompareVariableSize(uint8_t *op1, uint8_t *op2, uint8_t size);
+extern uint8_t bigCompare(BigNum256 op1, BigNum256 op2);
+extern uint8_t bigIsZero(BigNum256 op1);
+extern uint8_t bigIsZeroVariableSize(uint8_t *op1, uint8_t size);
 extern void bigSetZero(BigNum256 r);
 extern void bigAssign(BigNum256 r, BigNum256 op1);
-extern void bigSetField(const u8 *in_n, const u8 *in_complement_n, const u8 in_size_complement_n);
+extern void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint8_t in_size_complement_n);
 extern void bigModulo(BigNum256 r, BigNum256 op1);
-extern u8 bigSubtractVariableSizeNoModulo(u8 *r, u8 *op1, u8 *op2, u8 size);
+extern uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t size);
 extern void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2);

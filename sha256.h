@@ -17,7 +17,7 @@
 #include "hash.h"
 
 extern void sha256Begin(HashState *hs);
-extern void sha256WriteByte(HashState *hs, u8 byte);
+extern void sha256WriteByte(HashState *hs, uint8_t byte);
 extern void sha256Finish(HashState *hs);
 extern void sha256FinishDouble(HashState *hs);
 

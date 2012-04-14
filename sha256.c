@@ -21,7 +21,7 @@
 #include "hash.h"
 #include "sha256.h"
 
-static const u32 k[64] PROGMEM = {
+static const uint32_t k[64] PROGMEM = {
 0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3,
@@ -39,39 +39,39 @@ static const u32 k[64] PROGMEM = {
 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
-static u32 rotateRight(u32 x, u8 n)
+static uint32_t rotateRight(uint32_t x, uint8_t n)
 {
 	return (x >> n) | (x << (32 - n));
 }
 
 // Functions defined in section 4.1.2 of FIPS PUB 180-3
 
-static u32 ch(u32 x, u32 y, u32 z)
+static uint32_t ch(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & y) ^ ((~x) & z);
 }
 
-static u32 maj(u32 x, u32 y, u32 z)
+static uint32_t maj(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & y) ^ (x & z) ^ (y & z);
 }
 
-static u32 bigSigma0(u32 x)
+static uint32_t bigSigma0(uint32_t x)
 {
 	return rotateRight(x, 2) ^ rotateRight(x, 13) ^ rotateRight(x, 22);
 }
 
-static u32 bigSigma1(u32 x)
+static uint32_t bigSigma1(uint32_t x)
 {
 	return rotateRight(x, 6) ^ rotateRight(x, 11) ^ rotateRight(x, 25);
 }
 
-static u32 littleSigma0(u32 x)
+static uint32_t littleSigma0(uint32_t x)
 {
 	return rotateRight(x, 7) ^ rotateRight(x, 18) ^ (x >> 3);
 }
 
-static u32 littleSigma1(u32 x)
+static uint32_t littleSigma1(uint32_t x)
 {
 	return rotateRight(x, 17) ^ rotateRight(x, 19) ^ (x >> 10);
 }
@@ -80,10 +80,10 @@ static u32 littleSigma1(u32 x)
 // Implements pseudo-code in section 6.2.2 of FIPS PUB 180-3.
 static void sha256Block(HashState *hs)
 {
-	u32 a, b, c, d, e, f, g, h;
-	u32 t1, t2;
-	u8 t;
-	u32 w[64];
+	uint32_t a, b, c, d, e, f, g, h;
+	uint32_t t1, t2;
+	uint8_t t;
+	uint32_t w[64];
 
 	for (t = 0; t < 16; t++)
 	{
@@ -143,7 +143,7 @@ void sha256Begin(HashState *hs)
 }
 
 // Send one more byte to be hashed.
-void sha256WriteByte(HashState *hs, u8 byte)
+void sha256WriteByte(HashState *hs, uint8_t byte)
 {
 	hashWriteByte(hs, byte);
 }
@@ -158,8 +158,8 @@ void sha256Finish(HashState *hs)
 // Just like sha256Finish(), except this does a double SHA-256 hash.
 void sha256FinishDouble(HashState *hs)
 {
-	u8 temp[32];
-	u8 i;
+	uint8_t temp[32];
+	uint8_t i;
 
 	sha256Finish(hs);
 	writeHashToByteArray(temp, hs, 1);
@@ -176,12 +176,12 @@ void sha256FinishDouble(HashState *hs)
 static int succeeded;
 static int failed;
 
-static u32 h[8];
+static uint32_t h[8];
 
 // Result is returned in h.
-static void sha256(u8 *message, u32 length)
+static void sha256(uint8_t *message, uint32_t length)
 {
-	u32 i;
+	uint32_t i;
 	HashState hs;
 
 	sha256Begin(&hs);
@@ -223,9 +223,9 @@ static void scanTestVectors(char *filename)
 	int i;
 	int value;
 	int test_number;
-	u32 compare_h[8];
+	uint32_t compare_h[8];
 	char buffer[16];
-	u8 *message;
+	uint8_t *message;
 
 	f = fopen(filename, "r");
 	if (f == NULL)
@@ -269,7 +269,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 		for (i = 0; i < bytes_to_read; i++)
 		{
 			fscanf(f, "%02x", &value);
-			message[i] = (u8)value;
+			message[i] = (uint8_t)value;
 		}
 		skipWhiteSpace(f);
 		sha256(message, length);
@@ -284,7 +284,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 		for (i = 0; i < 8; i++)
 		{
 			fscanf(f, "%08x", &value);
-			compare_h[i] = (u32)value;
+			compare_h[i] = (uint32_t)value;
 		}
 		skipWhiteSpace(f);
 		if ((h[0] == compare_h[0]) && (h[1] == compare_h[1])

@@ -3,22 +3,33 @@
 // ***********************************************************************
 //
 // This defines things which are common to most of the source distribution.
-// If porting to another platform, please check that the typedefs below
-// refer to appropriate types.
+// If porting to another platform, please check for the presence of stdint.h
+// and if it isn't available, check that the typedefs below refer to
+// appropriate types.
 //
 // This file is licensed as described by the file LICENCE.
 
 #ifndef COMMON_H_INCLUDED
 #define COMMON_H_INCLUDED
 
+// Some platforms or toolchains lack stdint.h. Please define NO_STDINT_H and
+// modify the three typedefs below if this is the case.
+#ifdef NO_STDINT_H
+
 // These typedefs are platform-dependent. Change them if they don't match
 // the comments.
 // Unsigned 8-bit integer
-typedef unsigned char u8;
+typedef unsigned char uint8_t;
 // Unsigned 16-bit integer
-typedef unsigned short u16;
+typedef unsigned short uint16_t;
 // Unsigned 32-bit integer
-typedef unsigned long u32;
+typedef unsigned long uint32_t;
+
+#else
+
+#include <stdint.h>
+
+#endif // #ifdef NO_STDINT_H
 
 // In certain situations, inlining can cause an overall increase in stack
 // space. For example, let foo() use 100 bytes of stack space, bar() 104 bytes

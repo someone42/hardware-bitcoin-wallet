@@ -46,12 +46,12 @@
 // be >= 2 (otherwise bigInvert() will not work correctly).
 static BigNum256 n;
 static BigNum256 complement_n;
-static u8 size_complement_n;
+static uint8_t size_complement_n;
 
 #ifdef TEST
 static void bigPrint(BigNum256 number)
 {
-	u8 i;
+	uint8_t i;
 	for (i = 31; i < 32; i--)
 	{
 		printf("%02x", number[i]);
@@ -63,14 +63,14 @@ static void bigPrint(BigNum256 number)
 // BIGCMP_LESS if op1 < op2.
 // op1 may alias op2.
 // This supports bignums with sizes other than 256 bits.
-u8 bigCompareVariableSize(u8 *op1, u8 *op2, u8 size)
+uint8_t bigCompareVariableSize(uint8_t *op1, uint8_t *op2, uint8_t size)
 {
-	u8 i;
-	u8 r;
-	u8 cmp;
+	uint8_t i;
+	uint8_t r;
+	uint8_t cmp;
 
 	r = BIGCMP_EQUAL;
-	for (i = (u8)(size - 1); i < size; i--)
+	for (i = (uint8_t)(size - 1); i < size; i--)
 	{
 		// The following code is a branch free way of doing:
 		// if (r == BIGCMP_EQUAL)
@@ -90,10 +90,10 @@ u8 bigCompareVariableSize(u8 *op1, u8 *op2, u8 size)
 		// Note that it relies on BIGCMP_EQUAL having the value 0.
 		// It inspired by the code at:
 		// http://aggregate.ee.engr.uky.edu/MAGIC/#Integer%20Selection
-		cmp = (u8)((((u16)((int)op2[i] - (int)op1[i])) >> 8) & BIGCMP_GREATER);
-		r = (u8)(((((u16)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
-		cmp = (u8)((((u16)((int)op1[i] - (int)op2[i])) >> 8) & BIGCMP_LESS);
-		r = (u8)(((((u16)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
+		cmp = (uint8_t)((((uint16_t)((int)op2[i] - (int)op1[i])) >> 8) & BIGCMP_GREATER);
+		r = (uint8_t)(((((uint16_t)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
+		cmp = (uint8_t)((((uint16_t)((int)op1[i] - (int)op2[i])) >> 8) & BIGCMP_LESS);
+		r = (uint8_t)(((((uint16_t)(-(int)r)) >> 8) & (r ^ cmp)) ^ cmp);
 	}
 	return r;
 }
@@ -101,17 +101,17 @@ u8 bigCompareVariableSize(u8 *op1, u8 *op2, u8 size)
 // Returns BIGCMP_GREATER if op1 > op2, BIGCMP_EQUAL if they're equal and
 // BIGCMP_LESS if op1 < op2.
 // op1 may alias op2.
-u8 bigCompare(BigNum256 op1, BigNum256 op2)
+uint8_t bigCompare(BigNum256 op1, BigNum256 op2)
 {
 	return bigCompareVariableSize(op1, op2, 32);
 }
 
 // Returns 1 if op1 is zero, returns 0 otherwise.
 // This supports bignums with sizes other than 256 bits.
-u8 bigIsZeroVariableSize(u8 *op1, u8 size)
+uint8_t bigIsZeroVariableSize(uint8_t *op1, uint8_t size)
 {
-	u8 i;
-	u8 r;
+	uint8_t i;
+	uint8_t r;
 
 	r = 0;
 	for (i = 0; i < size; i++)
@@ -119,11 +119,11 @@ u8 bigIsZeroVariableSize(u8 *op1, u8 size)
 		r |= op1[i];
 	}
 	// The following line does: "return r ? 0 : 1;".
-	return (u8)((((u16)(-(int)r)) >> 8) + 1);
+	return (uint8_t)((((uint16_t)(-(int)r)) >> 8) + 1);
 }
 
 // Returns 1 if op1 is zero, returns 0 otherwise.
-u8 bigIsZero(BigNum256 op1)
+uint8_t bigIsZero(BigNum256 op1)
 {
 	return bigIsZeroVariableSize(op1, 32);
 }
@@ -131,7 +131,7 @@ u8 bigIsZero(BigNum256 op1)
 // Set r to 0
 void bigSetZero(BigNum256 r)
 {
-	u8 i;
+	uint8_t i;
 	for (i = 0; i < 32; i++)
 	{
 		r[i] = 0;
@@ -141,7 +141,7 @@ void bigSetZero(BigNum256 r)
 // Assign op1 to r.
 void bigAssign(BigNum256 r, BigNum256 op1)
 {
-	u8 i;
+	uint8_t i;
 	for (i = 0; i < 32; i++)
 	{
 		r[i] = op1[i];
@@ -150,28 +150,28 @@ void bigAssign(BigNum256 r, BigNum256 op1)
 
 // Set field parameters n, complement_n and size_of_complement_n. See comments
 // above n/complement_n/size_of_complement_n.
-void bigSetField(const u8 *in_n, const u8 *in_complement_n, const u8 in_size_complement_n)
+void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint8_t in_size_complement_n)
 {
 	n = (BigNum256)in_n;
 	complement_n = (BigNum256)in_complement_n;
-	size_complement_n = (u8)in_size_complement_n;
+	size_complement_n = (uint8_t)in_size_complement_n;
 }
 
 // Returns 1 if there's carry, 0 otherwise.
 // r may alias op1 or op2. op1 may alias op2.
 // opsize is the size (in bytes) of the operands and result.
-static u8 bigAddVariableSizeNoModulo(u8 *r, u8 *op1, u8 *op2, u8 opsize)
+static uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t opsize)
 {
-	u16 partial;
-	u8 carry;
-	u8 i;
+	uint16_t partial;
+	uint8_t carry;
+	uint8_t i;
 
 	carry = 0;
 	for (i = 0; i < opsize; i++)
 	{
-		partial = (u16)((u16)op1[i] + (u16)op2[i] + (u16)carry);
-		r[i] = (u8)partial;
-		carry = (u8)(partial >> 8);
+		partial = (uint16_t)((uint16_t)op1[i] + (uint16_t)op2[i] + (uint16_t)carry);
+		r[i] = (uint8_t)partial;
+		carry = (uint8_t)(partial >> 8);
 	}
 	return carry;
 }
@@ -179,25 +179,25 @@ static u8 bigAddVariableSizeNoModulo(u8 *r, u8 *op1, u8 *op2, u8 opsize)
 // Subtract op2 from op1. Returns 1 if there's borrow, 0 otherwise.
 // r may alias op1 or op2. op1 may alias op2.
 // This supports bignums with sizes other than 256 bits.
-u8 bigSubtractVariableSizeNoModulo(u8 *r, u8 *op1, u8 *op2, u8 size)
+uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t size)
 {
-	u16 partial;
-	u8 borrow;
-	u8 i;
+	uint16_t partial;
+	uint8_t borrow;
+	uint8_t i;
 
 	borrow = 0;
 	for (i = 0; i < size; i++)
 	{
-		partial = (u16)((u16)op1[i] - (u16)op2[i] - (u16)borrow);
-		r[i] = (u8)partial;
-		borrow = (u8)((u8)(partial >> 8) & 1);
+		partial = (uint16_t)((uint16_t)op1[i] - (uint16_t)op2[i] - (uint16_t)borrow);
+		r[i] = (uint8_t)partial;
+		borrow = (uint8_t)((uint8_t)(partial >> 8) & 1);
 	}
 	return borrow;
 }
 
 // Subtract op2 from op1. Returns 1 if there's borrow, 0 otherwise.
 // r may alias op1 or op2. op1 may alias op2.
-static u8 bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
+static uint8_t bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	return bigSubtractVariableSizeNoModulo(r, op1, op2, 32);
 }
@@ -206,14 +206,14 @@ static u8 bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
 // r may alias op1.
 void bigModulo(BigNum256 r, BigNum256 op1)
 {
-	u8 cmp;
-	u8 *lookup[2];
-	u8 zero[32];
+	uint8_t cmp;
+	uint8_t *lookup[2];
+	uint8_t zero[32];
 
 	bigSetZero(zero);
 	// The following 2 lines do: cmp = "bigCompare(op1, n) == BIGCMP_LESS ? 1 : 0".
-	cmp = (u8)(bigCompare(op1, n) ^ BIGCMP_LESS);
-	cmp = (u8)((((u16)(-(int)cmp)) >> 8) + 1);
+	cmp = (uint8_t)(bigCompare(op1, n) ^ BIGCMP_LESS);
+	cmp = (uint8_t)((((uint16_t)(-(int)cmp)) >> 8) + 1);
 	lookup[0] = n;
 	lookup[1] = zero;
 	bigSubtractNoModulo(r, op1, lookup[cmp]);
@@ -224,10 +224,10 @@ void bigModulo(BigNum256 r, BigNum256 op1)
 // r may alias op1 or op2. op1 may alias op2.
 void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
-	u8 too_big;
-	u8 cmp;
-	u8 *lookup[2];
-	u8 zero[32];
+	uint8_t too_big;
+	uint8_t cmp;
+	uint8_t *lookup[2];
+	uint8_t zero[32];
 
 	bigSetZero(zero);
 #ifdef _DEBUG
@@ -235,8 +235,8 @@ void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	assert(bigCompare(op2, n) == BIGCMP_LESS);
 #endif // #ifdef _DEBUG
 	too_big = bigAddVariableSizeNoModulo(r, op1, op2, 32);
-	cmp = (u8)(bigCompare(r, n) ^ BIGCMP_LESS);
-	cmp = (u8)((((u16)(-(int)cmp)) >> 8) & 1);
+	cmp = (uint8_t)(bigCompare(r, n) ^ BIGCMP_LESS);
+	cmp = (uint8_t)((((uint16_t)(-(int)cmp)) >> 8) & 1);
 	too_big |= cmp;
 	lookup[0] = zero;
 	lookup[1] = n;
@@ -248,9 +248,9 @@ void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 // r may alias op1 or op2. op1 may alias op2.
 void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
-	u8 *lookup[2];
-	u8 too_small;
-	u8 zero[32];
+	uint8_t *lookup[2];
+	uint8_t too_small;
+	uint8_t zero[32];
 
 	bigSetZero(zero);
 #ifdef _DEBUG
@@ -267,17 +267,17 @@ void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 // (in bytes) of op1 and op2size is the size (in bytes) of op2.
 // r needs to be an array of (op1size + op2size) bytes (instead of the
 // usual 32). r cannot alias op1 or op2. op1 may alias op2.
-static void bigMultiplyVariableSizeNoModulo(u8 *r, u8 *op1, u8 op1_size, u8 *op2, u8 op2_size)
+static void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size, uint8_t *op2, uint8_t op2_size)
 {
-	u8 cached_op1;
-	u8 low_carry;
-	u8 high_carry;
-	u16 multiply_result16;
-	u8 multiply_result_low8;
-	u8 multiply_result_high8;
-	u16 partial_sum;
-	u8 i;
-	u8 j;
+	uint8_t cached_op1;
+	uint8_t low_carry;
+	uint8_t high_carry;
+	uint16_t multiply_result16;
+	uint8_t multiply_result_low8;
+	uint8_t multiply_result_high8;
+	uint16_t partial_sum;
+	uint8_t i;
+	uint8_t j;
 
 	for (i = 0; i < (op1_size + op2_size); i++)
 	{
@@ -289,15 +289,15 @@ static void bigMultiplyVariableSizeNoModulo(u8 *r, u8 *op1, u8 op1_size, u8 *op2
 		high_carry = 0;
 		for (j = 0; j < op2_size; j++)
 		{
-			multiply_result16 = (u16)((u16)cached_op1 * (u16)op2[j]);
-			multiply_result_low8 = (u8)multiply_result16;
-			multiply_result_high8 = (u8)(multiply_result16 >> 8);
-			partial_sum = (u16)((u16)r[i + j] + (u16)multiply_result_low8);
-			r[i + j] = (u8)partial_sum;
-			low_carry = (u8)(partial_sum >> 8);
-			partial_sum = (u16)((u16)r[i + j + 1] + (u16)multiply_result_high8 + (u16)low_carry + (u16)high_carry);
-			r[i + j + 1] = (u8)partial_sum;
-			high_carry = (u8)(partial_sum >> 8);
+			multiply_result16 = (uint16_t)((uint16_t)cached_op1 * (uint16_t)op2[j]);
+			multiply_result_low8 = (uint8_t)multiply_result16;
+			multiply_result_high8 = (uint8_t)(multiply_result16 >> 8);
+			partial_sum = (uint16_t)((uint16_t)r[i + j] + (uint16_t)multiply_result_low8);
+			r[i + j] = (uint8_t)partial_sum;
+			low_carry = (uint8_t)(partial_sum >> 8);
+			partial_sum = (uint16_t)((uint16_t)r[i + j + 1] + (uint16_t)multiply_result_high8 + (uint16_t)low_carry + (uint16_t)high_carry);
+			r[i + j + 1] = (uint8_t)partial_sum;
+			high_carry = (uint8_t)(partial_sum >> 8);
 		}
 #ifdef _DEBUG
 		assert(high_carry == 0);
@@ -309,10 +309,10 @@ static void bigMultiplyVariableSizeNoModulo(u8 *r, u8 *op1, u8 op1_size, u8 *op2
 // r may alias op1 or op2. op1 may alias op2.
 void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
-	u8 temp[64];
-	u8 full_r[64];
-	u8 i;
-	u8 remaining;
+	uint8_t temp[64];
+	uint8_t full_r[64];
+	uint8_t i;
+	uint8_t remaining;
 
 	bigMultiplyVariableSizeNoModulo(full_r, op1, 32, op2, 32);
 	// The modular reduction is done by subtracting off some multiple of
@@ -337,14 +337,14 @@ void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 		bigMultiplyVariableSizeNoModulo(\
 			temp,
 			complement_n, size_complement_n,
-			&(full_r[32]), (u8)(remaining - 32));
+			&(full_r[32]), (uint8_t)(remaining - 32));
 		for (i = 32; i < 64; i++)
 		{
 			full_r[i] = 0;
 		}
 		bigAddVariableSizeNoModulo(full_r, full_r, temp, remaining);
 		// This update of the bound is only valid for remaining > 32.
-		remaining = (u8)(remaining - 32 + size_complement_n);
+		remaining = (uint8_t)(remaining - 32 + size_complement_n);
 	}
 	// The upper 256 bits of r should now be 0. But r could still be >= n.
 	// As long as n > 2 ^ 255, at most one subtraction is
@@ -358,12 +358,12 @@ void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 // r may alias op1.
 void bigInvert(BigNum256 r, BigNum256 op1)
 {
-	u8 temp[32];
-	u8 i;
-	u8 j;
-	u8 byte_of_n_minus_2;
-	u8 bit_of_n_minus_2;
-	u8 *lookup[2];
+	uint8_t temp[32];
+	uint8_t i;
+	uint8_t j;
+	uint8_t byte_of_n_minus_2;
+	uint8_t bit_of_n_minus_2;
+	uint8_t *lookup[2];
 
 	// This uses Fermat's Little Theorem, of which an immediate corollary is:
 	// a ^ (p - 2) = a ^ (-1) modulo n.
@@ -378,12 +378,12 @@ void bigInvert(BigNum256 r, BigNum256 op1)
 		byte_of_n_minus_2 = n[i];
 		if (i == 0)
 		{
-			byte_of_n_minus_2 = (u8)(byte_of_n_minus_2 - 2);
+			byte_of_n_minus_2 = (uint8_t)(byte_of_n_minus_2 - 2);
 		}
 		for (j = 0; j < 8; j++)
 		{
-			bit_of_n_minus_2 = (u8)((byte_of_n_minus_2 & 0x80) >> 7);
-			byte_of_n_minus_2 = (u8)(byte_of_n_minus_2 << 1);
+			bit_of_n_minus_2 = (uint8_t)((byte_of_n_minus_2 & 0x80) >> 7);
+			byte_of_n_minus_2 = (uint8_t)(byte_of_n_minus_2 << 1);
 			// The next two lines do the following:
 			// if (bit_of_n_minus_2)
 			// {
@@ -412,51 +412,51 @@ void bigInvert(BigNum256 r, BigNum256 op1)
 
 #define TOTAL_CASES			(LOW_EDGE_CASES + HIGH_EDGE_CASES + RANDOM_CASES)
 
-static u8 zero[32] = {
+static uint8_t zero[32] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-static u8 one[32] = {
+static uint8_t one[32] = {
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 // The prime number used to define the prime field for secp256k1.
-static const u8 secp256k1_p[32] = {
+static const uint8_t secp256k1_p[32] = {
 0x2f, 0xfc, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-static const u8 secp256k1_complement_p[5] = {
+static const uint8_t secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
 // The order of the base point used in secp256k1.
-static const u8 secp256k1_n[32] = {
+static const uint8_t secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
-static const u8 secp256k1_complement_n[17] = {
+static const uint8_t secp256k1_complement_n[17] = {
 0xbf, 0xbe, 0xc9, 0x2f, 0x73, 0xa1, 0x2d, 0x40,
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
 
-static u8 test_cases[TOTAL_CASES][32];
+static uint8_t test_cases[TOTAL_CASES][32];
 
 // Low edge cases will start from 0 and go up.
 // High edge cases will start from max - 1 and go down.
 // Random test cases will be within [0, max - 1].
-static void generateTestCases(const u8 *max)
+static void generateTestCases(const uint8_t *max)
 {
 	int test_num;
 	int i;
 	int j;
-	u8 current_test[32];
+	uint8_t current_test[32];
 
 	bigSetZero(current_test);
 	test_num = 0;
@@ -478,7 +478,7 @@ static void generateTestCases(const u8 *max)
 		{
 			for (j = 0; j < 32; j++)
 			{
-				current_test[j] = (u8)(rand() & 0xff);
+				current_test[j] = (uint8_t)(rand() & 0xff);
 			}
 			if (bigIsZero((BigNum256)max))
 			{
@@ -528,11 +528,11 @@ int main(void)
 	int j;
 	int succeeded;
 	int failed;
-	u8 op1[32];
-	u8 op2[32];
-	u8 result[64];
-	u8 result_compare[64];
-	u8 returned;
+	uint8_t op1[32];
+	uint8_t op2[32];
+	uint8_t result[64];
+	uint8_t result_compare[64];
+	uint8_t returned;
 	int result_size; // in number of GMP limbs
 	int divisor_select;
 	mp_limb_t mpn_op1[8];

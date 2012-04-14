@@ -15,7 +15,7 @@
 // A value which has a one-to-one association with Bitcoin addresses. Handles
 // are more efficient to deal with than the actual addresses themselves, since
 // they are much smaller.
-typedef u32 AddressHandle;
+typedef uint32_t AddressHandle;
 
 // For functions which return an address_handle, this is an address handle
 // which indicates that an error occurred.
@@ -51,15 +51,15 @@ typedef enum WalletErrorsEnum
 extern WalletErrors walletGetLastError(void);
 extern WalletErrors initWallet(void);
 extern WalletErrors uninitWallet(void);
-extern WalletErrors sanitiseNonVolatileStorage(u32 start, u32 end);
-extern WalletErrors newWallet(u8 *name);
-extern AddressHandle makeNewAddress(u8 *out_address, PointAffine *out_public_key);
-extern WalletErrors getAddressAndPublicKey(u8 *out_address, PointAffine *out_public_key, AddressHandle ah);
-extern u32 getNumAddresses(void);
-extern WalletErrors getPrivateKey(u8 *out, AddressHandle ah);
-extern WalletErrors changeEncryptionKey(u8 *new_key);
-extern WalletErrors changeWalletName(u8 *new_name);
-extern WalletErrors getWalletInfo(u8 *out_version, u8 *out_name);
+extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
+extern WalletErrors newWallet(uint8_t *name);
+extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);
+extern WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah);
+extern uint32_t getNumAddresses(void);
+extern WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah);
+extern WalletErrors changeEncryptionKey(uint8_t *new_key);
+extern WalletErrors changeWalletName(uint8_t *new_name);
+extern WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name);
 
 #ifdef TEST
 extern void initWalletTest(void);

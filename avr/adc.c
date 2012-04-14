@@ -20,13 +20,13 @@ void initAdc(void)
 	ADMUX = _BV(REFS0);
 	ADCSRA = _BV(ADEN) |  _BV(ADPS2) |  _BV(ADPS1) |  _BV(ADPS0);
 	ADCSRB = 0;
-	PRR = (u8)(PRR & ~_BV(PRADC));
+	PRR = (uint8_t)(PRR & ~_BV(PRADC));
 }
 
-static u16 adcSample(void)
+static uint16_t adcSample(void)
 {
-	u8 sample_lo;
-	u8 sample_hi;
+	uint8_t sample_lo;
+	uint8_t sample_hi;
 
 	ADCSRA |= _BV(ADSC);
 	while (ADCSRA & _BV(ADSC))
@@ -36,20 +36,20 @@ static u16 adcSample(void)
 	sample_lo = ADCL;
 	sample_hi = ADCH;
 
-	return ((u16)sample_hi << 8) | sample_lo; 
+	return ((uint16_t)sample_hi << 8) | sample_lo; 
 }
 
 // Fill buffer with n random bytes. Return an estimate of the total number
 // of bits (not bytes) of entropy in the buffer.
-u16 hardwareRandomBytes(u8 *buffer, u8 n)
+uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 {
-	u16 sample;
-	u16 entropy;
+	uint16_t sample;
+	uint16_t entropy;
 
 	// Just assume each sample has 4 bits of entropy.
 	// A better method would be to estimate it after running some statistical
 	// tests (for example, estimating bias and bandwidth).
-	entropy = (u16)((u16)n << 2);
+	entropy = (uint16_t)((uint16_t)n << 2);
 	for (; n--; )
 	{
 		sample = adcSample();
@@ -58,7 +58,7 @@ u16 hardwareRandomBytes(u8 *buffer, u8 n)
 		// significantly correlated, this shouldn't result in a decrease in
 		// total entropy. Since the MS 2 bits and LS 2 bits are a factor of
 		// 256 apart (in significance), this correlation should be minimal.
-		buffer[n] = (u8)((u8)sample ^ (u8)(sample >> 8));
+		buffer[n] = (uint8_t)((uint8_t)sample ^ (uint8_t)(sample >> 8));
 	}
 	return entropy;
 }

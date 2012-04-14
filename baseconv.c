@@ -23,11 +23,11 @@
 #include "bignum256.h"
 #include "sha256.h"
 
-static const u8 base58_shift_list[16] PROGMEM = {
+static const uint8_t base58_shift_list[16] PROGMEM = {
 0x00, 0x1d, 0x80, 0x0e, 0x40, 0x07, 0xa0, 0x03,
 0xd0, 0x01, 0xe8, 0x00, 0x74, 0x00, 0x3a, 0x00};
 
-static const u8 base10_shift_list[16] PROGMEM = {
+static const uint8_t base10_shift_list[16] PROGMEM = {
 0x00, 0x05, 0x80, 0x02, 0x40, 0x01, 0xa0, 0x00,
 0x50, 0x00, 0x28, 0x00, 0x14, 0x00, 0x0a, 0x00};
 
@@ -43,9 +43,9 @@ static const char base58_char_list[58] PROGMEM = {
 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
 
 #ifdef TEST
-static void bigPrintVariableSize(u8 *number, u8 size, u8 big_endian)
+static void bigPrintVariableSize(uint8_t *number, uint8_t size, uint8_t big_endian)
 {
-	u8 i;
+	uint8_t i;
 	if (big_endian)
 	{
 		for (i = 0; i < size; i++)
@@ -55,7 +55,7 @@ static void bigPrintVariableSize(u8 *number, u8 size, u8 big_endian)
 	}
 	else
 	{
-		for (i = (u8)(size - 1); i < size; i--)
+		for (i = (uint8_t)(size - 1); i < size; i--)
 		{
 			printf("%02x", number[i]);
 		}
@@ -74,11 +74,11 @@ static void bigPrintVariableSize(u8 *number, u8 size, u8 big_endian)
 // Warning: r, op1 and temp cannot alias each other.
 // Another warning: for platforms that use the PROGMEM attribute, the
 // shift_list array must have that attribute.
-static void bigDivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shift_list)
+static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, const uint8_t *shift_list)
 {
-	u8 i;
-	u8 j;
-	u8 bit;
+	uint8_t i;
+	uint8_t j;
+	uint8_t bit;
 
 	for (i = 0; i < size; i++)
 	{
@@ -88,16 +88,16 @@ static void bigDivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shift_list)
 	op1[size] = 0;
 	temp[size] = 0;
 
-	for (i = (u8)(size - 1); i < size; i--)
+	for (i = (uint8_t)(size - 1); i < size; i--)
 	{
 		bit = 0x80;
 		for (j = 0; j < 8; j++)
 		{
 			temp[i] = LOOKUP_BYTE(&(shift_list[j * 2]));
 			temp[i + 1] = LOOKUP_BYTE(&(shift_list[j * 2 + 1]));
-			if (bigCompareVariableSize(temp, op1, (u8)(size + 1)) != BIGCMP_GREATER)
+			if (bigCompareVariableSize(temp, op1, (uint8_t)(size + 1)) != BIGCMP_GREATER)
 			{
-				bigSubtractVariableSizeNoModulo(op1, op1, temp, (u8)(size + 1));
+				bigSubtractVariableSizeNoModulo(op1, op1, temp, (uint8_t)(size + 1));
 				r[i] |= bit;
 			}
 			bit >>= 1;
@@ -111,14 +111,14 @@ static void bigDivide(u8 *r, u8 *op1, u8 *temp, u8 size, const u8 *shift_list)
 // out should point to a char array which has space for at least 22 characters
 // (including the terminating null).
 // in is 64-bit, unsigned, little-endian integer with the amount.
-void amountToText(char *out, u8 *in)
+void amountToText(char *out, uint8_t *in)
 {
-	u8 op1[9];
-	u8 temp[9];
-	u8 r[8];
-	u8 i;
-	u8 j;
-	u8 index;
+	uint8_t op1[9];
+	uint8_t temp[9];
+	uint8_t r[8];
+	uint8_t i;
+	uint8_t j;
+	uint8_t index;
 
 	for (i = 0; i < 8; i++)
 	{
@@ -178,15 +178,15 @@ void amountToText(char *out, u8 *in)
 // be written to out, in the format of a null-terminated string.
 // out should point to a buffer with space for at least 36 chars (this
 // includes the terminating null).
-void hashToAddr(char *out, u8 *in)
+void hashToAddr(char *out, uint8_t *in)
 {
-	u8 r[25];
-	u8 op1[26];
-	u8 temp[26];
-	u8 index;
-	u8 i;
-	u8 j;
-	u8 leading_zero_bytes;
+	uint8_t r[25];
+	uint8_t op1[26];
+	uint8_t temp[26];
+	uint8_t index;
+	uint8_t i;
+	uint8_t j;
+	uint8_t leading_zero_bytes;
 	HashState hs;
 
 	// Prepend address version and append checksum.
@@ -260,13 +260,13 @@ void hashToAddr(char *out, u8 *in)
 
 struct Base10TestStruct
 {
-	u8 value[8];
+	uint8_t value[8];
 	char *text;
 };
 
 struct Base58TestStruct
 {
-	u8 hash[20];
+	uint8_t hash[20];
 	char *addr;
 };
 
@@ -375,12 +375,12 @@ int main(void)
 	num_tests = sizeof(base10_tests) / sizeof(struct Base10TestStruct);
 	for (i = 0; i < num_tests; i++)
 	{
-		amountToText(text, (u8 *)base10_tests[i].value);
+		amountToText(text, (uint8_t *)base10_tests[i].value);
 		if (strcmp(base10_tests[i].text, text))
 		{
 			printf("Base10 test number %d failed\n", i);
 			printf("Input: ");
-			bigPrintVariableSize((u8 *)base10_tests[i].value, 8, 0);
+			bigPrintVariableSize((uint8_t *)base10_tests[i].value, 8, 0);
 			printf("\n");
 			printf("Got: %s\n", text);
 			printf("Expected: %s\n", base10_tests[i].text);
@@ -395,12 +395,12 @@ int main(void)
 	num_tests = sizeof(base58tests) / sizeof(struct Base58TestStruct);
 	for (i = 0; i < num_tests; i++)
 	{
-		hashToAddr(addr, (u8 *)base58tests[i].hash);
+		hashToAddr(addr, (uint8_t *)base58tests[i].hash);
 		if (strcmp(base58_tests[i].addr, addr))
 		{
 			printf("Base58 test number %d failed\n", i);
 			printf("Input: ");
-			bigPrintVariableSize((u8 *)base58_tests[i].hash, 20, 1);
+			bigPrintVariableSize((uint8_t *)base58_tests[i].hash, 20, 1);
 			printf("\n");
 			printf("Got:      %s\n", addr);
 			printf("Expected: %s\n", base58_tests[i].addr);

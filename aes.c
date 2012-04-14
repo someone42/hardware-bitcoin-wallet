@@ -29,7 +29,7 @@
 #include "aes.h"
 
 // Forward s-box
-static const u8 sbox[256] PROGMEM = {
+static const uint8_t sbox[256] PROGMEM = {
 0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
 0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
@@ -48,7 +48,7 @@ static const u8 sbox[256] PROGMEM = {
 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16};
 
 // Inverse s-box
-static const u8 inv_sbox[256] PROGMEM = {
+static const uint8_t inv_sbox[256] PROGMEM = {
 0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
 0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
 0x54, 0x7b, 0x94, 0x32, 0xa6, 0xc2, 0x23, 0x3d, 0xee, 0x4c, 0x95, 0x0b, 0x42, 0xfa, 0xc3, 0x4e,
@@ -70,52 +70,52 @@ static const u8 inv_sbox[256] PROGMEM = {
 // argument by some constant under the field GF(2 ^ 8) with the reducing
 // polynomial x ^ 8 + x ^ 4 + x ^ 3 + x + 1.
 
-static u8 xTimes2InGF(u8 x)
+static uint8_t xTimes2InGF(uint8_t x)
 {
 	// ((unsigned int)(-(int)(x >> 7)) & 0x1b) is equivalent to
 	// (x & 0x80 ? 0x1b : 0) but is more timing attack resistant.
-	return (u8)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (x + x));
+	return (uint8_t)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (x + x));
 }
 
-static u8 xTimes3InGF(u8 x)
+static uint8_t xTimes3InGF(uint8_t x)
 {
-	return (u8)(xTimes2InGF(x) ^ x);
+	return (uint8_t)(xTimes2InGF(x) ^ x);
 }
 
-static u8 xTimes4InGF(u8 x)
+static uint8_t xTimes4InGF(uint8_t x)
 {
 	return xTimes2InGF(xTimes2InGF(x));
 }
 
-static u8 xTimes8InGF(u8 x)
+static uint8_t xTimes8InGF(uint8_t x)
 {
 	return xTimes2InGF(xTimes4InGF(x));
 }
 
-static u8 xTimes9InGF(u8 x)
+static uint8_t xTimes9InGF(uint8_t x)
 {
-	return (u8)(xTimes8InGF(x) ^ x);
+	return (uint8_t)(xTimes8InGF(x) ^ x);
 }
 
-static u8 xTimesBInGF(u8 x)
+static uint8_t xTimesBInGF(uint8_t x)
 {
-	return (u8)(xTimes9InGF(x) ^ xTimes2InGF(x));
+	return (uint8_t)(xTimes9InGF(x) ^ xTimes2InGF(x));
 }
 
-static u8 xTimesDInGF(u8 x)
+static uint8_t xTimesDInGF(uint8_t x)
 {
 	// Note that x * 13 is not the same as x * 11 + x * 2 under GF(2 ^ 8)
-	return (u8)(xTimes9InGF(x) ^ xTimes4InGF(x));
+	return (uint8_t)(xTimes9InGF(x) ^ xTimes4InGF(x));
 }
 
-static u8 xTimesEInGF(u8 x)
+static uint8_t xTimesEInGF(uint8_t x)
 {
-	return (u8)(xTimes8InGF(x) ^ xTimes4InGF(x) ^ xTimes2InGF(x));
+	return (uint8_t)(xTimes8InGF(x) ^ xTimes4InGF(x) ^ xTimes2InGF(x));
 }
 
-static void copy16(u8 *out, u8 *in)
+static void copy16(uint8_t *out, uint8_t *in)
 {
-	u8 i;
+	uint8_t i;
 
 	for (i = 0; i < 16; i++)
 	{
@@ -131,11 +131,11 @@ static void copy16(u8 *out, u8 *in)
 // row1 - shifted left (or right) 1
 // row2 - shifted left (or right) 2
 // row3 - shifted left (or right) 3
-static void shiftOrInvShiftRows(u8 *state, u8 shift_or_inv)
+static void shiftOrInvShiftRows(uint8_t *state, uint8_t shift_or_inv)
 {
-	u8 tmp[16];
-	u8 i, j;
-	u8 o1, o2;
+	uint8_t tmp[16];
+	uint8_t i, j;
+	uint8_t o1, o2;
 
 	o1 = 0;
 	o2 = 0;
@@ -151,22 +151,22 @@ static void shiftOrInvShiftRows(u8 *state, u8 shift_or_inv)
 			{
 				tmp[o1] = LOOKUP_BYTE(&(inv_sbox[state[o2]]));
 			}
-			o1 = (u8)((o1 + 4) & 15);
-			o2 = (u8)((o2 + 4) & 15);
+			o1 = (uint8_t)((o1 + 4) & 15);
+			o2 = (uint8_t)((o2 + 4) & 15);
 		}
-		o1 = (u8)((o1 + 1) & 15);
-		o2 = (u8)((o2 + shift_or_inv) & 15);
+		o1 = (uint8_t)((o1 + 1) & 15);
+		o2 = (uint8_t)((o2 + shift_or_inv) & 15);
 	}
 
 	copy16(state, tmp);
 }
 
 // Recombine and mix each row in a column.
-static void mixSubColumns(u8 *state)
+static void mixSubColumns(uint8_t *state)
 {
-	u8 tmp[16];
-	u8 i;
-	u8 o1, o2, o3, o4, otemp;
+	uint8_t tmp[16];
+	uint8_t i;
+	uint8_t o1, o2, o3, o4, otemp;
 
 	o1 = 0;
 	o2 = 5;
@@ -174,7 +174,7 @@ static void mixSubColumns(u8 *state)
 	o4 = 15;
 	for (i = 0; i < 16; i++)
 	{
-		tmp[i] = (u8)(
+		tmp[i] = (uint8_t)(
 			xTimes2InGF(LOOKUP_BYTE(&(sbox[state[o1]])))
 			^ xTimes3InGF(LOOKUP_BYTE(&(sbox[state[o2]])))
 			^ LOOKUP_BYTE(&(sbox[state[o3]]))
@@ -186,10 +186,10 @@ static void mixSubColumns(u8 *state)
 		o4 = otemp;
 		if ((i & 3) == 3)
 		{
-			o1 = (u8)((o1 + 4) & 15);
-			o2 = (u8)((o2 + 4) & 15);
-			o3 = (u8)((o3 + 4) & 15);
-			o4 = (u8)((o4 + 4) & 15);
+			o1 = (uint8_t)((o1 + 4) & 15);
+			o2 = (uint8_t)((o2 + 4) & 15);
+			o3 = (uint8_t)((o3 + 4) & 15);
+			o4 = (uint8_t)((o4 + 4) & 15);
 		}
 	}
 
@@ -197,12 +197,12 @@ static void mixSubColumns(u8 *state)
 }
 
 // Restore and un-mix each row in a column.
-static void invMixSubColumns(u8 *state)
+static void invMixSubColumns(uint8_t *state)
 {
-	u8 tmp[16];
-	u8 i;
-	u8 idx;
-	u8 o1, o2, o3, o4, otemp;
+	uint8_t tmp[16];
+	uint8_t i;
+	uint8_t idx;
+	uint8_t o1, o2, o3, o4, otemp;
 
 	o1 = 0;
 	o2 = 1;
@@ -211,12 +211,12 @@ static void invMixSubColumns(u8 *state)
 	idx = 0;
 	for (i = 0; i < 16; i++)
 	{
-		tmp[idx] = (u8)(
+		tmp[idx] = (uint8_t)(
 			xTimesEInGF(state[o1])
 			^ xTimesBInGF(state[o2])
 			^ xTimesDInGF(state[o3])
 			^ xTimes9InGF(state[o4]));
-		idx = (u8)((idx + 5) & 15);
+		idx = (uint8_t)((idx + 5) & 15);
 		otemp = o1;
 		o1 = o2;
 		o2 = o3;
@@ -224,10 +224,10 @@ static void invMixSubColumns(u8 *state)
 		o4 = otemp;
 		if ((i & 3) == 3)
 		{
-			o1 = (u8)((o1 + 4) & 15);
-			o2 = (u8)((o2 + 4) & 15);
-			o3 = (u8)((o3 + 4) & 15);
-			o4 = (u8)((o4 + 4) & 15);
+			o1 = (uint8_t)((o1 + 4) & 15);
+			o2 = (uint8_t)((o2 + 4) & 15);
+			o3 = (uint8_t)((o3 + 4) & 15);
+			o4 = (uint8_t)((o4 + 4) & 15);
 		}
 	}
 
@@ -238,9 +238,9 @@ static void invMixSubColumns(u8 *state)
 }
 
 // Encrypt/decrypt columns of the key.
-static void addRoundKey(u32 *state, u32 *key)
+static void addRoundKey(uint32_t *state, uint32_t *key)
 {
-	u8 idx;
+	uint8_t idx;
 
 	for (idx = 0; idx < 4; idx++)
 	{
@@ -248,20 +248,20 @@ static void addRoundKey(u32 *state, u32 *key)
 	}
 }
 
-static const u8 r_con[11] = {
+static const uint8_t r_con[11] = {
 0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36};
 
 // Expand the key by 16 bytes for each round.
 // Input (key): 16 bytes
 // Output (expanded_key): 176 bytes
-void aesExpandKey(u8 *expanded_key, u8 *key)
+void aesExpandKey(uint8_t *expanded_key, uint8_t *key)
 {
-	u8 tmp0, tmp1, tmp2, tmp3, tmp4;
-	u8 idx;
+	uint8_t tmp0, tmp1, tmp2, tmp3, tmp4;
+	uint8_t idx;
 
 	copy16(expanded_key, key);
 
-	for (idx = 16; idx < 176; idx = (u8)(idx + 4))
+	for (idx = 16; idx < 176; idx = (uint8_t)(idx + 4))
 	{
 		tmp0 = expanded_key[idx - 4];
 		tmp1 = expanded_key[idx - 3];
@@ -271,15 +271,15 @@ void aesExpandKey(u8 *expanded_key, u8 *key)
 		{
 			tmp4 = tmp3;
 			tmp3 = LOOKUP_BYTE(&(sbox[tmp0]));
-			tmp0 = (u8)(LOOKUP_BYTE(&(sbox[tmp1])) ^ r_con[idx >> 4]);
+			tmp0 = (uint8_t)(LOOKUP_BYTE(&(sbox[tmp1])) ^ r_con[idx >> 4]);
 			tmp1 = LOOKUP_BYTE(&(sbox[tmp2]));
 			tmp2 = LOOKUP_BYTE(&(sbox[tmp4]));
 		}
 
-		expanded_key[idx + 0] = (u8)(expanded_key[idx - 16 + 0] ^ tmp0);
-		expanded_key[idx + 1] = (u8)(expanded_key[idx - 16 + 1] ^ tmp1);
-		expanded_key[idx + 2] = (u8)(expanded_key[idx - 16 + 2] ^ tmp2);
-		expanded_key[idx + 3] = (u8)(expanded_key[idx - 16 + 3] ^ tmp3);
+		expanded_key[idx + 0] = (uint8_t)(expanded_key[idx - 16 + 0] ^ tmp0);
+		expanded_key[idx + 1] = (uint8_t)(expanded_key[idx - 16 + 1] ^ tmp1);
+		expanded_key[idx + 2] = (uint8_t)(expanded_key[idx - 16 + 2] ^ tmp2);
+		expanded_key[idx + 3] = (uint8_t)(expanded_key[idx - 16 + 3] ^ tmp3);
 	}
 }
 
@@ -287,13 +287,13 @@ void aesExpandKey(u8 *expanded_key, u8 *key)
 // in is the plaintext, a 16-byte array. The ciphertext will be placed in
 // out, which should also be a 16-byte array. expanded_key should point to a
 // 176-byte array containing the expanded key (see aesExpandKey()).
-void aesEncrypt(u8 *out, u8 *in, u8 *expanded_key)
+void aesEncrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 {
-	u8 round;
+	uint8_t round;
 
 	copy16(out, in);
 
-	addRoundKey((u32 *)out, (u32 *)expanded_key);
+	addRoundKey((uint32_t *)out, (uint32_t *)expanded_key);
 
 	for (round = 1; round < 11; round++)
 	{
@@ -306,7 +306,7 @@ void aesEncrypt(u8 *out, u8 *in, u8 *expanded_key)
 			shiftOrInvShiftRows(out, 5);
 		}
 
-		addRoundKey((u32 *)out, ((u32 *)expanded_key) + round * 4);
+		addRoundKey((uint32_t *)out, ((uint32_t *)expanded_key) + round * 4);
 	}
 }
 
@@ -314,18 +314,18 @@ void aesEncrypt(u8 *out, u8 *in, u8 *expanded_key)
 // in is the ciphertext, a 16-byte array. The plaintext will be placed in
 // out, which should also be a 16-byte array. expanded_key should point to a
 // 176-byte array containing the expanded key (see aesExpandKey()).
-void aesDecrypt(u8 *out, u8 *in, u8 *expanded_key)
+void aesDecrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 {
-	u8 round;
+	uint8_t round;
 
 	copy16(out, in);
 
-	addRoundKey((u32 *)out, ((u32 *)expanded_key) + 40);
+	addRoundKey((uint32_t *)out, ((uint32_t *)expanded_key) + 40);
 	shiftOrInvShiftRows(out, 13);
 
 	for (round = 10; round--; )
 	{
-		addRoundKey((u32 *)out, ((u32 *)expanded_key) + round * 4);
+		addRoundKey((uint32_t *)out, ((uint32_t *)expanded_key) + round * 4);
 		if (round != 0)
 		{
 			invMixSubColumns(out);
@@ -357,7 +357,7 @@ static void skipLine(FILE *f)
 	} while (one_char != '\n');
 }
 
-static void print16(u8 *buffer)
+static void print16(uint8_t *buffer)
 {
 	int i;
 	for (i = 0; i < 16; i++)
@@ -377,11 +377,11 @@ static void scanTestVectors(char *filename)
 	int seen_count;
 	int test_failed;
 	char buffer[16];
-	u8 key[16];
-	u8 plaintext[16];
-	u8 ciphertext[16];
-	u8 compare_text[16];
-	u8 expanded_key[EXPANDED_KEY_SIZE];
+	uint8_t key[16];
+	uint8_t plaintext[16];
+	uint8_t ciphertext[16];
+	uint8_t compare_text[16];
+	uint8_t expanded_key[EXPANDED_KEY_SIZE];
 
 	test_vector_file = fopen(filename, "r");
 	if (test_vector_file == NULL)
@@ -433,7 +433,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		for (i = 0; i < 16; i++)
 		{
 			fscanf(test_vector_file, "%02x", &value);
-			key[i] = (u8)value;
+			key[i] = (uint8_t)value;
 		}
 		skipWhiteSpace(test_vector_file);
 		// Get plaintext/ciphertext
@@ -453,7 +453,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 				for (i = 0; i < 16; i++)
 				{
 					fscanf(test_vector_file, "%02x", &value);
-					plaintext[i] = (u8)value;
+					plaintext[i] = (uint8_t)value;
 				}
 			}
 			else
@@ -467,7 +467,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 				for (i = 0; i < 16; i++)
 				{
 					fscanf(test_vector_file, "%02x", &value);
-					ciphertext[i] = (u8)value;
+					ciphertext[i] = (uint8_t)value;
 				}
 			}
 			skipWhiteSpace(test_vector_file);

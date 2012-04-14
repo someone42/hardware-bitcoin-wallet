@@ -11,9 +11,9 @@
 
 #include "common.h"
 
-extern void writeU32BigEndian(u8 *out, u32 in);
-extern void writeU32LittleEndian(u8 *out, u32 in);
-extern u32 readU32LittleEndian(u8 *in);
-extern void swapEndian(u32 *v);
+extern void writeU32BigEndian(uint8_t *out, uint32_t in);
+extern void writeU32LittleEndian(uint8_t *out, uint32_t in);
+extern uint32_t readU32LittleEndian(uint8_t *in);
+extern void swapEndian(uint32_t *v);
 
 #endif // #ifndef ENDIAN_H_INCLUDED

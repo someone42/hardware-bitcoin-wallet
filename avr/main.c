@@ -16,7 +16,7 @@
 
 int main(void)
 {
-	u8 r;
+	uint8_t r;
 
 	initUsart();
 	initAdc();
