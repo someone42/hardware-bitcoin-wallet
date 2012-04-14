@@ -14,7 +14,7 @@
 // that the code is relatively inefficient.
 // All functions here expect 256-bit numbers to be an array of 32 bytes, with
 // the least significant byte first.
-// To use the exported functions here, you must call bigsetfield() first to
+// To use the exported functions here, you must call bigSetField() first to
 // set field parameters. If you don't do this, you'll get a segfault!
 //
 // This file is licensed as described by the file LICENCE.
@@ -45,7 +45,7 @@
 // n must be greater than 2 ^ 255. The least significant byte of n must
 // be >= 2 (otherwise bigInvert() will not work correctly).
 static BigNum256 n;
-static BigNum256 complement_n;
+static uint8_t *complement_n;
 static uint8_t size_complement_n;
 
 #ifdef TEST
@@ -153,7 +153,7 @@ void bigAssign(BigNum256 r, BigNum256 op1)
 void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint8_t in_size_complement_n)
 {
 	n = (BigNum256)in_n;
-	complement_n = (BigNum256)in_complement_n;
+	complement_n = (uint8_t *)in_complement_n;
 	size_complement_n = (uint8_t)in_size_complement_n;
 }
 
@@ -478,7 +478,7 @@ static void generateTestCases(const uint8_t *max)
 		{
 			for (j = 0; j < 32; j++)
 			{
-				current_test[j] = (uint8_t)(rand() & 0xff);
+				current_test[j] = (uint8_t)rand();
 			}
 			if (bigIsZero((BigNum256)max))
 			{

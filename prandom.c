@@ -154,7 +154,7 @@ uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 	{
 		buffer[i] = 0;
 	}
-	buffer[0] = (uint8_t)(rand() & 0xff);
+	buffer[0] = (uint8_t)rand();
 	return 8;
 }
 

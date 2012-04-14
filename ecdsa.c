@@ -427,7 +427,7 @@ static void bigFRead(BigNum256 r, FILE *f)
 	for (i = 0; i < 32; i++)
 	{
 		fscanf(f, "%02x", &value);
-		r[i] = (uint8_t)(value & 0xff);
+		r[i] = (uint8_t)value;
 	}
 }
 
@@ -675,8 +675,8 @@ int main(void)
 	{
 		setToG(&p);
 		bigSetZero(temp);
-		temp[0] = (uint8_t)(i & 0xff);
-		temp[1] = (uint8_t)((i >> 8) & 0xff);
+		temp[0] = (uint8_t)i;
+		temp[1] = (uint8_t)(i >> 8);
 		pointMultiply(&p, temp);
 		checkPointIsOnCurve(&p);
 	}
@@ -829,7 +829,7 @@ int main(void)
 			// Use a pseudo-random hash.
 			for (j = 0; j < 32; j++)
 			{
-				hash[j] = (uint8_t)(rand() & 0xff);
+				hash[j] = (uint8_t)rand();
 			}
 		}
 		skipWhiteSpace(f);
@@ -843,7 +843,7 @@ int main(void)
 		{
 			for (j = 0; j < 32; j++)
 			{
-				temp[j] = (uint8_t)(rand() & 0xff);
+				temp[j] = (uint8_t)rand();
 			}
 		} while (ecdsaSign(r, s, hash, private_key, temp));
 		if (crappyVerifySignature(r, s, hash, public_key_x, public_key_y))

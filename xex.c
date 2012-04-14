@@ -600,7 +600,7 @@ int main(void)
 		do
 		{
 			address = (uint32_t)(rand() & (MAX_ADDRESS - 1));
-			length = (uint8_t)(rand() & 0xff);
+			length = (uint8_t)rand();
 		} while ((address + length) > MAX_ADDRESS);
 		if (rand() & 1)
 		{
