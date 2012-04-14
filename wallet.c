@@ -300,7 +300,7 @@ static NonVolatileReturn writeWalletVersion(void)
 {
 	uint8_t buffer[4];
 
-	if (areEncryptionKeysNonZero())
+	if (isEncryptionKeyNonZero())
 	{
 		writeU32LittleEndian(buffer, VERSION_IS_ENCRYPTED);
 	}
@@ -594,19 +594,17 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 		return last_error;
 	}
 
-	getEncryptionKeys(old_key);
+	getEncryptionKey(old_key);
 	r = NV_NO_ERROR;
 	address = ENCRYPT_START;
 	end = RECORD_LENGTH;
 	while ((r == NV_NO_ERROR) && (address < end))
 	{
 		setEncryptionKey(old_key);
-		setTweakKey(&(old_key[16]));
 		r = encryptedNonVolatileRead(buffer, address, 16);
 		if (r == NV_NO_ERROR)
 		{
 			setEncryptionKey(new_key);
-			setTweakKey(&(new_key[16]));
 			r = encryptedNonVolatileWrite(buffer, address, 16);
 			nonVolatileFlush();
 		}
@@ -614,7 +612,6 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 	}
 
 	setEncryptionKey(new_key);
-	setTweakKey(&(new_key[16]));
 	if (r == NV_NO_ERROR)
 	{
 		// Update version and checksum.
@@ -814,8 +811,7 @@ int main(void)
 	uint8_t address1[20];
 	uint8_t address2[20];
 	uint8_t name[40];
-	uint8_t encryption_key[16];
-	uint8_t tweak_key[16];
+	uint8_t encryption_key[32];
 	uint8_t new_encryption_key[32];
 	uint8_t version[4];
 	uint8_t *address_buffer;
@@ -835,10 +831,8 @@ int main(void)
 	succeeded = 0;
 	failed = 0;
 	initWalletTest();
-	memset(encryption_key, 0, 16);
-	memset(tweak_key, 0, 16);
+	memset(encryption_key, 0, 32);
 	setEncryptionKey(encryption_key);
-	setTweakKey(tweak_key);
 	// Blank out non-volatile storage area (set to all nulls).
 	temp[0] = 0;
 	for (i = 0; i < TEST_FILE_SIZE; i++)
@@ -1520,7 +1514,6 @@ int main(void)
 	// Check that loading the wallet with the old key fails.
 	uninitWallet();
 	setEncryptionKey(encryption_key);
-	setTweakKey(tweak_key);
 	if (initWallet() == WALLET_NOT_THERE)
 	{
 		succeeded++;
@@ -1533,8 +1526,7 @@ int main(void)
 
 	// Check that loading the wallet with the new key succeeds.
 	uninitWallet();
-	setEncryptionKey(&(new_encryption_key[0]));
-	setTweakKey(&(new_encryption_key[16]));
+	setEncryptionKey(new_encryption_key);
 	if (initWallet() == WALLET_NO_ERROR)
 	{
 		succeeded++;

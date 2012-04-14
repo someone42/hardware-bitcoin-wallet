@@ -29,8 +29,10 @@
 #include "hwinterface.h"
 #include "endian.h"
 
-static uint8_t nv_storage_tweak_key[16];
+// Primary encryption key.
 static uint8_t nv_storage_encrypt_key[16];
+// The tweak key can be considered as a secondary, independent encryption key.
+static uint8_t nv_storage_tweak_key[16];
 
 // Double the 128-bit number represented by op1 under GF(2 ^ 128) with
 // reducing polynomial x ^ 128 + x ^ 7 + x ^ 2 + x + 1. This treats
@@ -111,18 +113,8 @@ static void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8
 	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 1);
 }
 
-// Set the 128-bit tweak key to the contents of in.
-// The tweak key can be considered as a secondary, independent encryption key.
-void setTweakKey(uint8_t *in)
-{
-	uint8_t i;
-	for (i = 0; i < 16; i++)
-	{
-		nv_storage_tweak_key[i] = in[i];
-	}
-}
-
-// Set the 128-bit encryption key to the contents of in.
+// Set the 128-bit encryption key to the first 16 bytes of in and set the
+// 128-bit tweak key to the last 16 bytes of in.
 void setEncryptionKey(uint8_t *in)
 {
 	uint8_t i;
@@ -130,12 +122,16 @@ void setEncryptionKey(uint8_t *in)
 	{
 		nv_storage_encrypt_key[i] = in[i];
 	}
+	for (i = 0; i < 16; i++)
+	{
+		nv_storage_tweak_key[i] = in[i + 16];
+	}
 }
 
 // Place encryption keys in the buffer pointed to by out. out must point
 // to an array of 32 bytes. The (primary) encryption key is written to the
 // first 16 bytes and the tweak key is written to the last 16 bytes.
-void getEncryptionKeys(uint8_t *out)
+void getEncryptionKey(uint8_t *out)
 {
 	uint8_t i;
 	for (i = 0; i < 16; i++)
@@ -148,8 +144,8 @@ void getEncryptionKeys(uint8_t *out)
 	}
 }
 
-// Returns non-zero if any one of the encryption keys is non-zero.
-uint8_t areEncryptionKeysNonZero(void)
+// Returns non-zero iff the encryption key is non-zero.
+uint8_t isEncryptionKeyNonZero(void)
 {
 	uint8_t r;
 	uint8_t i;
@@ -163,12 +159,12 @@ uint8_t areEncryptionKeysNonZero(void)
 	return r;
 }
 
-// Clear out memory which stores encryption keys.
+// Clear out memory which stores encryption key.
 // In order to be sure that keys don't remain in RAM anywhere, you may also
 // need to clear out the space between the heap and the stack.
-void clearEncryptionKeys(void)
+void clearEncryptionKey(void)
 {
-	uint8_t i;
+	volatile uint8_t i;
 	for (i = 0; i < 16; i++)
 	{
 		// Just to be sure
@@ -555,12 +551,12 @@ int main(void)
 {
 	uint8_t what_storage_should_be[MAX_ADDRESS];
 	uint8_t buffer[256];
-	uint8_t onekey[16];
+	uint8_t one_key[32];
 	int i;
 	int j;
 
 	initWalletTest();
-	clearEncryptionKeys();
+	clearEncryptionKey();
 	srand(42);
 	succeeded = 0;
 	failed = 0;
@@ -648,14 +644,11 @@ int main(void)
 
 	// Now change the encryption keys and try to obtain the contents of the
 	// nonvolatile storage. The result should be mismatches everywhere.
-	for (i = 0; i < 16; i++)
-	{
-		onekey[i] = 0;
-	}
-	onekey[0] = 1; // key is only slightly different
 
 	// Change only tweak key.
-	setTweakKey(onekey);
+	memset(one_key, 0, 32);
+	one_key[16] = 1;
+	setEncryptionKey(one_key);
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
 		encryptedNonVolatileRead(buffer, i, 128);
@@ -672,8 +665,9 @@ int main(void)
 	}
 
 	// Change only (primary) encryption key.
-	clearEncryptionKeys();
-	setEncryptionKey(onekey);
+	memset(one_key, 0, 32);
+	one_key[0] = 1;
+	setEncryptionKey(one_key);
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
 		encryptedNonVolatileRead(buffer, i, 128);
@@ -690,7 +684,7 @@ int main(void)
 	}
 
 	// Switch back to original, correct keys. All should be fine now.
-	clearEncryptionKeys();
+	clearEncryptionKey();
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
 		encryptedNonVolatileRead(buffer, i, 128);

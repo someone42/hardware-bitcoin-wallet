@@ -23,7 +23,7 @@ int main(void)
 	initStreamComm();
 	initLcdAndInput();
 	initWallet();
-	clearEncryptionKeys();
+	clearEncryptionKey();
 
 	do
 	{

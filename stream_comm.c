@@ -538,7 +538,6 @@ uint8_t processPacket(void)
 				return 1; // read error
 			}
 			setEncryptionKey(buffer);
-			setTweakKey(&(buffer[16]));
 			if (readBytes(buffer, 40))
 			{
 				return 1; // read error
@@ -663,7 +662,6 @@ uint8_t processPacket(void)
 				return 1; // read error
 			}
 			setEncryptionKey(buffer);
-			setTweakKey(&(buffer[16]));
 			if (translateWalletError (initWallet(), 0, NULL))
 			{
 				return 1; // write error
@@ -681,7 +679,7 @@ uint8_t processPacket(void)
 		if (!r)
 		{
 			volatile uint8_t *buffer_alias;
-			clearEncryptionKeys();
+			clearEncryptionKey();
 			sanitiseRam();
 			buffer_alias = buffer;
 			for (i = 0; i < 32; i++)
