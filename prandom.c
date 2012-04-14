@@ -40,39 +40,38 @@ void xor16Bytes(uint8_t *r, uint8_t *op1)
 
 #define ENTROPY_SAFETY_FACTOR	2
 
-// Uses a block cipher to mix data from the hardware random number generator.
-// A block cipher is an appropriate choice for a mixing function, because
-// an ideal block cipher should not reveal any information about the plaintext
-// or key. Therefore, correlations or biases in the hardware random number
-// generator will become hidden.
-// Entropy is accumulated by running the cipher in CBC mode (albeit with a
-// changing key) until the total entropy as reported by the hardware number
-// generator is at least 256 * ENTROPY_SAFETY_FACTOR bits.
+// Uses a hash function to accumulate entropy from a hardware random number
+// generator (HWRNG) and writes the resulting 256-bit number into n.
+//
+// To justify why a cryptographic hash is an appropriate means of entropy
+// accumulation, see the paper "Yarrow-160: Notes on the Design and Analysis
+// of the Yarrow Cryptographic Pseudorandom Number Generator" by J. Kelsey,
+// B. Schneier and N. Ferguson, obtained from
+// http://www.schneier.com/paper-yarrow.html on 14-April-2012. Specifically,
+// section 5.2 addresses entropy accumulation by a hash function.
+//
+// Entropy is accumulated by hashing bytes obtained from the HWRNG until the
+// total entropy (as reported by the HWRNG) is at least
+// 256 * ENTROPY_SAFETY_FACTOR bits.
 void getRandom256(BigNum256 n)
 {
 	uint16_t total_entropy;
-	uint8_t key[32];
 	uint8_t random_bytes[32];
-	uint8_t expanded_key[EXPANDED_KEY_SIZE];
+	HashState hs;
 	uint8_t i;
 
 	total_entropy = 0;
-	for (i = 0; i < 32; i++)
-	{
-		n[i] = 0;
-	}
+	sha256Begin(&hs);
 	while (total_entropy < (256 * ENTROPY_SAFETY_FACTOR))
 	{
-		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(key, 32));
 		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, 32));
-		// Mix plaintext with output of previous round.
-		xor16Bytes(n, random_bytes);
-		aesExpandKey(expanded_key, &(key[0]));
-		aesEncrypt(&(n[16]), &(n[0]), expanded_key);
-		xor16Bytes(&(n[16]), &(random_bytes[16]));
-		aesExpandKey(expanded_key, &(key[16]));
-		aesEncrypt(&(n[0]), &(n[16]), expanded_key);
+		for (i = 0; i < 32; i++)
+		{
+			sha256WriteByte(&hs, random_bytes[i]);
+		}
 	}
+	sha256Finish(&hs);
+	writeHashToByteArray(n, &hs, 1);
 }
 
 // First part of deterministic 256-bit number generation.
