@@ -1,10 +1,9 @@
-// ***********************************************************************
-// prandom.h
-// ***********************************************************************
-//
-// This describes functions exported by prandom.c
-//
-// This file is licensed as described by the file LICENCE.
+/** \file prandom.h
+  *
+  * \brief Describes functions exported by prandom.c.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef PRANDOM_H_INCLUDED
 #define PRANDOM_H_INCLUDED

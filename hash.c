@@ -1,16 +1,22 @@
-// ***********************************************************************
-// hash.c
-// ***********************************************************************
-//
-// Containes functions common to both SHA-256 and RIPEMD-160 hash calculation.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file hash.c
+  *
+  * \brief Contains functions common to all hash calculations.
+  *
+  * All the hash calculations used in the hardware Bitcoin wallet involve
+  * filling up a message buffer and then performing calculations on the full
+  * message buffer. The functions in this file mainly deal with the
+  * mangement of that message buffer.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include "common.h"
 #include "hash.h"
 #include "endian.h"
 
-// Clears m and resets byte_position_m/index_m.
+/** Clear the message buffer.
+  * \param hs The hash state to act on.
+  */
 void clearM(HashState *hs)
 {
 	uint8_t i;
@@ -23,9 +29,11 @@ void clearM(HashState *hs)
 	}
 }
 
-// Send one more byte to be hashed.
-// Writes to m and updates byte_position_m/index_m.
-// The function hashBlock() will be called if a block is full.
+/** Add one more byte to the message buffer and call HashState#hashBlock()
+  * if the message buffer is full.
+  * \param hs The hash state to act on.
+  * \param byte The byte to add.
+  */
 void hashWriteByte(HashState *hs, uint8_t byte)
 {
 	uint8_t pos; // corrected for endianness
@@ -67,8 +75,10 @@ void hashWriteByte(HashState *hs, uint8_t byte)
 	}
 }
 
-// Finish off hashing message (write padding and length) and calculate
-// final hash.
+/** Finalise the hashing of a message by writing appropriate padding and
+  * length bytes.
+  * \param hs The hash state to act on.
+  */
 void hashFinish(HashState *hs)
 {
 	uint32_t length_bits;
@@ -80,11 +90,14 @@ void hashFinish(HashState *hs)
 	// done before padding.
 	length_bits = hs->message_length << 3;
 
+	// Pad using a 1 bit followed by enough 0 bits to get the message buffer
+	// to exactly 448 bits full.
 	hashWriteByte(hs, (uint8_t)0x80);
 	while ((hs->index_m != 14) || (hs->byte_position_m != 0))
 	{
 		hashWriteByte(hs, 0);
 	}
+	// Write 64 bit length (in bits).
 	for (i = 0; i < 8; i++)
 	{
 		buffer[i] = 0;
@@ -101,6 +114,7 @@ void hashFinish(HashState *hs)
 	{
 		hashWriteByte(hs, buffer[i]);
 	}
+	// Swap endianness if necessary.
 	if (!hs->is_big_endian)
 	{
 		for	(i = 0; i < 8; i++)
@@ -110,13 +124,19 @@ void hashFinish(HashState *hs)
 	}
 }
 
-// Convert h array (where hashes are normally stored) into a byte array,
-// respecting endianness. out should have a size of 32 (even if the
-// hash function's result is smaller than 256-bits).
-// If big_endian is non-zero, then the hash will be written in a
-// big-endian way (useful for computing the first hash of a double
-// SHA-256 hash). If big_endian is zero, then the hash will be written in
-// little-endian way (useful for sending off to a signing function).
+/** Write the hash value into a byte array, respecting endianness.
+  * \param out The byte array which will receive the hash. This byte array
+  *            must have space for at least 32 bytes, even if the hash
+  *            function's result is smaller than 256 bits.
+  * \param hs The hash state to read the hash value from.
+  * \param big_endian If this is non-zero, then the hash will be written in a
+  *                   big-endian way (useful for computing the first hash of
+  *                   a double SHA-256 hash). If this is zero, then the hash
+  *                   will be written in little-endian way (useful for sending
+  *                   off to a signing function).
+  * \warning hashFinish() (or the appropriate hash-specific finish function)
+  *          must be called before this function.
+  */
 void writeHashToByteArray(uint8_t *out, HashState *hs, uint8_t big_endian)
 {
 	uint8_t i;

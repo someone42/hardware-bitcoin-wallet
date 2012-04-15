@@ -1,19 +1,21 @@
-// ***********************************************************************
-// aes.c
-// ***********************************************************************
-//
-// A byte-oriented AES (Rijndael) implementation. The emphasis is on having
-// small code size. As a result, performance (time taken per byte encrypted
-// or decrypted) may not be very good.
-// This implementation is for 128-bit keys (10 rounds).
-//
-// This is based on "aestable.c", by Karl Malbrain (malbrain@yahoo.com).
-// Significant changes from original:
-// - Reduced the number of lookup tables
-// - Rolled up loops in [Inv]ShiftRows() and [Inv]MixSubColumns()
-// - Combined ShiftRows() and InvShiftRows() into one function
-//
-// This file is licensed as described by the file LICENCE.
+/** \file aes.c
+  *
+  * \brief A byte-oriented AES (Rijndael) implementation.
+  *
+  * The emphasis is on having small code size. As a result, performance (time
+  * taken per byte encrypted or decrypted) may not be very good.
+  * This implementation is for 128 bit keys (10 rounds). At the moment the
+  * number of rounds and key size are hardcoded. The block size is also fixed
+  * at 128 bits.
+  *
+  * This is based on "aestable.c", by Karl Malbrain (malbrain@yahoo.com).
+  * Significant changes from original:
+  * - Reduced the number of lookup tables
+  * - Rolled up loops in [Inv]ShiftRows() and [Inv]MixSubColumns()
+  * - Combined ShiftRows() and InvShiftRows() into one function
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -28,7 +30,7 @@
 #include "common.h"
 #include "aes.h"
 
-// Forward s-box
+/** Forward S-box for Rijndael. */
 static const uint8_t sbox[256] PROGMEM = {
 0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
@@ -47,7 +49,7 @@ static const uint8_t sbox[256] PROGMEM = {
 0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16};
 
-// Inverse s-box
+/** Inverse S-box for Rijndael. */
 static const uint8_t inv_sbox[256] PROGMEM = {
 0x52, 0x09, 0x6a, 0xd5, 0x30, 0x36, 0xa5, 0x38, 0xbf, 0x40, 0xa3, 0x9e, 0x81, 0xf3, 0xd7, 0xfb,
 0x7c, 0xe3, 0x39, 0x82, 0x9b, 0x2f, 0xff, 0x87, 0x34, 0x8e, 0x43, 0x44, 0xc4, 0xde, 0xe9, 0xcb,
@@ -66,10 +68,8 @@ static const uint8_t inv_sbox[256] PROGMEM = {
 0xa0, 0xe0, 0x3b, 0x4d, 0xae, 0x2a, 0xf5, 0xb0, 0xc8, 0xeb, 0xbb, 0x3c, 0x83, 0x53, 0x99, 0x61,
 0x17, 0x2b, 0x04, 0x7e, 0xba, 0x77, 0xd6, 0x26, 0xe1, 0x69, 0x14, 0x63, 0x55, 0x21, 0x0c, 0x7d};
 
-// All the xTimes?InGF() functions implement modular multiplication of their
-// argument by some constant under the field GF(2 ^ 8) with the reducing
-// polynomial x ^ 8 + x ^ 4 + x ^ 3 + x + 1.
-
+/** Multiply x by 2 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimes2InGF(uint8_t x)
 {
 	// ((unsigned int)(-(int)(x >> 7)) & 0x1b) is equivalent to
@@ -77,42 +77,57 @@ static uint8_t xTimes2InGF(uint8_t x)
 	return (uint8_t)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (x + x));
 }
 
+/** Multiply x by 3 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimes3InGF(uint8_t x)
 {
 	return (uint8_t)(xTimes2InGF(x) ^ x);
 }
 
+/** Multiply x by 4 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimes4InGF(uint8_t x)
 {
 	return xTimes2InGF(xTimes2InGF(x));
 }
 
+/** Multiply x by 8 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimes8InGF(uint8_t x)
 {
 	return xTimes2InGF(xTimes4InGF(x));
 }
 
+/** Multiply x by 9 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimes9InGF(uint8_t x)
 {
 	return (uint8_t)(xTimes8InGF(x) ^ x);
 }
 
+/** Multiply x by 11 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimesBInGF(uint8_t x)
 {
 	return (uint8_t)(xTimes9InGF(x) ^ xTimes2InGF(x));
 }
 
+/** Multiply x by 13 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimesDInGF(uint8_t x)
 {
-	// Note that x * 13 is not the same as x * 11 + x * 2 under GF(2 ^ 8)
+	// Note that x * 13 is not the same as x * 11 + x * 2 under GF(2 ^ 8).
 	return (uint8_t)(xTimes9InGF(x) ^ xTimes4InGF(x));
 }
 
+/** Multiply x by 14 under the field GF(2 ^ 8) with the reducing polynomial
+  * x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static uint8_t xTimesEInGF(uint8_t x)
 {
 	return (uint8_t)(xTimes8InGF(x) ^ xTimes4InGF(x) ^ xTimes2InGF(x));
 }
 
+/** Copy 16 bytes from in to out. */
 static void copy16(uint8_t *out, uint8_t *in)
 {
 	uint8_t i;
@@ -123,14 +138,15 @@ static void copy16(uint8_t *out, uint8_t *in)
 	}
 }
 
-// Exchanges (or restores) columns in each of 4 rows.
-// To exchange, use 5 for shift_or_inv. To restore, use 13 for shift_or_inv.
-// Why 5 and 13? 5 = 1 + 4 (mod 16), and 13 = 1 - 4 (mod 16). shift_or_inv
-// controls how much rows are shifted.
-// row0 - unchanged
-// row1 - shifted left (or right) 1
-// row2 - shifted left (or right) 2
-// row3 - shifted left (or right) 3
+/** Exchanges (or restores) columns in each of 4 rows.
+  * To exchange, use 5 for shift_or_inv. To restore, use 13 for shift_or_inv.
+  * Why 5 and 13? 5 = 1 + 4 (mod 16), and 13 = 1 - 4 (mod 16). shift_or_inv
+  * controls how much rows are shifted.
+  * - row0 is unchanged
+  * - row1 is shifted left (or right) 1 column
+  * - row2 is shifted left (or right) 2 column
+  * - row3 is shifted left (or right) 3 column
+  */
 static void shiftOrInvShiftRows(uint8_t *state, uint8_t shift_or_inv)
 {
 	uint8_t tmp[16];
@@ -161,7 +177,7 @@ static void shiftOrInvShiftRows(uint8_t *state, uint8_t shift_or_inv)
 	copy16(state, tmp);
 }
 
-// Recombine and mix each row in a column.
+/** Recombine and mix each row in a column. */
 static void mixSubColumns(uint8_t *state)
 {
 	uint8_t tmp[16];
@@ -196,7 +212,7 @@ static void mixSubColumns(uint8_t *state)
 	copy16(state, tmp);
 }
 
-// Restore and un-mix each row in a column.
+/** Restore and un-mix each row in a column. */
 static void invMixSubColumns(uint8_t *state)
 {
 	uint8_t tmp[16];
@@ -237,7 +253,7 @@ static void invMixSubColumns(uint8_t *state)
 	}
 }
 
-// Encrypt/decrypt columns of the key.
+/** Encrypt/decrypt columns of the key. */
 static void addRoundKey(uint32_t *state, uint32_t *key)
 {
 	uint8_t idx;
@@ -248,12 +264,18 @@ static void addRoundKey(uint32_t *state, uint32_t *key)
 	}
 }
 
+/** Round constants; 0 followed by 2 ^ i under the field GF(2 ^ 8) with the
+  * reducing polynomial x ^ 8 + x ^ 4 + x ^ 3 + x + 1. */
 static const uint8_t r_con[11] = {
 0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36};
 
-// Expand the key by 16 bytes for each round.
-// Input (key): 16 bytes
-// Output (expanded_key): 176 bytes
+/** Expand the key by 16 bytes for each round. This must be called once (but
+  * it only needs to be called only once) per key before encryption or
+  * decryption, since encryption and decryption use the expanded key.
+  * \param expanded_key Buffer of size #EXPANDED_KEY_SIZE bytes to store
+  *                     expanded key.
+  * \param key 16 byte input key.
+  */
 void aesExpandKey(uint8_t *expanded_key, uint8_t *key)
 {
 	uint8_t tmp0, tmp1, tmp2, tmp3, tmp4;
@@ -283,10 +305,13 @@ void aesExpandKey(uint8_t *expanded_key, uint8_t *key)
 	}
 }
 
-// Encrypt one 128 bit block.
-// in is the plaintext, a 16-byte array. The ciphertext will be placed in
-// out, which should also be a 16-byte array. expanded_key should point to a
-// 176-byte array containing the expanded key (see aesExpandKey()).
+/** Encrypt one 128 bit block.
+  * \param out The resulting ciphertext will be placed here. This should be a
+  *            16 byte array.
+  * \param in The plaintext to encrypt. This should also be a 16 byte array.
+  * \param expanded_key Should point to an array containing the expanded
+  *                     key (see aesExpandKey()).
+  */
 void aesEncrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 {
 	uint8_t round;
@@ -310,10 +335,13 @@ void aesEncrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 	}
 }
 
-// Decrypt one 128-bit block.
-// in is the ciphertext, a 16-byte array. The plaintext will be placed in
-// out, which should also be a 16-byte array. expanded_key should point to a
-// 176-byte array containing the expanded key (see aesExpandKey()).
+/** Decrypt one 128 bit block.
+  * \param out The resulting plaintext will be placed here. This should be a
+  *            16 byte array.
+  * \param in The ciphertext to decrypt. This should also be a 16 byte array.
+  * \param expanded_key Should point to an array containing the expanded
+  *                     key (see aesExpandKey()).
+  */
 void aesDecrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 {
 	uint8_t round;
@@ -400,7 +428,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 	is_encrypt = 1;
 	while (!feof(test_vector_file))
 	{
-		// Check for [DECRYPT]
+		// Check for [DECRYPT].
 		skipWhiteSpace(test_vector_file);
 		seen_count = 0;
 		while (!seen_count)
@@ -423,7 +451,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			}
 		}
 
-		// Get key
+		// Get key.
 		fgets(buffer, 7, test_vector_file);
 		if (strcmp(buffer, "KEY = "))
 		{
@@ -436,7 +464,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			key[i] = (uint8_t)value;
 		}
 		skipWhiteSpace(test_vector_file);
-		// Get plaintext/ciphertext
+		// Get plaintext/ciphertext.
 		// For encryption tests, the order is: plaintext, then ciphertext.
 		// For decryption tests, the order is: ciphertext, then plaintext.
 		for (j = 0; j < 2; j++)
@@ -472,7 +500,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			}
 			skipWhiteSpace(test_vector_file);
 		} // end for (j = 0; j < 2; j++)
-		// Do encryption/decryption and compare
+		// Do encryption/decryption and compare.
 		aesExpandKey(expanded_key, key);
 		test_failed = 0;
 		if (is_encrypt)

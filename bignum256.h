@@ -1,30 +1,45 @@
-// ***********************************************************************
-// bignum256.h
-// ***********************************************************************
-//
-// This describes functions and constants exported by bignum256.c
-// To use the functions described here, you must call bigSetField() first to
-// set field parameters.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file bignum256.h
+  *
+  * \brief Describes functions and constants exported by bignum256.c.
+  * 
+  * To use the functions described here, you must call bigSetField() first to
+  * set field parameters.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef BIGNUM256_H_INCLUDED
 #define BIGNUM256_H_INCLUDED
 
 #include "common.h"
 
-// Little-endian (in bytes), 256-bit integer.
-// When this type is used, expect the identifier to have the type of a pointer
-// which points to a 32 byte array. Do not use this type when the pointer
-// points to an array which may not be exactly 32 bytes in size.
+/** Little-endian (in bytes), multi-precision integer of width 256 bits
+  * (i.e. 32 bytes).
+  * When this type is used, expect the identifier to have the type of a
+  * pointer which points to a 32 byte array. Do not use this type when the
+  * pointer points to an array which may not be exactly 32 bytes in size. */
 typedef uint8_t * BigNum256;
 
-// Return values for bigCompare(). These all must be unsigned and <= 127.
-// Also, BIGCMP_EQUAL must be 0 or some hacks in bigCompareVariableSize()
-// won't work.
+/**
+ * \defgroup BigCompareReturn Return values for bigCompare()
+ *
+ * \warning These all must be unsigned and <= 127, otherwise some bit
+ *          twiddling hacks in bignum256.c won't work.
+ * @{
+ */
+/** Return value for bigCompare() which indicates that the first operand is
+  * less than the second. */
 #define BIGCMP_LESS			2
+/** Return value for bigCompare() which indicates that the first operand is
+  * equal to the second.
+  * \warning This must be 0 or some hacks in bigCompareVariableSize() won't
+  *          work.
+  */
 #define BIGCMP_EQUAL		0
+/** Return value for bigCompare() which indicates that the first operand is
+  * greater than the second. */
 #define BIGCMP_GREATER		1
+/**@}*/
 
 extern uint8_t bigCompareVariableSize(uint8_t *op1, uint8_t *op2, uint8_t size);
 extern uint8_t bigCompare(BigNum256 op1, BigNum256 op2);
@@ -37,6 +52,7 @@ extern void bigModulo(BigNum256 r, BigNum256 op1);
 extern uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t size);
 extern void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2);
+extern void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size, uint8_t *op2, uint8_t op2_size);
 extern void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigInvert(BigNum256 r, BigNum256 op1);
 

@@ -1,12 +1,12 @@
-// ***********************************************************************
-// prandom.c
-// ***********************************************************************
-//
-// Containes functions which generate pseudo-random values. At the moment
-// this covers whitening of random inputs and deterministic private key
-// generation.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file prandom.c
+  *
+  * \brief Deals with random and pseudo-random number generation.
+  *
+  * At the moment this covers whitening of random inputs (getRandom256()) and
+  * deterministic private key generation (generateDeterministic256()).
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -27,7 +27,11 @@
 #include <memory.h>
 #endif // #ifdef TEST
 
-// XOR 16 bytes specified by r with the 16 bytes specified by op1.
+/** XOR (r = r XOR op1) 16 bytes with another 16 bytes.
+  * \param r One operand for the XOR operation. The result will also be
+  *          written here.
+  * \param op1 The other operand for the XOR operation.
+  */
 void xor16Bytes(uint8_t *r, uint8_t *op1)
 {
 	uint8_t i;
@@ -38,21 +42,26 @@ void xor16Bytes(uint8_t *r, uint8_t *op1)
 	}
 }
 
+/** Safety factor for entropy accumulation. The hardware random number
+  * generator can (but should strive not to) overestimate its entropy. It can
+  * overestimate its entropy by this factor without loss of security. */
 #define ENTROPY_SAFETY_FACTOR	2
 
-// Uses a hash function to accumulate entropy from a hardware random number
-// generator (HWRNG) and writes the resulting 256-bit number into n.
-//
-// To justify why a cryptographic hash is an appropriate means of entropy
-// accumulation, see the paper "Yarrow-160: Notes on the Design and Analysis
-// of the Yarrow Cryptographic Pseudorandom Number Generator" by J. Kelsey,
-// B. Schneier and N. Ferguson, obtained from
-// http://www.schneier.com/paper-yarrow.html on 14-April-2012. Specifically,
-// section 5.2 addresses entropy accumulation by a hash function.
-//
-// Entropy is accumulated by hashing bytes obtained from the HWRNG until the
-// total entropy (as reported by the HWRNG) is at least
-// 256 * ENTROPY_SAFETY_FACTOR bits.
+/** Uses a hash function to accumulate entropy from a hardware random number
+  * generator (HWRNG)..
+  *
+  * To justify why a cryptographic hash is an appropriate means of entropy
+  * accumulation, see the paper "Yarrow-160: Notes on the Design and Analysis
+  * of the Yarrow Cryptographic Pseudorandom Number Generator" by J. Kelsey,
+  * B. Schneier and N. Ferguson, obtained from
+  * http://www.schneier.com/paper-yarrow.html on 14-April-2012. Specifically,
+  * section 5.2 addresses entropy accumulation by a hash function.
+  *
+  * Entropy is accumulated by hashing bytes obtained from the HWRNG until the
+  * total entropy (as reported by the HWRNG) is at least
+  * 256 * ENTROPY_SAFETY_FACTOR bits.
+  * \param n The final 256 bit random value will be written here.
+  */
 void getRandom256(BigNum256 n)
 {
 	uint16_t total_entropy;
@@ -74,9 +83,13 @@ void getRandom256(BigNum256 n)
 	writeHashToByteArray(n, &hs, 1);
 }
 
-// First part of deterministic 256-bit number generation.
-// See comments to generateDeterministic256() for details.
-// It was split into two parts to most efficiently use stack space.
+/** First part of deterministic 256 bit number generation.
+  * See comments to generateDeterministic256() for details.
+  * It was split into two parts to most efficiently use stack space.
+  * \param hash See generateDeterministic256().
+  * \param seed See generateDeterministic256().
+  * \param num See generateDeterministic256().
+  */
 static NOINLINE void generateDeterministic256Part1(uint8_t *hash, uint8_t *seed, uint32_t num)
 {
 	uint8_t i;
@@ -87,6 +100,7 @@ static NOINLINE void generateDeterministic256Part1(uint8_t *hash, uint8_t *seed,
 	{
 		sha256WriteByte(&hs, seed[i]);
 	}
+	// num is written in 64 bit big-endian format.
 	for (i = 0; i < 4; i++)
 	{
 		sha256WriteByte(&hs, 0);
@@ -99,9 +113,13 @@ static NOINLINE void generateDeterministic256Part1(uint8_t *hash, uint8_t *seed,
 	writeHashToByteArray(hash, &hs, 1);
 }
 
-// Second part of deterministic 256-bit number generation.
-// See comments to generateDeterministic256() for details.
-// It was split into two parts to most efficiently use stack space.
+/** Second part of deterministic 256 bit number generation.
+  * See comments to generateDeterministic256() for details.
+  * It was split into two parts to most efficiently use stack space.
+  * \param out See generateDeterministic256().
+  * \param hash See generateDeterministic256().
+  * \param seed See generateDeterministic256().
+  */
 static NOINLINE void generateDeterministic256Part2(BigNum256 out, uint8_t *hash, uint8_t *seed)
 {
 	uint8_t expanded_key[EXPANDED_KEY_SIZE];
@@ -112,25 +130,34 @@ static NOINLINE void generateDeterministic256Part2(BigNum256 out, uint8_t *hash,
 	aesEncrypt(&(out[16]), &(hash[16]), expanded_key);
 }
 
-// Use a combination of cryptographic primitives to deterministically
-// generate a new 256-bit number. seed should point to a 64-byte array,
-// num is a counter and the resulting 256-bit number will be written to out.
-// The process is: the last 256 bits of the seed are appended with the
-// counter and hashed using SHA-256. The first and second 128 bits of the
-// seed are used as a key to encrypt the two halves of the resulting hash
-// using AES. The result is the two encrypted halves.
-// If having a 512-bit seed is deemed "too big" for an application:
-// - The first and second 128 bits can be the same, meaning that the
-//   encryption key for the two halves is the same.
-// - The last 256-bits of the seed can have up to 128 bits set to 0.
-// Implementing both of these options would reduce the entropy in the seed
-// to 256 bits, which should still be enough. But if possible, it is better
-// to be safe than sorry and use a seed with the full 512 bits of entropy.
-// Why use a hash in addition to a block cipher? Defense in depth - the
-// plaintext to AES is then unknown to an attacker.
-// Note: out is little-endian, so the first encrypted half of the hash
-// goes into the least-significant 256 bits while the second encrypted
-// half goes into the most-significant 256 bits.
+/** Use a combination of cryptographic primitives to deterministically
+  * generate a new 256 bit number.
+  *
+  * The process is: the last 256 bits of the seed are appended with the
+  * counter (the counter is written in 64 bit big-endian format) and hashed
+  * using SHA-256. The first and second 128 bits of the seed are used as keys
+  * to encrypt the first and second halves (respectively) of the resulting
+  * hash using AES. The final result is the two encrypted halves.
+  *
+  * If having a 512-bit seed is deemed "too big" for an application:
+  * - The first and second 128 bits can be the same, meaning that the
+  *   encryption key for the two halves is the same.
+  * - The last 256-bits of the seed can have up to 128 bits set to 0.
+  *
+  * Implementing both of these options would reduce the entropy in the seed
+  * to 256 bits, which should still be enough. But if possible, it is better
+  * to be safe than sorry and use a seed with the full 512 bits of entropy.
+  * Why use a hash in addition to a block cipher? Defense in depth - the
+  * plaintext to AES is then unknown to an attacker.
+  * Note that since out is little-endian, the first encrypted half of the hash
+  * goes into the least-significant 128 bits while the second encrypted
+  * half goes into the most-significant 128 bits.
+  * \param out The generated 256 bit number will be written here.
+  * \param seed Should point to a 64 byte array containing the seed for the
+  *             pseudo-random number generator.
+  * \param num A counter which determines which number the pseudo-random
+  *            number generator will output.
+  */
 void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num)
 {
 	uint8_t hash[32];

@@ -1,23 +1,33 @@
-// ***********************************************************************
-// bignum256.c
-// ***********************************************************************
-//
-// Containes functions which perform modular arithmetic operations on
-// 256-bit wide numbers. These include: addition, subtraction, multiplication,
-// and inversion.
-// All computation functions have been written in a way so that their
-// execution time is independent of the data they are processing. However, the
-// compiler may use optimisations which destroy this property; inspection of
-// the generated assembly code is the only way to check. The advantage of
-// data-independent timing is that implementations of cryptography based on
-// this code should be more timing attack resistant. The main disadvantage is
-// that the code is relatively inefficient.
-// All functions here expect 256-bit numbers to be an array of 32 bytes, with
-// the least significant byte first.
-// To use the exported functions here, you must call bigSetField() first to
-// set field parameters. If you don't do this, you'll get a segfault!
-//
-// This file is licensed as described by the file LICENCE.
+/** \file bignum256.c
+  *
+  * \brief Has functions which perform multi-precision modular arithmetic.
+  *
+  * Arithmetic operations supported include: addition, subtraction,
+  * multiplication, and inversion (i.e. division). For all operations, there
+  * is a version which operates under a prime finite field. For nearly all
+  * operations, there is also a version which does not operate under a prime
+  * finite field.
+  *
+  * All computation functions have been written in a way so that their
+  * execution time is independent of the data they are processing. However,
+  * the compiler may use optimisations which destroy this property; inspection
+  * of the generated assembly code is the only way to check. The advantage of
+  * data-independent timing is that implementations of cryptography based on
+  * this code should be more timing attack resistant. The main disadvantage is
+  * that the code is relatively inefficient.
+  *
+  * All functions here expect multi-precision numbers to be an array of bytes,
+  * with the least significant byte first. For example, {0xff, 0x02, 0x06}
+  * represents the number 393983. All numbers are unsigned.
+  * Normally, functions in this file assume the array to have a size of 32
+  * bytes (such functions will use the typedef #BigNum256), but some functions
+  * accept variable-sized arrays.
+  *
+  * To use the exported functions here, you must call bigSetField() first to
+  * set field parameters. If you don't do this, you'll get a segfault!
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 // Testing requires the GNU Multi-Precision library (without nails)
@@ -38,14 +48,15 @@
 #include "common.h"
 #include "bignum256.h"
 
-// Field parameters: n is the prime modulus. complement_n is the 2s complement
-// of n (with most significant zero bytes removed) and size_complement_n is
-// the size of complement_n. The smaller size_complement_n is, the faster
-// multiplication will be.
-// n must be greater than 2 ^ 255. The least significant byte of n must
-// be >= 2 (otherwise bigInvert() will not work correctly).
+/** The prime modulus to operate under.
+  * \warning This must be greater than 2 ^ 255.
+  * \warning The least significant byte of this must be >= 2, otherwise
+  *          bigInvert() will not work correctly.
+  */
 static BigNum256 n;
+/** The 2s complement of #n, with most significant zero bytes removed. */
 static uint8_t *complement_n;
+/** The size of #complement_n, in number of bytes. */
 static uint8_t size_complement_n;
 
 #ifdef TEST
@@ -59,10 +70,14 @@ static void bigPrint(BigNum256 number)
 }
 #endif // #ifdef TEST
 
-// Returns BIGCMP_GREATER if op1 > op2, BIGCMP_EQUAL if they're equal and
-// BIGCMP_LESS if op1 < op2.
-// op1 may alias op2.
-// This supports bignums with sizes other than 256 bits.
+/** Compare two multi-precision numbers of arbitrary size.
+  * \param op1 One of the numbers to compare.
+  * \param op2 The other number to compare. This may alias op1.
+  * \param size The size of the multi-precision numbers op1 and op2, in number
+  *             of bytes.
+  * \return #BIGCMP_GREATER if op1 > op2, #BIGCMP_EQUAL if they're equal
+  *         and #BIGCMP_LESS if op1 < op2.
+  */
 uint8_t bigCompareVariableSize(uint8_t *op1, uint8_t *op2, uint8_t size)
 {
 	uint8_t i;
@@ -98,16 +113,23 @@ uint8_t bigCompareVariableSize(uint8_t *op1, uint8_t *op2, uint8_t size)
 	return r;
 }
 
-// Returns BIGCMP_GREATER if op1 > op2, BIGCMP_EQUAL if they're equal and
-// BIGCMP_LESS if op1 < op2.
-// op1 may alias op2.
+/** Compare two 32 byte multi-precision numbers.
+  * \param op1 One of the 32 byte numbers to compare.
+  * \param op2 The other 32 byte number to compare. This may alias op1.
+  * \return #BIGCMP_GREATER if op1 > op2, #BIGCMP_EQUAL if they're equal
+  *         and #BIGCMP_LESS if op1 < op2.
+  */
 uint8_t bigCompare(BigNum256 op1, BigNum256 op2)
 {
 	return bigCompareVariableSize(op1, op2, 32);
 }
 
-// Returns 1 if op1 is zero, returns 0 otherwise.
-// This supports bignums with sizes other than 256 bits.
+/** Check if a multi-precision number of arbitrary size is equal to zero.
+  * \param op1 The number to check.
+  * \param size The size of the multi-precision number op1, in number of
+  *             bytes.
+  * \return 1 if op1 is zero, 0 if op1 is not zero.
+  */
 uint8_t bigIsZeroVariableSize(uint8_t *op1, uint8_t size)
 {
 	uint8_t i;
@@ -122,13 +144,18 @@ uint8_t bigIsZeroVariableSize(uint8_t *op1, uint8_t size)
 	return (uint8_t)((((uint16_t)(-(int)r)) >> 8) + 1);
 }
 
-// Returns 1 if op1 is zero, returns 0 otherwise.
+/** Check if a 32 byte multi-precision number is equal to zero.
+  * \param op1 The 32 byte number to check.
+  * \return 1 if op1 is zero, 0 if op1 is not zero.
+  */
 uint8_t bigIsZero(BigNum256 op1)
 {
 	return bigIsZeroVariableSize(op1, 32);
 }
 
-// Set r to 0
+/** Set a 32 byte multi-precision number to zero.
+  * \param r The 32 byte number to set to zero.
+  */
 void bigSetZero(BigNum256 r)
 {
 	uint8_t i;
@@ -138,7 +165,10 @@ void bigSetZero(BigNum256 r)
 	}
 }
 
-// Assign op1 to r.
+/** Assign one 32 byte multi-precision number to another.
+  * \param r The 32 byte number to assign to.
+  * \param op1 The 32 byte number to read from.
+  */
 void bigAssign(BigNum256 r, BigNum256 op1)
 {
 	uint8_t i;
@@ -148,8 +178,14 @@ void bigAssign(BigNum256 r, BigNum256 op1)
 	}
 }
 
-// Set field parameters n, complement_n and size_of_complement_n. See comments
-// above n/complement_n/size_of_complement_n.
+/** Set prime finite field parameters. The arrays passed as parameters to
+  * this function will never be written to, hence the const modifiers.
+  * \param in_n See #n.
+  * \param in_complement_n See #complement_n.
+  * \param in_size_complement_n See #size_complement_n.
+  * \warning There are some restrictions on what the parameters can be.
+  *          See #n, #complement_n and #size_complement_n for more details.
+  */
 void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint8_t in_size_complement_n)
 {
 	n = (BigNum256)in_n;
@@ -157,17 +193,23 @@ void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint
 	size_complement_n = (uint8_t)in_size_complement_n;
 }
 
-// Returns 1 if there's carry, 0 otherwise.
-// r may alias op1 or op2. op1 may alias op2.
-// opsize is the size (in bytes) of the operands and result.
-static uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t opsize)
+/** Add (r = op1 + op2) two multi-precision numbers of arbitrary size,
+  * ignoring the current prime finite field. In other words, this does
+  * multi-precision binary addition.
+  * \param r The result will be written into here.
+  * \param op1 The first operand to add. This may alias r.
+  * \param op2 The second operand to add. This may alias r or op1.
+  * \param op_size Size, in bytes, of the operands and the result.
+  * \return 1 if carry occurred, 0 if no carry occurred.
+  */
+static uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t op_size)
 {
 	uint16_t partial;
 	uint8_t carry;
 	uint8_t i;
 
 	carry = 0;
-	for (i = 0; i < opsize; i++)
+	for (i = 0; i < op_size; i++)
 	{
 		partial = (uint16_t)((uint16_t)op1[i] + (uint16_t)op2[i] + (uint16_t)carry);
 		r[i] = (uint8_t)partial;
@@ -176,17 +218,23 @@ static uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2
 	return carry;
 }
 
-// Subtract op2 from op1. Returns 1 if there's borrow, 0 otherwise.
-// r may alias op1 or op2. op1 may alias op2.
-// This supports bignums with sizes other than 256 bits.
-uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t size)
+/** Subtract (r = op1 - op2) two multi-precision numbers of arbitrary size,
+  * ignoring the current prime finite field. In other words, this does
+  * multi-precision binary subtraction.
+  * \param r The result will be written into here.
+  * \param op1 The operand to subtract from. This may alias r.
+  * \param op2 The operand to subtract off op1. This may alias r or op1.
+  * \param op_size Size, in bytes, of the operands and the result.
+  * \return 1 if borrow occurred, 0 if no borrow occurred.
+  */
+uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t op_size)
 {
 	uint16_t partial;
 	uint8_t borrow;
 	uint8_t i;
 
 	borrow = 0;
-	for (i = 0; i < size; i++)
+	for (i = 0; i < op_size; i++)
 	{
 		partial = (uint16_t)((uint16_t)op1[i] - (uint16_t)op2[i] - (uint16_t)borrow);
 		r[i] = (uint8_t)partial;
@@ -195,15 +243,26 @@ uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, 
 	return borrow;
 }
 
-// Subtract op2 from op1. Returns 1 if there's borrow, 0 otherwise.
-// r may alias op1 or op2. op1 may alias op2.
+/** Subtract (r = op1 - op2) two 32 byte multi-precision numbers,
+  * ignoring the current prime finite field. In other words, this does
+  * multi-precision binary subtraction.
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The 32 byte operand to subtract from. This may alias r.
+  * \param op2 The 32 byte operand to subtract off op1. This may alias r or op1.
+  * \return 1 if borrow occurred, 0 if no borrow occurred.
+  */
 static uint8_t bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	return bigSubtractVariableSizeNoModulo(r, op1, op2, 32);
 }
 
-// Computes op1 modulo n.
-// r may alias op1.
+/** Compute op1 modulo #n, where op1 is a 32 byte multi-precision number.
+  * The "modulo" part makes it sound like this function does division
+  * somewhere, but since #n is also a 32 byte multi-precision number, all
+  * this function actually does is subtract #n off op1 if op1 is >= #n.
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The 32 byte operand to apply the modulo to. This may alias r.
+  */
 void bigModulo(BigNum256 r, BigNum256 op1)
 {
 	uint8_t cmp;
@@ -219,9 +278,13 @@ void bigModulo(BigNum256 r, BigNum256 op1)
 	bigSubtractNoModulo(r, op1, lookup[cmp]);
 }
 
-// Computes op1 + op2 modulo n and places result into r.
-// op1 must be < n and op2 must also be < n.
-// r may alias op1 or op2. op1 may alias op2.
+/** Add (r = (op1 + op2) modulo #n) two 32 byte multi-precision numbers under
+  * the current prime finite field.
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The first 32 byte operand to add. This may alias r.
+  * \param op2 The second 32 byte operand to add. This may alias r or op1.
+  * \warning op1 and op2 must both be < #n.
+  */
 void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	uint8_t too_big;
@@ -243,9 +306,14 @@ void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	bigSubtractNoModulo(r, r, lookup[too_big]);
 }
 
-// Computes op1 - op2 modulo n and places result into r.
-// op1 must be < n and op2 must also be < n.
-// r may alias op1 or op2. op1 may alias op2.
+/** Subtract (r = (op1 - op2) modulo #n) two 32 byte multi-precision numbers
+  * under the current prime finite field.
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The 32 byte operand to subtract from. This may alias r.
+  * \param op2 The 32 byte operand to sutract off op1. This may alias r or
+  *            op1.
+  * \warning op1 and op2 must both be < #n.
+  */
 void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	uint8_t *lookup[2];
@@ -263,11 +331,23 @@ void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	bigAddVariableSizeNoModulo(r, r, lookup[too_small], 32);
 }
 
-// Computes op1 * op2 and places result into r. op1size is the size
-// (in bytes) of op1 and op2size is the size (in bytes) of op2.
-// r needs to be an array of (op1size + op2size) bytes (instead of the
-// usual 32). r cannot alias op1 or op2. op1 may alias op2.
-static void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size, uint8_t *op2, uint8_t op2_size)
+#ifndef PLATFORM_SPECIFIC_BIGMULTIPLY
+
+/** Multiplies (r = op1 x op2) two multi-precision numbers of arbitrary size,
+  * ignoring the current prime finite field. In other words, this does
+  * multi-precision binary multiplication.
+  * \param r The result will be written into here. The size of the result (in
+  *          number of bytes) will be op1_size + op2_size.
+  * \param op1 The first operand to multiply. This cannot alias r.
+  * \param op1_size The size, in number of bytes, of op1.
+  * \param op2 The second operand to multiply. This cannot alias r, but it can
+  *            alias op1.
+  * \param op2_size The size, in number of bytes, of op2.
+  * \warning This function is the speed bottleneck in an ECDSA signing
+  *          operation. To speed up ECDSA signing, reimplement this in
+  *          assembly and define PLATFORM_SPECIFIC_BIGMULTIPLY.
+  */
+void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size, uint8_t *op2, uint8_t op2_size)
 {
 	uint8_t cached_op1;
 	uint8_t low_carry;
@@ -283,6 +363,12 @@ static void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op
 	{
 		r[i] = 0;
 	}
+	// The multiplication algorithm here is what GMP calls the "schoolbook"
+	// method. It's also sometimes referred to as "long multiplication". It's
+	// the most straightforward method of multiplication.
+	// Note that for the operand sizes this function typically deals with,
+	// and with the platforms this code is intended to run on, the Karatsuba
+	// algorithm isn't significantly better.
 	for (i = 0; i < op1_size; i++)
 	{
 		cached_op1 = op1[i];
@@ -305,8 +391,15 @@ static void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op
 	}
 }
 
-// Computes op1 * op2 modulo n and places result into r.
-// r may alias op1 or op2. op1 may alias op2.
+#endif // #ifndef PLATFORM_SPECIFIC_BIGMULTIPLY
+
+/** Multiplies (r = (op1 x op2) modulo #n) two 32 byte multi-precision
+  * numbers under the current prime finite field.
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The first 32 byte operand to multiply. This may alias r.
+  * \param op2 The second 32 byte operand to multiply. This may alias r or
+  *            op1.
+  */
 void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	uint8_t temp[64];
@@ -353,9 +446,13 @@ void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	bigAssign(r, full_r);
 }
 
-// Compute the modular inverse of op1 (i. e. a number r such that r * op1 = 1
-// modulo n).
-// r may alias op1.
+
+/** Compute the modular inverse of a 32 byte multi-precision number under
+  * the current prime finite field (i.e. find r such that
+  * (r x op1) modulo #n = 1).
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The 32 byte operand to find the inverse of. This may alias r.
+  */
 void bigInvert(BigNum256 r, BigNum256 op1)
 {
 	uint8_t temp[32];
@@ -403,54 +500,62 @@ void bigInvert(BigNum256 r, BigNum256 op1)
 
 #ifdef TEST
 
-// Number of low edge cases (numbers near minimum) to test.
+/** Number of low edge test numbers (numbers near minimum). */
 #define LOW_EDGE_CASES		700
-// Number of high edge cases (numbers near maximum) to test.
+/** Number of high edge test numbers (numbers near maximum). */
 #define HIGH_EDGE_CASES		700
-// Number of "random" numbers to test.
+/** Number of "random" test numbers. */
 #define RANDOM_CASES		3000
 
+/** The total number of test numbers. */
 #define TOTAL_CASES			(LOW_EDGE_CASES + HIGH_EDGE_CASES + RANDOM_CASES)
 
+/** 32 byte multi-precision representation of 0. */
 static uint8_t zero[32] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
+/** 32 byte multi-precision representation of 1. */
 static uint8_t one[32] = {
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// The prime number used to define the prime field for secp256k1.
+/** The prime number used to define the prime finite field for secp256k1. */
 static const uint8_t secp256k1_p[32] = {
 0x2f, 0xfc, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
+/** 2s complement of #secp256k1_p. */
 static const uint8_t secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
-// The order of the base point used in secp256k1.
+/** The order of the base point used in secp256k1. */
 static const uint8_t secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
+/** 2s complement of #secp256k1_n. */
 static const uint8_t secp256k1_complement_n[17] = {
 0xbf, 0xbe, 0xc9, 0x2f, 0x73, 0xa1, 0x2d, 0x40,
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
 
+/** Storage for test numbers. */
 static uint8_t test_cases[TOTAL_CASES][32];
 
-// Low edge cases will start from 0 and go up.
-// High edge cases will start from max - 1 and go down.
-// Random test cases will be within [0, max - 1].
+/** Generate test numbers according to:
+  * - Low edge cases will start from 0 and go up.
+  * - High edge cases will start from max - 1 and go down.
+  * - Random test cases will be within [0, max - 1].
+  */
 static void generateTestCases(const uint8_t *max)
 {
 	int test_num;
@@ -497,8 +602,11 @@ static void generateTestCases(const uint8_t *max)
 #endif // #ifdef _DEBUG
 }
 
-// Convert number from byte array format to GMP limb array
-// format. n is the number of limbs in GMP limb array.
+/** Convert number from byte array format to GMP limb array format.
+  * \param out Destination GMP limb array.
+  * \param in Source little-endian byte array.
+  * \param n The number of limbs in the GMP limb array..
+  */
 static void byteToMpn(mp_limb_t *out, BigNum256 in, int n)
 {
 	int i;
@@ -509,8 +617,11 @@ static void byteToMpn(mp_limb_t *out, BigNum256 in, int n)
 	}
 }
 
-// Convert number from GMP limb array format to byte array format.
-// n is the number of limbs in GMP limb array.
+/** Convert number from GMP limb array format to byte array format.
+  * \param out Destination little-endian byte array.
+  * \param in Source GMP limb array.
+  * \param n The number of limbs in the GMP limb array..
+  */
 static void mpnToByte(BigNum256 out, mp_limb_t *in, int n)
 {
 	int i;

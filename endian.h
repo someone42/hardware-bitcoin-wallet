@@ -1,10 +1,9 @@
-// ***********************************************************************
-// endian.h
-// ***********************************************************************
-//
-// This describes functions exported by endian.c
-//
-// This file is licensed as described by the file LICENCE.
+/** \file endian.h
+  *
+  * \brief Describes functions exported by endian.c
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef ENDIAN_H_INCLUDED
 #define ENDIAN_H_INCLUDED

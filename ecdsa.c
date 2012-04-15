@@ -1,25 +1,27 @@
-// ***********************************************************************
-// ecdsa.c
-// ***********************************************************************
-//
-// Containes functions which perform group operations on points of an
-// elliptic curve and sign a hash using those operations.
-//
-// The elliptic curve used is secp256k1, from the document
-// "SEC 2: Recommended Elliptic Curve Domain Parameters" by Certicom
-// research, obtained 11-August-2011 from:
-// http://www.secg.org/collateral/sec2_final.pdf
-//
-// The operations here are written in a way as to encourage them to run in
-// constant time. This provides some resistance against timing attacks.
-// However, the compiler may use optimisations which destroy this property;
-// inspection of the generated assembly code is the only way to check. A
-// disadvantage of this code is that point multiplication is slower than
-// it could be.
-// There are some data-dependent branches in here, but they're expected to
-// only make a difference (in timing) in exceptional cases.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file ecdsa.c
+  *
+  * \brief Contains functions relevant to ECDSA signing.
+  *
+  * Functions relevant to ECDSA signing include those which perform group
+  * operations on points of an elliptic curve (eg. pointAdd() and
+  * pointDouble()) and the actual signing function, ecdsaSign().
+  *
+  * The elliptic curve used is secp256k1, from the document
+  * "SEC 2: Recommended Elliptic Curve Domain Parameters" by Certicom
+  * research, obtained 11-August-2011 from:
+  * http://www.secg.org/collateral/sec2_final.pdf
+  *
+  * The operations here are written in a way as to encourage them to run in
+  * (mostly) constant time. This provides some resistance against timing
+  * attacks. However, the compiler may use optimisations which destroy this
+  * property; inspection of the generated assembly code is the only way to
+  * check. A disadvantage of this code is that point multiplication is slower
+  * than it could be.
+  * There are some data-dependent branches in here, but they're expected to
+  * only make a difference (in timing) in exceptional cases.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -34,53 +36,60 @@
 #include "bignum256.h"
 #include "ecdsa.h"
 
-// A point on the elliptic curve, in Jacobian coordinates. Jacobian
-// coordinates (x, y, z) are related to affine coordinates
-// (x_affine, y_affine) by:
-// (x_affine, y_affine) = (x / (z ^ 2), y / (z ^ 3)).
-// Why use Jacobian coordinates? Because then point addition and point
-// doubling don't have to use inversion (division), which is very slow.
+/** A point on the elliptic curve, in Jacobian coordinates. The
+  * Jacobian coordinates (x, y, z) are related to affine coordinates
+  * (x_affine, y_affine) by:
+  * (x_affine, y_affine) = (x / (z ^ 2), y / (z ^ 3)).
+  *
+  * Why use Jacobian coordinates? Because then point addition and
+  * point doubling don't have to use inversion (division), which is very slow.
+  */
 typedef struct PointJacobianStruct
 {
+	/** x component of a point in Jacobian coordinates. */
 	uint8_t x[32];
+	/** y component of a point in Jacobian coordinates. */
 	uint8_t y[32];
+	/** z component of a point in Jacobian coordinates. */
 	uint8_t z[32];
-	// If is_point_at_infinity is non-zero, then this point represents the
-	// point at infinity and all other structure members are considered
-	// invalid.
+	/** If is_point_at_infinity is non-zero, then this point represents the
+	  * point at infinity and all other structure members are considered
+	  * invalid. */
 	uint8_t is_point_at_infinity;
 } PointJacobian;
 
-// The prime number used to define the prime field for secp256k1.
+/** The prime number used to define the prime finite field for secp256k1. */
 static const uint8_t secp256k1_p[32] = {
 0x2f, 0xfc, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
+/** 2s complement of #secp256k1_p. */
 static const uint8_t secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
-// The order of the base point used in secp256k1.
+/** The order of the base point used in secp256k1. */
 static const uint8_t secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
 
+/** 2s complement of #secp256k1_n. */
 static const uint8_t secp256k1_complement_n[17] = {
 0xbf, 0xbe, 0xc9, 0x2f, 0x73, 0xa1, 0x2d, 0x40,
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
 
-// The x component of the base point G used in secp256k1.
+/** The x component of the base point G used in secp256k1. */
 static const uint8_t secp256k1_Gx[32] PROGMEM = {
 0x98, 0x17, 0xf8, 0x16, 0x5b, 0x81, 0xf2, 0x59,
 0xd9, 0x28, 0xce, 0x2d, 0xdb, 0xfc, 0x9b, 0x02,
 0x07, 0x0b, 0x87, 0xce, 0x95, 0x62, 0xa0, 0x55,
 0xac, 0xbb, 0xdc, 0xf9, 0x7e, 0x66, 0xbe, 0x79};
 
-// The y component of the base point G used in secp256k1.
+/** The y component of the base point G used in secp256k1. */
 static const uint8_t secp256k1_Gy[32] PROGMEM = {
 0xb8, 0xd4, 0x10, 0xfb, 0x8f, 0xd0, 0x47, 0x9c,
 0x19, 0x54, 0x85, 0xa6, 0x48, 0xb4, 0x17, 0xfd,
@@ -98,8 +107,11 @@ static void bigPrint(BigNum256 number)
 }
 #endif // #ifdef TEST
 
-// Convert a point from affine coordinates to Jacobian coordinates. This
-// is very fast.
+/** Convert a point from affine coordinates to Jacobian coordinates. This
+  * is very fast.
+  * \param out The destination point (in Jacobian coordinates).
+  * \param in The source point (in affine coordinates).
+  */
 static void affineToJacobian(PointJacobian *out, PointAffine *in)
 {
 	out->is_point_at_infinity = in->is_point_at_infinity;
@@ -111,8 +123,11 @@ static void affineToJacobian(PointJacobian *out, PointAffine *in)
 	out->z[0] = 1;
 }
 
-// Convert a point from Jacobian coordinates to affine coordinates. This
-// is very slow because it involves inversion (division).
+/** Convert a point from Jacobian coordinates to affine coordinates. This
+  * is very slow because it involves inversion (division).
+  * \param out The destination point (in affine coordinates).
+  * \param in The source point (in Jacobian coordinates).
+  */
 static NOINLINE void jacobianToAffine(PointAffine *out, PointJacobian *in)
 {
 	uint8_t s[32];
@@ -130,14 +145,16 @@ static NOINLINE void jacobianToAffine(PointAffine *out, PointJacobian *in)
 	bigMultiply(out->y, in->y, t);
 }
 
-// Double the point p (which is in Jacobian coordinates), placing the
-// result back into p.
-// The formulae for this function were obtained from the article:
-// "Software Implementation of the NIST Elliptic Curves Over Prime Fields",
-// obtained from:
-// http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.25.8619&rep=rep1&type=pdf
-// on 16-August-2011. See equations (2) ("doubling in Jacobian coordinates")
-// from section 4 of that article.
+/** Double (p = 2 x p) the point p (which is in Jacobian coordinates), placing
+  * the result back into p.
+  * The formulae for this function were obtained from the article:
+  * "Software Implementation of the NIST Elliptic Curves Over Prime Fields",
+  * obtained from:
+  * http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.25.8619&rep=rep1&type=pdf
+  * on 16-August-2011. See equations (2) ("doubling in Jacobian coordinates")
+  * from section 4 of that article.
+  * \param p The point (in Jacobian coordinates) to double.
+  */
 static NOINLINE void pointDouble(PointJacobian *p)
 {
 	uint8_t t[32];
@@ -179,13 +196,19 @@ static NOINLINE void pointDouble(PointJacobian *p)
 	bigSubtract(p->y, t, p->y);
 }
 
-// Add the point p2 (which is in affine coordinates) to the point p1 (which
-// is in Jacobian coordinates), storing the result back into p1.
-// Mixed coordinates are used because it reduces the number of squarings and
-// multiplications from 16 to 11.
-// See equations (3) ("addition in mixed Jacobian-affine coordinates") from
-// section 4 of that article described in the comments to pointDouble().
-// junk must point at some memory area to redirect dummy writes to.
+/** Add (p1 = p1 + p2) the point p2 to the point p1, storing the result back
+  * into p1.
+  * Mixed coordinates are used because it reduces the number of squarings and
+  * multiplications from 16 to 11.
+  * See equations (3) ("addition in mixed Jacobian-affine coordinates") from
+  * section 4 of that article described in the comments to pointDouble().
+  * junk must point at some memory area to redirect dummy writes to. The dummy
+  * writes are used to encourage this function's completion time to be
+  * independent of its parameters.
+  * \param p1 The point (in Jacobian coordinates) to add p2 to.
+  * \param junk Pointer to a dummy variable which may receive dummy writes.
+  * \param p2 The point (in affine coordinates) to add to p1.
+  */
 static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffine *p2)
 {
 	uint8_t s[32];
@@ -258,21 +281,34 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	bigSubtract(p1->y, u, s);
 }
 
-// Perform scalar multiplication of the point p by the scalar k.
-// The result will be stored back into p. The multiplication is
-// accomplished by repeated point doubling and adding of the
-// original point.
+/** Perform scalar multiplication (p = k x p) of the point p by the scalar k.
+  * The result will be stored back into p. The multiplication is
+  * accomplished by repeated point doubling and adding of the
+  * original point.
+  * \param p The point (in affine coordinates) to multiply.
+  * \param k The 32 byte multi-precision scalar to multiply p by.
+  */
 void pointMultiply(PointAffine *p, BigNum256 k)
 {
 	PointJacobian accumulator;
 	PointJacobian junk;
-	PointAffine always_point_at_infinity;
+	PointAffine always_point_at_infinity; // for dummy operations
 	uint8_t i;
 	uint8_t j;
 	uint8_t one_byte;
 	uint8_t one_bit;
 	PointAffine *lookup_affine[2];
 
+	// The Montgomery ladder method can't be used here because it requires
+	// point addition to be done in pure Jacobian coordinates. Point addition
+	// in pure Jacobian coordinates would make point multiplication about
+	// 26% slower. Instead, dummy operations are used to make point
+	// multiplication a constant time operation. However, the use of dummy
+	// operations does make this code more susceptible to fault analysis -
+	// by introducing faults where dummy operations may occur, an attacker
+	// can determine whether bits in the private key are set or not.
+	// So the use of this code is not appropriate in situations where fault
+	// analysis can occur.
 	accumulator.is_point_at_infinity = 1;
 	always_point_at_infinity.is_point_at_infinity = 1;
 	lookup_affine[1] = p;
@@ -291,7 +327,9 @@ void pointMultiply(PointAffine *p, BigNum256 k)
 	jacobianToAffine(p, &accumulator);
 }
 
-// Set the point p to the base point of secp256k1.
+/** Set a point to the base point of secp256k1.
+  * \param p The point to set.
+  */
 void setToG(PointAffine *p)
 {
 	uint8_t buffer[32];
@@ -310,29 +348,36 @@ void setToG(PointAffine *p)
 	bigAssign(p->y, (BigNum256)buffer);
 }
 
-// Set field parameters to be those defined by the prime number p which
-// is used in secp256k1.
+/** Set field parameters to be those defined by the prime number p which
+  * is used in secp256k1. */
 void setFieldToP(void)
 {
 	bigSetField(secp256k1_p, secp256k1_complement_p, sizeof(secp256k1_complement_p));
 }
 
-// Attempt to sign the message with message digest specified by hash. The
-// signature will be done using the private key specified by privatekey and
-// the integer k. k must be random (not pseudo-random) and must be different
-// for each call to this function.
-// hash, privatekey and k are all expected to be 256-bit integers in
-// little-endian format.
-// This function will return 0 and fill r and s with the signature upon
-// success. This function will return 1 upon failure. If this function returns
-// 1, an appropriate course of action is to pick another random integer k and
-// try again. If a random number generator is truly random, failure should
-// only occur if you are extremely unlucky.
-// This is an implementation of the algorithm described in the document
-// "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
-// 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf,
-// section 4.1.3 ("Signing Operation").
-uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k)
+/** Attempt to sign the message with a given message digest.
+  * This is an implementation of the algorithm described in the document
+  * "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
+  * 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
+  * section 4.1.3 ("Signing Operation").
+  * \param r The "r" component of the signature will be written to here (upon
+  *          successful completion), as a 32 byte multi-precision number.
+  * \param s The "s" component of the signature will be written to here, (upon
+  *          successful completion), as a 32 byte multi-precision number.
+  * \param hash The message digest of the message to sign, represented as a
+  *          32 byte multi-precision number.
+  * \param private_key The private key to use in the signing operation,
+  *                    represented as a 32 byte multi-precision number.
+  * \param k A (truly) random 32 byte multi-precision number. This must be
+  *          different for each call to this function.
+  *
+  * \return 0 and fills r and s with the signature upon success; 1 upon
+  *         failure. If this function returns 1, an appropriate course of
+  *         action is to pick another random integer k and try again. If a
+  *         random number generator is truly random, failure should only occur
+  *         if you are extremely unlucky.
+  */
+uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_key, BigNum256 k)
 {
 	PointAffine bigR;
 
@@ -360,12 +405,12 @@ uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey
 	{
 		return 1;
 	}
-	bigMultiply(s, r, privatekey);
+	bigMultiply(s, r, private_key);
 	bigModulo(bigR.y, hash); // use bigR.y as temporary
 	bigAdd(s, s, bigR.y);
 	bigInvert(bigR.y, k);
 	bigMultiply(s, s, bigR.y);
-	// s now contains (hash + (r * privatekey)) / k (mod n)
+	// s now contains (hash + (r * private_key)) / k (mod n)
 	if (bigIsZero(s))
 	{
 		return 1;
@@ -386,6 +431,8 @@ static const uint8_t secp256k1_b[32] = {
 static int succeeded;
 static int failed;
 
+// Check if p is on the curve. This signals success/failure by incrementing
+// succeeded or failed.
 static void checkPointIsOnCurve(PointAffine *p)
 {
 	uint8_t y_squared[32];
@@ -418,7 +465,7 @@ static void checkPointIsOnCurve(PointAffine *p)
 	}
 }
 
-// Read little-endian hex string containing 256-bit integer and store into r
+// Read little-endian hex string containing 256-bit integer and store into r.
 static void bigFRead(BigNum256 r, FILE *f)
 {
 	int i;

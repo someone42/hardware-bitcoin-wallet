@@ -1,16 +1,18 @@
-// ***********************************************************************
-// endian.c
-// ***********************************************************************
-//
-// Containes functions which perform big and little-endian type conversions.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file endian.c
+  *
+  * \brief Contains functions which perform endian-specific type conversion.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include "common.h"
 #include "endian.h"
 
-// Write the 32-bit unsigned integer specified by in into the byte array
-// specified by out. This will write the bytes in a big-endian format.
+/** Write 32-bit unsigned integer into a byte array in big-endian format.
+  * \param out The destination byte array. This must have space for at
+  *            least 4 bytes.
+  * \param in The source integer.
+  */
 void writeU32BigEndian(uint8_t *out, uint32_t in)
 {
 	out[0] = (uint8_t)(in >> 24);
@@ -19,8 +21,11 @@ void writeU32BigEndian(uint8_t *out, uint32_t in)
 	out[3] = (uint8_t)in;
 }
 
-// Write the 32-bit unsigned integer specified by in into the byte array
-// specified by out. This will write the bytes in a little-endian format.
+/** Write 32-bit unsigned integer into a byte array in little-endian format.
+  * \param out The destination byte array. This must have space for at
+  *            least 4 bytes.
+  * \param in The source integer.
+  */
 void writeU32LittleEndian(uint8_t *out, uint32_t in)
 {
 	out[0] = (uint8_t)in;
@@ -29,8 +34,10 @@ void writeU32LittleEndian(uint8_t *out, uint32_t in)
 	out[3] = (uint8_t)(in >> 24);
 }
 
-// Read a 32-bit unsigned integer from the byte array specified by in.
-// The bytes will be read in a little-endian format.
+/** Read a 32-bit unsigned integer from a byte array in little-endian format.
+  * \param in The source byte array.
+  * \return The integer.
+  */
 uint32_t readU32LittleEndian(uint8_t *in)
 {
 	return ((uint32_t)in[0])
@@ -41,7 +48,9 @@ uint32_t readU32LittleEndian(uint8_t *in)
 
 // No-one needs readU32BigEndian(), so it is not implemented.
 
-// Swap endianness of a 32-bit unsigned integer.
+/** Swap endianness of a 32-bit unsigned integer.
+  * \param v The integer to modify.
+  */
 void swapEndian(uint32_t *v)
 {
 	uint8_t t;

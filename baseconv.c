@@ -1,12 +1,15 @@
-// ***********************************************************************
-// baseconv.c
-// ***********************************************************************
-//
-// Containes functions which perform conversion of large numbers from
-// binary to other bases. At the moment this is restricted to base 58 and
-// base 10.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file baseconv.c
+  *
+  * \brief Performs multi-precision base conversion.
+  *
+  * At the moment this is restricted to converting from binary and can only
+  * convert to base 58 or base 10. This is used to convert Bitcoin transaction
+  * amounts and addresses to human-readable form. The format of
+  * multi-precision numbers used in this file is identical to that of
+  * bignum256.c.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -23,17 +26,21 @@
 #include "bignum256.h"
 #include "sha256.h"
 
+/** Shift list for bigDivide() to have it do division by 58. */
 static const uint8_t base58_shift_list[16] PROGMEM = {
 0x00, 0x1d, 0x80, 0x0e, 0x40, 0x07, 0xa0, 0x03,
 0xd0, 0x01, 0xe8, 0x00, 0x74, 0x00, 0x3a, 0x00};
 
+/** Shift list for bigDivide() to have it do division by 10. */
 static const uint8_t base10_shift_list[16] PROGMEM = {
 0x00, 0x05, 0x80, 0x02, 0x40, 0x01, 0xa0, 0x00,
 0x50, 0x00, 0x28, 0x00, 0x14, 0x00, 0x0a, 0x00};
 
+/** Characters for the base 10 representation of numbers. */
 static const char base10_char_list[10] PROGMEM = {
 '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
 
+/** Characters for the base 58 representation of numbers. */
 static const char base58_char_list[58] PROGMEM = {
 '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A',
 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L',
@@ -63,17 +70,24 @@ static void bigPrintVariableSize(uint8_t *number, uint8_t size, uint8_t big_endi
 }
 #endif // #ifdef TEST
 
-// Divide op1 by an 8-bit unsigned integer n, placing the result in r.
-// The 8-bit unsigned integer is specified by shift_list, which is
-// an array of 8 little-endian 16-bit unsigned integers which are:
-// n << 7, n << 6, n << 5, ..., n << 0.
-// temp is a temporary work area. Its contents will be overwritten with junk.
-// The remainder will be written into op1.
-// op1 and temp must be an array of size + 1 bytes. r only needs to be an
-// array of size bytes.
-// Warning: r, op1 and temp cannot alias each other.
-// Another warning: for platforms that use the PROGMEM attribute, the
-// shift_list array must have that attribute.
+/** Do a multi-precision division of op1 by an 8 bit unsigned integer n,
+  * placing the quotient in r and the remainder in op1.
+  * \param r The quotient will be placed here. This should be an array with
+  *          space for size bytes.
+  * \param op1 As an input, this is the dividend, a multi-precision number.
+  *            But on output, this will be be remainder. This should be an
+  *            array with space for size + 1 bytes.
+  * \param temp A temporary work area. Its contents will be overwritten with
+  *             junk. This should be an array with space for size + 1 bytes.
+  * \param size The size of the division, in number of bytes.
+  * \param shift_list Specifies the divisor (the 8 bit unsigned integer n).
+  *                   This is actually an array of 8 little-endian 16 bit
+  *                   unsigned integers which are:
+  *                   n << 7, n << 6, n << 5, ..., n << 0.
+  * \warning r, op1 and temp cannot alias each other.
+  * \warning For platforms that use the PROGMEM attribute, the shift_list
+  *          array must have that attribute.
+  */
 static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, const uint8_t *shift_list)
 {
 	uint8_t i;
@@ -106,11 +120,13 @@ static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, con
 	}
 }
 
-// Convert a transaction amount (which is in 10 ^ -8 BTC) to a human-readable
-// value such as "0.05", contained in a null-terminated character string.
-// out should point to a char array which has space for at least 22 characters
-// (including the terminating null).
-// in is 64-bit, unsigned, little-endian integer with the amount.
+/** Convert a transaction amount (which is in 10 ^ -8 BTC) to a human-readable
+  * value such as "0.05", contained in a null-terminated character string.
+  * \param out Should point to a char array which has space for at least 22
+  *            characters (including the terminating null).
+  * \param in A 64 bit, unsigned, little-endian integer with the amount in
+  *           10 ^ -8 BTC.
+  */
 void amountToText(char *out, uint8_t *in)
 {
 	uint8_t op1[9];
@@ -172,12 +188,16 @@ void amountToText(char *out, uint8_t *in)
 	}
 }
 
-// Convert 160-bit hash to Bitcoin address. The hash should be specified by
-// in, which should point to an array of 20 bytes containing the hash in
-// big-endian format (as is typical for hashes). The Bitcoin address will
-// be written to out, in the format of a null-terminated string.
-// out should point to a buffer with space for at least 36 chars (this
-// includes the terminating null).
+/** Convert 160 bit hash to a human-readable base 58 Bitcoin address such
+  * as "1Dinox3mFw8yykpAZXFGEKeH4VX1Mzbcxe".
+  * \param out The human-readable base 58 Bitcoin address will be written
+  *            here in the form of a null-terminated string. This should
+  *            point to a buffer with space for at least 36 chars
+  *            including the terminating null).
+  * \param in The 160 bit hash to convert. This should point to an array of
+  *           20 bytes containing the hash in big-endian format (as is
+  *           typical for hashes).
+  */
 void hashToAddr(char *out, uint8_t *in)
 {
 	uint8_t r[25];
@@ -258,18 +278,22 @@ void hashToAddr(char *out, uint8_t *in)
 
 #ifdef TEST
 
+/** Stores one test case for amountToText(). */
 struct Base10TestStruct
 {
 	uint8_t value[8];
 	char *text;
 };
 
+/** Stores one test case for hashToAddr(). */
 struct Base58TestStruct
 {
 	uint8_t hash[20];
 	char *addr;
 };
 
+/** These test cases were constructed manually, by doing base conversion
+  * on a calculator and trimming as appropriate. */
 const struct Base10TestStruct base10_tests[] = {
 {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, "0"},
 {{0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, "0.00000001"},
@@ -295,9 +319,9 @@ const struct Base10TestStruct base10_tests[] = {
 {{0xf0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, "92233720368.54775792"},
 {{0xee, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f}, "92233720368.5477579"}};
 
-// Some of these are real Bitcoin addresses, obtained from blockexplorer
-// and from forums.
-// Others were generated using http://blockexplorer.com/q/hashtoaddress.
+/** Some of these are real Bitcoin addresses, obtained from blockexplorer
+  * and from forums.
+  * Others were generated using http://blockexplorer.com/q/hashtoaddress. */
 const struct base58test_struct base58_tests[] = {
 {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
