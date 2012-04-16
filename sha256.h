@@ -1,14 +1,15 @@
-// ***********************************************************************
-// sha256.h
-// ***********************************************************************
-//
-// This describes functions exported by sha256.c
-// To calculate a SHA-256 hash, call sha256_begin(), then call
-// sha256_writebyte () for each byte of the message, then call
-// sha256_finish(). The hash will be in h[0], h[1], ..., h[7] of the hash
-// state.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file sha256.h
+  *
+  * \brief Describes functions exported by sha256.c.
+  *
+  * To calculate a SHA-256 hash, call sha256Begin(), then call
+  * sha256WriteByte() for each byte of the message, then call
+  * sha256Finish() (or sha256FinishDouble(), if you want a double SHA-256
+  * hash). The hash will be in HashState#h, but it can also be
+  * extracted and placed into to a byte array using writeHashToByteArray().
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef SHA256_H_INCLUDED
 #define SHA256_H_INCLUDED

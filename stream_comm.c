@@ -1,10 +1,19 @@
-// ***********************************************************************
-// stream_comm.c
-// ***********************************************************************
-//
-// Handles point-to-point communication over a stream device.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file stream_comm.c
+  *
+  * \brief Deals with packets sent over the stream device.
+  *
+  * The most important function in this file is processPacket(). It decodes
+  * packets from the stream and calls the relevant functions from wallet.c or
+  * transaction.c. Some validation of the received data is also handled in
+  * this file. Here is a general rule for what validation is done: if the
+  * validation can be done without knowing the internal details of how wallets
+  * are stored or how transactions are parsed, then the validation is done
+  * in this file. Finally, the functions in this file translate the return
+  * values from wallet.c and transaction.c into response packets which are
+  * sent over the stream device.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -29,29 +38,33 @@
 #include <assert.h>
 #endif // #ifdef TEST
 
-// Because stdlib.h might not be included, NULL might be undefined. NULL
-// is only used as a placeholder pointer for translateWalletError() if
-// there is no appropriate pointer.
+/** Because stdlib.h might not be included, NULL might be undefined. NULL
+  * is only used as a placeholder pointer for translateWalletError() if
+  * there is no appropriate pointer. */
 #ifndef NULL
 #define NULL ((void *)0) 
 #endif // #ifndef NULL
 
-// The transaction hash of the most recently approved transaction. This is
-// stored so that if a transaction needs to be signed multiple times (eg.
-// if it has more than one input), the user doesn't have to confirm every one.
+/** The transaction hash of the most recently approved transaction. This is
+  * stored so that if a transaction needs to be signed multiple times (eg.
+  * if it has more than one input), the user doesn't have to approve every
+  * one. */
 static uint8_t prev_transaction_hash[32];
-// 0 means disregard prev_transaction_hash, non-zero means that
-// prev_transaction_hash is valid for prev_transaction_hash_valid more
-// transactions (eg. if prev_transaction_hash_valid is 2, then
-// prev_transaction_hash can be considered valid for the approval of 2 more
-// transactions).
+/** 0 means disregard #prev_transaction_hash, non-zero means
+  * that #prev_transaction_hash is valid for prev_transaction_hash_valid more
+  * transactions (eg. if prev_transaction_hash_valid is 2,
+  * then #prev_transaction_hash can be considered valid for the approval of 2
+  * more transactions). */
 static uint16_t prev_transaction_hash_valid;
 
-// Length of current packet's payload.
+/** Length of current packet's payload. */
 static uint32_t payload_length;
 
-// Write a number of bytes to the output stream. Returns 0 on success,
-// non-zero on failure.
+/** Write a number of bytes to the output stream.
+  * \param buffer The array of bytes to be written.
+  * \param length The number of bytes to write.
+  * \return 0 on success, non-zero if a stream write error occurred.
+  */
 static uint8_t writeBytes(uint8_t *buffer, uint16_t length)
 {
 	uint16_t i;
@@ -66,9 +79,12 @@ static uint8_t writeBytes(uint8_t *buffer, uint16_t length)
 	return 0;
 }
 
-// Sends a packet with a device string as payload. spec specifies the device
-// string to send and command specifies the command of the packet.
-// This returns 0 on success or non-zero if there was a write error.
+/** Sends a packet with a string as payload.
+  * \param set See getString().
+  * \param spec See getString().
+  * \param command The type of the packet, as defined in the file PROTOCOL.
+  * \return 0 on success, non-zero if there was a stream write error.
+  */
 static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
 {
 	uint8_t buffer[5];
@@ -92,12 +108,18 @@ static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
 	return 0;
 }
 
-// Translates a return value from one of the wallet functions into a response
-// packet to be sent to the output stream. If the return value indicates
-// success, a payload (specified by length and data) can be included with the
-// packet. Otherwise, if the return value indicates failure, the payload is
-// a (text) error message.
-// This returns 0 on success or non-zero if there was a write error.
+/** Translates a return value from one of the wallet functions into a response
+  * packet to be written to the stream. If the wallet return value indicates
+  * success, a payload can be included with the packet. Otherwise, if the
+  * wallet return value indicates failure, the payload is a text error message
+  * describing how the wallet function failed.
+  * \param r The return value from the wallet function.
+  * \param length The length of the success payload (use 0 for no payload) in
+  *               number of bytes.
+  * \param data A byte array holding the data of the success payload.
+  *             Use #NULL for no payload.
+  * \return 0 on success, non-zero if there was a stream write error.
+  */
 static uint8_t translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
 {
 	uint8_t buffer[5];
@@ -123,9 +145,12 @@ static uint8_t translateWalletError(WalletErrors r, uint8_t length, uint8_t *dat
 	return 0;
 }
 
-// Read a number (specified by length) of bytes from the input stream
-// and place those bytes into a buffer. Returns 0 on success, non-zero on
-// failure.
+/** Read bytes from the stream.
+  * \param buffer The byte array where the bytes will be placed. This must
+  *               have enough space to store length bytes.
+  * \param length The number of bytes to read.
+  * \return 0 on success, non-zero if a stream read error occurred.
+  */
 static uint8_t readBytes(uint8_t *buffer, uint8_t length)
 {
 	uint8_t i;
@@ -141,9 +166,10 @@ static uint8_t readBytes(uint8_t *buffer, uint8_t length)
 	return 0;
 }
 
-// Format non-volatile storage, erasing its contents and replacing it with
-// random data.
-// This returns 0 on success or non-zero if there was a write error.
+/** Format non-volatile storage, erasing its contents in a way that makes
+  * them irretrievable.
+  * \return 0 on success or non-zero if there was a stream write error.
+  */
 uint8_t formatStorage(void)
 {
 	if (translateWalletError(sanitiseNonVolatileStorage(0, 0xffffffff), 0, NULL))
@@ -155,10 +181,14 @@ uint8_t formatStorage(void)
 	return 0;
 }
 
-// Sign the transaction with hash given by sig_hash with the private key
-// associated with the address handle ah. If the signing process was
-// successful, the signature is also sent as a success packet.
-// This has the same return values as validateAndSignTransaction().
+/** Sign a transaction and (if everything goes well) send the signature in a
+  * response packet.
+  * \param ah The address handle whose corresponding private key will be used
+  *           to sign the transaction.
+  * \param sig_hash The signature hash of the transaction, as calculated by
+  *                 parseTransaction(). This must be an array of 32 bytes.
+  * \return Same values as validateAndSignTransaction().
+  */
 static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t *sig_hash)
 {
 	uint8_t signature[73];
@@ -178,13 +208,21 @@ static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t
 	return 0;
 }
 
-// Read the transaction from the input stream, parse it and ask the user
-// if they accept it. A non-zero value will be written to *out_confirmed if
-// the user accepted it, otherwise a zero value will be written.
-// This has the same return values as validateAndSignTransaction().
+/** Read a transaction from the stream, parse it and ask the user
+  * if they approve it.
+  * \param out_confirmed A non-zero value will be written to here if the
+  *                      user approved the transaction, otherwise a zero value
+  *                      will be written.
+  * \param sig_hash The signature hash of the transaction will be written to
+  *                 here by parseTransaction(). This must be an array of 32
+  *                 bytes.
+  * \param transaction_length The length of the transaction, in number of
+  *                           bytes. This can be derived from the payload
+  *                           length of a packet.
+  * \return Same values as validateAndSignTransaction().
+  */
 static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *sig_hash, uint32_t transaction_length)
 {
-	uint8_t confirmed;
 	uint8_t i;
 	TransactionErrors r;
 	uint8_t transaction_hash[32];
@@ -199,6 +237,7 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
 	}
 	if (r != TRANSACTION_NO_ERROR)
 	{
+		// Transaction parse error.
 		if (writeString(STRINGSET_TRANSACTION, (uint8_t)r, 0x03))
 		{
 			return 1; // write error
@@ -210,17 +249,17 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
 	}
 
 	// Get permission from user.
-	confirmed = 0;
+	*out_confirmed = 0;
 	// Does transaction_hash match previous confirmed transaction?
 	if (prev_transaction_hash_valid)
 	{
 		if (bigCompare(transaction_hash, prev_transaction_hash) == BIGCMP_EQUAL)
 		{
-			confirmed = 1;
+			*out_confirmed = 1;
 			prev_transaction_hash_valid--;
 		}
 	}
-	if (!confirmed)
+	if (!(*out_confirmed))
 	{
 		// Need to explicitly get permission from user.
 		// The call to parseTransaction should have logged all the outputs
@@ -234,7 +273,7 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
 		}
 		else
 		{
-			confirmed = 1;
+			*out_confirmed = 1;
 			for (i = 0; i < 32; i++)
 			{
 				prev_transaction_hash[i] = transaction_hash[i];
@@ -255,18 +294,26 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
 		}
 	}
 
-	*out_confirmed = confirmed;
 	return 0;
 }
 
-// Validate and sign a transaction, given the address handle specified by
-// ah and a transaction length specified by transaction_length. The signature
-// or any error messages will be sent to the output stream.
-// This will return 0 on success, 1 if a write error occurred or 2 if a read
-// error occurred. "Success" here is defined as "no read or write errors
-// occurred"; 0 will be returned even if the transaction was rejected.
-// This function will always consume transaction_length bytes from the input
-// stream, except when a read error occurs.
+/** Validate and sign a transaction. This basically calls
+  * parseTransactionAndAsk() and signTransactionByAddressHandle() in sequence.
+  * Why do that? For the same reason generateDeterministic256() was split into
+  * two parts - more efficient use of stack space.
+  *
+  * This function will always consume transaction_length bytes from the input
+  * stream, except when a stream read error occurs.
+  * \param ah The address handle whose corresponding private key will be used
+  *           to sign the transaction.
+  * \param transaction_length The length of the transaction, in number of
+  *                           bytes. This can be derived from the payload
+  *                           length of a packet.
+  * \return 0 on success, 1 if a stream write error occurred or 2 if a stream
+  *         read error occurred. "Success" here is defined as "no stream read
+  *         or write errors occurred"; 0 will be returned even if the
+  *         transaction was rejected by the user.
+  */
 static NOINLINE uint8_t validateAndSignTransaction(AddressHandle ah, uint32_t transaction_length)
 {
 	uint8_t confirmed;
@@ -292,13 +339,18 @@ static NOINLINE uint8_t validateAndSignTransaction(AddressHandle ah, uint32_t tr
 	return 0;
 }
 
-// Send a packet containing an address and its corresponding public key.
-// If generate_new is non-zero, a new address will be generated. If
-// generate_new is zero, the address handle will be read from the input
-// stream.
-// If generate_new is non-zero, the address handle of the generated
-// address is also prepended to the output packet.
-// Returns 1 if a read or write error occurred, otherwise returns 0.
+/** Send a packet containing an address and its corresponding public key.
+  * This can generate new addresses as well as obtain old addresses. Both
+  * use cases were combined into one function because they involve similar
+  * processes.
+  * \param generate_new If this is non-zero, a new address will be generated
+  *                     and the address handle of the generated address will
+  *                     be prepended to the output packet.
+  *                     If this is zero, the address handle will be read from
+  *                     the input stream. No address handle will be prepended
+  *                     to the output packet.
+  * \return 1 if a stream read or write error occurred, 0 on success.
+  */
 static NOINLINE uint8_t getAndSendAddressAndPublicKey(uint8_t generate_new)
 {
 	AddressHandle ah;
@@ -382,8 +434,9 @@ static NOINLINE uint8_t getAndSendAddressAndPublicKey(uint8_t generate_new)
 	return 0;
 }
 
-// Send a packet containing a list of wallets.
-// Returns 1 if a write error occurred, otherwise returns 0.
+/** Send a packet containing a list of wallets.
+  * \return 1 if a stream write error occurred, 0 on success.
+  */
 static NOINLINE uint8_t listWallets(void)
 {
 	uint8_t version[4];
@@ -418,8 +471,12 @@ static NOINLINE uint8_t listWallets(void)
 	return 0;
 }
 
-// Read but ignore payload_length bytes from input stream.
-// Returns 0 on success, non-zero if there was a read error.
+/** Read but ignore #payload_length bytes from input stream. This will also
+  * set #payload_length to 0 (if everything goes well). This function is
+  * useful for ensuring that the entire payload of a packet is read from the
+  * stream device.
+  * \return 0 on success, non-zero if there was a stream read error.
+  */
 static uint8_t readAndIgnoreInput(void)
 {
 	uint8_t junk;
@@ -437,16 +494,20 @@ static uint8_t readAndIgnoreInput(void)
 	return 0;
 }
 
-// All I/O errors returned by expectLength() are >= EXPECT_LENGTH_IO_ERROR.
+/** All I/O errors returned by expectLength() are >= EXPECT_LENGTH_IO_ERROR. */
 #define EXPECT_LENGTH_IO_ERROR		42
 
-// Expect payload length to be equal to desired_length, and send an error
-// message (and read but ignore payload_length bytes from input stream) if
-// that is the case. Returns:
-// 0 for success,
-// 1 for length != desired_length.
-// EXPECT_LENGTH_IO_ERROR for read error,
-// EXPECT_LENGTH_IO_ERROR + 1 for write error,
+/** Expect the payload length of a packet to be equal to desired_length, and
+  * send an error message (and read but ignore #payload_length bytes from the
+  * stream) if that is not the case. This function is used to enforce the
+  * payload length of packets to be compliant with the protocol described in
+  * the file PROTOCOL.
+  * \param desired_length The expected payload length (in bytes) of the packet
+  *                       currently being received from the stream device.
+  * \return 0 for success,
+  * 1 for payload length != desired_length, #EXPECT_LENGTH_IO_ERROR for stream
+  * read error and #EXPECT_LENGTH_IO_ERROR + 1 for stream write error.
+  */
 static uint8_t expectLength(const uint8_t desired_length)
 {
 	if (payload_length != desired_length)
@@ -467,16 +528,26 @@ static uint8_t expectLength(const uint8_t desired_length)
 	}
 }
 
-// This must be called on device startup.
+/** This must be called on device startup. */
 void initStreamComm(void)
 {
 	prev_transaction_hash_valid = 0;
 }
 
-// Get packet from stream and deal with it. Returns 0 if the packet was
-// received successfully, non-zero if an error occurred. 0 will still
-// be returned if a command failed; here, "an error" means a problem
-// reading/writing from/to the stream.
+/** Get packet from stream and deal with it. This basically implements the
+  * protocol described in the file PROTOCOL.
+  * 
+  * This function will always completely
+  * read a packet before sending a response packet. As long as the host
+  * does the same thing, deadlocks cannot occur. Thus a productive
+  * communication session between the hardware Bitcoin wallet and a host
+  * should consist of the wallet and host alternating between sending a
+  * packet and receiving a packet.
+  * \return 0 if the packet was received successfully, non-zero if a stream
+  * read or write error occurred. 0 will still be returned if a command
+  * failed due to reasons other than stream I/O; here, "an error" means a
+  * problem reading/writing from/to the stream device.
+  */
 uint8_t processPacket(void)
 {
 	uint8_t command;

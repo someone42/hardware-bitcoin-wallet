@@ -1,14 +1,14 @@
-// ***********************************************************************
-// ripemd160.h
-// ***********************************************************************
-//
-// This describes functions exported by ripemd160.c
-// To calculate a RIPEMD-160 hash, call ripemd160_begin(), then call
-// ripemd160_writebyte () for each byte of the message, then call
-// ripemd160_finish(). The hash will be in H[0], H[1], ..., H[4] of the hash
-// state.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file ripemd160.h
+  *
+  * \brief Describes functions exported by ripemd160.c.
+  *
+  * To calculate a RIPEMD-160 hash, call ripemd160Begin(), then call
+  * ripemd160WriteByte() for each byte of the message, then call
+  * ripemd160Finish(). The hash will be in HashState#h, but it can also be
+  * extracted and placed into to a byte array using writeHashToByteArray().
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef RIPEMD160_H_INCLUDED
 #define RIPEMD160_H_INCLUDED

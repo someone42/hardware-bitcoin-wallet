@@ -134,7 +134,7 @@ extern uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n);
 /** Write to non-volatile storage.
   * \param data A pointer to the data to be written.
   * \param address Byte offset specifying where in non-volatile storage to
-  *        start writing to.
+  *                start writing to.
   * \param length The number of bytes to write.
   * \return See #NonVolatileReturnEnum for return values.
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
@@ -144,7 +144,7 @@ extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8
 /** Read from non-volatile storage.
   * \param data A pointer to the buffer which will receive the data.
   * \param address Byte offset specifying where in non-volatile storage to
-  *        start reading from.
+  *                start reading from.
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */

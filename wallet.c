@@ -1,17 +1,27 @@
-// ***********************************************************************
-// wallet.c
-// ***********************************************************************
-//
-// Manages Bitcoin addresses. Addresses are stored in wallets, which can be
-// "loaded" or "unloaded". A loaded wallet can have operations (eg. new
-// address) performed on it, whereas an unloaded wallet can only sit dormant.
-// Addresses aren't actually physically stored in non-volatile storage;
-// rather a seed for a deterministic private key generation algorithm is
-// stored and private keys are generated when they are needed. This means
-// that obtaining an address is a slow operation (requiring a point multiply),
-// so the host should try to remember all public keys and addresses.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file wallet.c
+  *
+  * \brief Manages the storage and generation of Bitcoin addresses.
+  *
+  * Addresses are stored in wallets, which can be
+  * "loaded" or "unloaded". A loaded wallet can have operations (eg. new
+  * address) performed on it, whereas an unloaded wallet can only sit dormant.
+  * Addresses aren't actually physically stored in non-volatile storage;
+  * rather a seed for a deterministic private key generation algorithm is
+  * stored and private keys are generated when they are needed. This means
+  * that obtaining an address is a slow operation (requiring a point
+  * multiply), so the host should try to remember all public keys and
+  * addresses. The advantage of not storing addresses is that very little
+  * non-volatile storage space is needed per
+  * wallet - only #WALLET_RECORD_LENGTH bytes per wallet.
+  *
+  * Wallets can be encrypted or unencrypted. Actually, technically, all
+  * wallets are encrypted. However, wallets marked as "unencrypted" are
+  * encrypted using an encryption key consisting of all zeroes. This purely
+  * semantic definition was done to avoid having to insert special cases
+  * everytime encrypted storage needed to be accessed.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -37,13 +47,22 @@
 FILE *wallet_test_file;
 #endif // #if defined(TEST) || defined(INTERFACE_STUBS)
 
+/** The most recent error to occur in a function in this file,
+  * or #WALLET_NO_ERROR if no error occurred in the most recent function
+  * call. See #WalletErrorsEnum for possible values. */
 static WalletErrors last_error;
+/** This will be 0 if a wallet is not currently loaded. This will be non-zero
+  * if a wallet is currently loaded. */
 static uint8_t wallet_loaded;
+/** This will only be valid if a wallet is loaded. It contains a cache of the
+  * number of addresses in the currently loaded wallet. */
 static uint32_t num_addresses;
 
-// Returns the last error which occurred in any wallet function.
-// If no error occurred in the last wallet function that was called, this
-// will return WALLET_NO_ERROR.
+/** Find out what the most recent error which occurred in any wallet function
+  * was. If no error occurred in the most recent wallet function that was
+  * called, this will return #WALLET_NO_ERROR.
+  * \return See #WalletErrorsEnum for possible values.
+  */
 WalletErrors walletGetLastError(void)
 {
 	return last_error;
@@ -64,44 +83,80 @@ void initWalletTest(void)
 #endif // #if defined(TEST) || defined(INTERFACE_STUBS)
 
 #ifdef TEST
-// Maximum of addresses which can be stored in storage area - for testing
-// only. This should actually be the capacity of the wallet, since one
-// of the tests is to see what happens when the wallet is full.
+/** Maximum of addresses which can be stored in storage area - for testing
+  * only. This should actually be the capacity of the wallet, since one
+  * of the tests is to see what happens when the wallet is full. */
 #define MAX_TESTING_ADDRESSES	7
 #endif // #ifdef TEST
 
-// Wallet storage format:
-// Each record is 160 bytes
-// 4 bytes: little endian version
-//          0x00000000: nothing here
-//          0x00000001: v0.1 wallet format (not supported)
-//          0x00000002: unencrypted wallet
-//          0x00000003: encrypted wallet, host provides key
-// 4 bytes: reserved
-// 40 bytes: name of wallet (padded with spaces)
-// 4 bytes: little endian number of addresses
-// 8 bytes: random data
-// 4 bytes: reserved
-// 64 bytes: seed for deterministic address generator
-// 32 bytes: SHA-256 of everything except number of addresses and this
-// The first 48 bytes are unencrypted, the last 112 bytes are encrypted.
-#define RECORD_LENGTH			160 // must be multiple of 32 for newWallet() to work properly
+/**
+ * \defgroup WalletStorageFormat Wallet storage format
+ *
+ * Wallets are stored as sequential records in non-volatile
+ * storage. Each record is 160 bytes. If the wallet is encrypted, the
+ * first 48 bytes are unencrypted and the last 112 bytes are encrypted.
+ * The contents of each record:
+ * - 4 bytes: little endian version
+ *  - 0x00000000: nothing here
+ *  - 0x00000001: v0.1 wallet format (not supported)
+ *  - 0x00000002: unencrypted wallet
+ *  - 0x00000003: encrypted wallet, host provides key
+ * - 4 bytes: reserved
+ * - 40 bytes: name of wallet (padded with spaces)
+ * - 4 bytes: little endian number of addresses
+ * - 8 bytes: random data
+ * - 4 bytes: reserved
+ * - 64 bytes: seed for deterministic private key generator
+ * - 32 bytes: SHA-256 of everything except number of addresses and this
+ * @{
+ */
+/** Length of a record.
+  * \warning This must be a multiple of 32 in order for newWallet() to
+  *          work properly.
+  * \warning This must also be a multiple of 16, since the block size of
+  *          AES is 128 bits. */
+#define WALLET_RECORD_LENGTH	160
+/** The offset where encryption starts. The contents of a record before this
+  * offset are not encrypted, while the contents of a record at and after this
+  * offset are encrypted. */
 #define ENCRYPT_START			48
+/** Offset within a record where version is. */
 #define OFFSET_VERSION			0
+/** Offset within a record where first reserved area is. */
 #define OFFSET_RESERVED1		4
+/** Offset within a record where name is. */
 #define OFFSET_NAME				8
+/** Offset within a record where number of addresses is. */
 #define OFFSET_NUM_ADDRESSES	48
+/** Offset within a record where some random data is. */
 #define OFFSET_NONCE1			52
+/** Offset within a record where second reserved area is. */
 #define OFFSET_RESERVED2		60
+/** Offset within a record where deterministic private key generator seed
+  * is. */
 #define OFFSET_SEED				64
+/** Offset within a record where some wallet checksum is. */
 #define OFFSET_CHECKSUM			128
+/** Version number which means "nothing here". */
 #define VERSION_NOTHING_THERE	0x00000000
+/** Version number which means "wallet is not encrypted".
+  * \warning A wallet which uses an encryption key consisting of
+  *          all zeroes (see isEncryptionKeyNonZero()) is considered to be
+  *          unencrypted.
+  */
 #define VERSION_UNENCRYPTED		0x00000002
+/** Version number which means "wallet is encrypted". */
 #define VERSION_IS_ENCRYPTED	0x00000003
+/**@}*/
 
-// Calculate the checksum (SHA-256 hash) of the wallet. The result will be
-// written to hash, which must have space for 32 bytes.
-// Return values have the same meaning as they do for nonVolatileRead().
+/** Calculate the checksum (SHA-256 hash) of the wallet's contents. The
+  * wallet checksum is invariant to the number of addresses in the wallet.
+  * This invariance is necessary to avoid having to rewrite the wallet
+  * checksum every time a new address is generated.
+  * \param hash The resulting SHA-256 hash will be written here. This must
+  *             be a byte array with space for 32 bytes.
+  * \return See #NonVolatileReturnEnum.
+  */
 static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 {
 	uint16_t i;
@@ -110,7 +165,7 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 	NonVolatileReturn r;
 
 	sha256Begin(&hs);
-	for (i = 0; i < RECORD_LENGTH; i += 4)
+	for (i = 0; i < WALLET_RECORD_LENGTH; i += 4)
 	{
 		// Skip number of addresses and checksum.
 		if (i == OFFSET_NUM_ADDRESSES)
@@ -121,11 +176,11 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 		{
 			i += 32;
 		}
-		if (i < RECORD_LENGTH)
+		if (i < WALLET_RECORD_LENGTH)
 		{
 			// "The first 48 bytes are unencrypted, the last 112 bytes are
 			// encrypted."
-			if (i < 48)
+			if (i < ENCRYPT_START)
 			{
 				r = nonVolatileRead(buffer, i, 4);
 			}
@@ -148,8 +203,10 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 	return NV_NO_ERROR;
 }
 
-// Initialise wallet (load it if it's there). A return value of
-// WALLET_NO_ERROR indicates success, anything else indicates failure.
+/** Initialise wallet (load it if it's there).
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors initWallet(void)
 {
 	uint8_t buffer[32];
@@ -205,9 +262,10 @@ WalletErrors initWallet(void)
 	return last_error;
 }
 
-// Unload wallet, so that it cannot be used until initWallet() is called.
-// A return value of WALLET_NO_ERROR indicates success, anything else
-// indicates failure.
+/** Unload wallet, so that it cannot be used until initWallet() is called.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors uninitWallet(void)
 {
 	wallet_loaded = 0;
@@ -216,13 +274,18 @@ WalletErrors uninitWallet(void)
 	return last_error;
 }
 
-// Sanitise (clear) non-volatile storage between the addresses start
-// (inclusive) and end (exclusive). start and end must be a multiple of
-// 32.
-// This will still return WALLET_NO_ERROR even if end is an address beyond the
-// end of the non-volatile storage area. This done so that using
-// start == 0 and end == 0xffffffff will clear the entire non-volatile storage
-// area.
+/** Sanitise (clear) a selected area of non-volatile storage. This will clear
+  * the area between start (inclusive) and end (exclusive).
+  * \param start The first address which will be cleared.
+  * \param end One byte past the last address which will be cleared.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred. This will still return #WALLET_NO_ERROR even if
+  *         end is an address beyond the end of the non-volatile storage area.
+  *         This is done so that using start = 0 and end = 0xffffffff will
+  *         clear the entire non-volatile storage area.
+  * \warning start and end must be a multiple of 32 (unless start is 0 and
+  *          end is 0xffffffff).
+  */
 WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 {
 	uint8_t buffer[32];
@@ -292,10 +355,10 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 	return last_error;
 }
 
-// Writes 4-byte wallet version. This is in its own function because
-// it's used by both newWallet() and changeEncryptionKey().
-// Return values have the same meaning as they do for nonVolatileWrite().
-// Warning: a wallet must be loaded before calling this.
+/** Writes 4 byte wallet version. This is in its own function because
+  * it's used by both newWallet() and changeEncryptionKey().
+  * \return See #NonVolatileReturnEnum.
+  */
 static NonVolatileReturn writeWalletVersion(void)
 {
 	uint8_t buffer[4];
@@ -311,11 +374,11 @@ static NonVolatileReturn writeWalletVersion(void)
 	return nonVolatileWrite(buffer, OFFSET_VERSION, 4);
 }
 
-// Writes wallet checksum. This is in its own function because
-// it's used by both newWallet(), changeEncryptionKey() and
-// changeWalletName().
-// A return value of WALLET_NO_ERROR indicates success, anything else
-// indicates failure.
+/** Writes wallet checksum. This is in its own function because
+  * it's used by newWallet(), changeEncryptionKey() and changeWalletName().
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 static WalletErrors writeWalletChecksum(void)
 {
 	uint8_t hash[32];
@@ -331,19 +394,22 @@ static WalletErrors writeWalletChecksum(void)
 	return WALLET_NO_ERROR;
 }
 
-// Create new wallet. name should point to 40 bytes (padded with spaces if
-// necessary) containing the desired name of the wallet. A brand new wallet
-// contains no addresses. A return value of WALLET_NO_ERROR indicates success,
-// anything else indicates failure.
-// If this returns WALLET_NO_ERROR, then the wallet will also be loaded.
-// Warning: this will erase the current one.
+/** Create new wallet. A brand new wallet contains no addresses and should
+  * have a unique, unpredictable deterministic private key generation seed.
+  * \param name Should point to 40 bytes (padded with spaces if necessary)
+  *             containing the desired name of the wallet.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred. If this returns #WALLET_NO_ERROR, then the
+  *         wallet will also be loaded.
+  * \warning This will erase the current one.
+  */
 WalletErrors newWallet(uint8_t *name)
 {
 	uint8_t buffer[32];
 	WalletErrors r;
 
 	// Erase all traces of the existing wallet.
-	r = sanitiseNonVolatileStorage(0, RECORD_LENGTH);
+	r = sanitiseNonVolatileStorage(0, WALLET_RECORD_LENGTH);
 	if (r != WALLET_NO_ERROR)
 	{
 		last_error = r;
@@ -418,10 +484,16 @@ WalletErrors newWallet(uint8_t *name)
 	return last_error;
 }
 
-// Generate a new address, writing the address to out_address and the public
-// key to out_public_key. out_address must have space for 20 bytes.
-// Returns the address handle on success, or BAD_ADDRESS_HANDLE if an error
-// occurred.
+/** Generate a new address using the deterministic private key generator.
+  * \param out_address The new address will be written here (if everything
+  *                    goes well). This must be a byte array with space for
+  *                    20 bytes.
+  * \param out_public_key The public key corresponding to the new address will
+  *                       be written here (if everything goes well).
+  * \return The address handle of the new address on success,
+  *         or #BAD_ADDRESS_HANDLE if an error occurred.
+  *         Use walletGetLastError() to get more detail about an error.
+  */
 AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 {
 	uint8_t buffer[4];
@@ -458,9 +530,18 @@ AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 	}
 }
 
-// Given an address handle, generate the address and public key associated
-// with that address handle, placing the result in out. out must have space
-// for 20 bytes.
+/** Given an address handle, use the deterministic private key
+  * generator to generate the address and public key associated
+  * with that address handle.
+  * \param out_address The address will be written here (if everything
+  *                    goes well). This must be a byte array with space for
+  *                    20 bytes.
+  * \param out_public_key The public key corresponding to the address will
+  *                       be written here (if everything goes well).
+  * \param ah The address handle to obtain the address/public key of.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah)
 {
 	uint8_t buffer[32];
@@ -526,8 +607,11 @@ WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_publi
 	return last_error;
 }
 
-// Get current number of addresses in wallet.
-// Returns 0 on error.
+/** Get the current number of addresses in a wallet.
+  * \return The current number of addresses on success, or 0 if an error
+  *         occurred. Use walletGetLastError() to get more detail about
+  *         an error.
+  */
 uint32_t getNumAddresses(void)
 {
 	if (!wallet_loaded)
@@ -547,8 +631,14 @@ uint32_t getNumAddresses(void)
 	}
 }
 
-// Gets the 32-byte private key for a given address handle. out must have
-// space for 32 bytes.
+/** Given an address handle, use the deterministic private key
+  * generator to generate the private key associated with that address handle.
+  * \param out The private key will be written here (if everything goes well).
+  *            This must be a byte array with space for 32 bytes.
+  * \param ah The address handle to obtain the private key of.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 {
 	uint8_t seed[64];
@@ -578,8 +668,13 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 	return last_error;
 }
 
-// Change the encryption key for a wallet to the key specified by new_key.
-// new_key should point to an array of 32 bytes.
+/** Change the encryption key of a wallet.
+  * \param new_key A byte array of 32 bytes specifying the new encryption key.
+  *                An encryption key consisting of all zeroes is interpreted
+  *                as meaning "no encryption".
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors changeEncryptionKey(uint8_t *new_key)
 {
 	uint8_t old_key[32];
@@ -597,7 +692,7 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 	getEncryptionKey(old_key);
 	r = NV_NO_ERROR;
 	address = ENCRYPT_START;
-	end = RECORD_LENGTH;
+	end = WALLET_RECORD_LENGTH;
 	while ((r == NV_NO_ERROR) && (address < end))
 	{
 		setEncryptionKey(old_key);
@@ -631,9 +726,12 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 	return last_error;
 }
 
-// Change the name of the currently loaded wallet. name should point to 40
-// bytes (padded with spaces if necessary) containing the desired name of the
-// wallet.
+/** Change the name of the currently loaded wallet.
+  * \param new_name This should point to 40 bytes (padded with spaces if
+  *                 necessary) containing the new desired name of the wallet.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors changeWalletName(uint8_t *new_name)
 {
 	WalletErrors r;
@@ -663,12 +761,24 @@ WalletErrors changeWalletName(uint8_t *new_name)
 	return last_error;
 }
 
-// Obtain publicly available information about a wallet. out_version should
-// have enough space to store 4 bytes. out_name should have enough space to
-// store 40 bytes. Upon success, out_version will contain the little-endian
-// version of the wallet and out_name will contain the (space-padded) name
-// of the wallet.
-// The wallet doesn't need to be loaded.
+/** Obtain publicly available information about a wallet. "Publicly available"
+  * means that the leakage of that information would have a relatively low
+  * impact on security (compared to the leaking of, say, the deterministic
+  * private key generator seed).
+  *
+  * Note that unlike most of the other wallet functions, this function does
+  * not require the wallet to be loaded. This is so that a user can be
+  * presented with a list of all the wallets stored on a hardware Bitcoin
+  * wallet, without having to know the encryption key to each wallet.
+  * \param out_version The little-endian version of the wallet will be written
+  *                    to here (if everything goes well). This should be a
+  *                    byte array with enough space to store 4 bytes.
+  * \param out_name The (space-padded) name of the wallet will be written
+  *                 to here (if everything goes well). This should be a
+  *                 byte array with enough space to store 40 bytes.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
 WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
 {
 	if (nonVolatileRead(out_version, OFFSET_VERSION, 4) != NV_NO_ERROR)
@@ -1014,7 +1124,7 @@ int main(void)
 		failed++;
 	}
 	abort = 0;
-	for (i = 0; i < RECORD_LENGTH; i++)
+	for (i = 0; i < WALLET_RECORD_LENGTH; i++)
 	{
 		if (nonVolatileRead(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
 		{

@@ -1,17 +1,16 @@
-// ***********************************************************************
-// ripemd160.c
-// ***********************************************************************
-//
-// Containes functions which calculate the RIPEMD-160 message digest ("hash")
-// of an arbitrary byte-oriented message.
-// The code here is based on the paper: "RIPEMD-160: A strengthened
-// version of RIPEMD" by Hans Dobbertin, Antoon Bosselaers and Bart Preneel,
-// obtained from
-// http://homes.esat.kuleuven.be/~cosicart/pdf/AB-9601/AB-9601.pdf
-// on 30-August-2011.
-// All references in source comments to "the paper" refer to that.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file ripemd160.c
+  *
+  * \brief Calculates RIPEMD-160 hashes.
+  *
+  * The code here is based on the paper: "RIPEMD-160: A strengthened
+  * version of RIPEMD" by Hans Dobbertin, Antoon Bosselaers and Bart Preneel,
+  * obtained from
+  * http://homes.esat.kuleuven.be/~cosicart/pdf/AB-9601/AB-9601.pdf
+  * on 30-August-2011.
+  * All references in source comments to "the paper" refer to that.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -26,7 +25,7 @@
 #include "hash.h"
 #include "ripemd160.h"
 
-// Selection of message word for main rounds.
+/** Selection of message word for main rounds. */
 static uint8_t r1[80] PROGMEM = {
 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
 7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8,
@@ -34,7 +33,7 @@ static uint8_t r1[80] PROGMEM = {
 1, 9, 11, 10, 0, 8, 12, 4, 13, 3, 7, 15, 14, 5, 6, 2,
 4, 0, 5, 9, 7, 12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13};
 
-// Selection of message word for parallel rounds.
+/** Selection of message word for parallel rounds. */
 static uint8_t r2[80] PROGMEM = {
 5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12,
 6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2,
@@ -42,7 +41,7 @@ static uint8_t r2[80] PROGMEM = {
 8, 6, 4, 1, 3, 11, 15, 0, 5, 12, 2, 13, 9, 7, 10, 14,
 12, 15, 10, 4, 1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11};
 
-// Amount of rotate left for main rounds.
+/** Amount of rotate left for main rounds. */
 static uint8_t s1[80] PROGMEM = {
 11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8,
 7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12,
@@ -50,7 +49,7 @@ static uint8_t s1[80] PROGMEM = {
 11, 12, 14, 15, 14, 15, 9, 8, 9, 14, 5, 6, 8, 6, 5, 12,
 9, 15, 5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6};
 
-// Amount of rotate left for parallel rounds.
+/** Amount of rotate left for parallel rounds. */
 static uint8_t s2[80] PROGMEM = {
 8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6,
 9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11,
@@ -58,39 +57,75 @@ static uint8_t s2[80] PROGMEM = {
 15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8,
 8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11};
 
-// Cyclic shift left (rotate left).
+/** Cyclic shift left (rotate left).
+  * \param x The integer to rotate left.
+  * \param n Number of times to rotate left.
+  * \return The rotated integer.
+  */
 static uint32_t rol(uint32_t x, uint8_t n)
 {
 	return (x << n) | (x >> (32 - n));
 }
 
-// Five non-linear at bit level functions.
+/** First non-linear (at bit level) function.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t f0(uint32_t x, uint32_t y, uint32_t z)
 {
 	return x ^ y ^ z;
 }
 
+/** Second non-linear (at bit level) function.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t f1(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & y) | (~x & z);
 }
 
+/** Third non-linear (at bit level) function.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t f2(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x | ~y) ^ z;
 }
 
+/** Fourth non-linear (at bit level) function.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t f3(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & z) | (y & ~z);
 }
 
+/** Fifth non-linear (at bit level) function.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t f4(uint32_t x, uint32_t y, uint32_t z)
 {
 	return x ^ (y | ~z);
 }
 
-// Update hash based on 512-bit block M.
+/** Update hash value based on the contents of a full message buffer.
+  * This is an implementation of HashState#hashBlock().
+  * \param hs The hash state to update.
+  */
 static void ripemd160Block(HashState *hs)
 {
 	// 1 = unprimed, 2 = primed.
@@ -104,7 +139,7 @@ static void ripemd160Block(HashState *hs)
 	uint32_t T;
 	uint32_t K1, K2, R1, R2;
 	uint8_t j;
-	uint8_t fnselector;
+	uint8_t fn_selector;
 
 	A1 = hs->h[0];
 	A2 = A1;
@@ -118,8 +153,8 @@ static void ripemd160Block(HashState *hs)
 	E2 = E1;
 	for (j = 0; j < 80; j++)
 	{
-		fnselector = (uint8_t)(j >> 4);
-		switch(fnselector)
+		fn_selector = (uint8_t)(j >> 4);
+		switch(fn_selector)
 		{
 		case 0:
 			R1 = f0(B1, C1, D1);
@@ -173,7 +208,9 @@ static void ripemd160Block(HashState *hs)
 	hs->h[0] = T;
 }
 
-// Begin calculating hash for new message.
+/** Begin calculating hash for new message.
+  * \param hs The hash state to initialise.
+  */
 void ripemd160Begin(HashState *hs)
 {
 	hs->message_length = 0;
@@ -187,14 +224,24 @@ void ripemd160Begin(HashState *hs)
 	clearM(hs);
 }
 
-// Send one more byte to be hashed.
+/** Add one more byte to the message buffer and call ripemd160Block()
+  * if the message buffer is full.
+  * \param hs The hash state to act on. The hash state must be one that has
+  *           been initialised using ripemd160Begin() at some time in the
+  *           past.
+  * \param byte The byte to add.
+  */
 void ripemd160WriteByte(HashState *hs, uint8_t byte)
 {
 	hashWriteByte(hs, byte);
 }
 
-// Finish off hashing message (write padding and length) and calculate
-// final hash.
+/** Finalise the hashing of a message by writing appropriate padding and
+  * length bytes.
+  * \param hs The hash state to act on. The hash state must be one that has
+  *           been initialised using ripemd160Begin() at some time in the
+  *           past.
+  */
 void ripemd160Finish(HashState *hs)
 {
 	hashFinish(hs);

@@ -1,12 +1,11 @@
-// ***********************************************************************
-// sha256.c
-// ***********************************************************************
-//
-// Containes functions which calculate the SHA-256 message digest ("hash")
-// of an arbitrary byte-oriented message.
-// The code here is based on formulae and pseudo-code in FIPS PUB 180-3.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file sha256.c
+  *
+  * \brief Calculates SHA-256 hashes.
+  *
+  * The code here is based on formulae and pseudo-code in FIPS PUB 180-3.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -21,6 +20,7 @@
 #include "hash.h"
 #include "sha256.h"
 
+/** Constants for SHA-256. See section 4.2.2 of FIPS PUB 180-3. */
 static const uint32_t k[64] PROGMEM = {
 0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5,
 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
@@ -39,45 +39,79 @@ static const uint32_t k[64] PROGMEM = {
 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208,
 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
+/** Rotate right.
+  * \param x The integer to rotate right.
+  * \param n Number of times to rotate right.
+  * \return The rotated integer.
+  */
 static uint32_t rotateRight(uint32_t x, uint8_t n)
 {
 	return (x >> n) | (x << (32 - n));
 }
 
-// Functions defined in section 4.1.2 of FIPS PUB 180-3
-
+/** Function defined as (4.2) in section 4.1.2 of FIPS PUB 180-3.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t ch(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & y) ^ ((~x) & z);
 }
 
+/** Function defined as (4.3) in section 4.1.2 of FIPS PUB 180-3.
+  * \param x First input integer.
+  * \param y Second input integer.
+  * \param z Third input integer.
+  * \return Non-linear combination of x, y and z.
+  */
 static uint32_t maj(uint32_t x, uint32_t y, uint32_t z)
 {
 	return (x & y) ^ (x & z) ^ (y & z);
 }
 
+/** Function defined as (4.4) in section 4.1.2 of FIPS PUB 180-3.
+  * \param x Input integer.
+  * \return Transformed integer.
+  */
 static uint32_t bigSigma0(uint32_t x)
 {
 	return rotateRight(x, 2) ^ rotateRight(x, 13) ^ rotateRight(x, 22);
 }
 
+/** Function defined as (4.5) in section 4.1.2 of FIPS PUB 180-3.
+  * \param x Input integer.
+  * \return Transformed integer.
+  */
 static uint32_t bigSigma1(uint32_t x)
 {
 	return rotateRight(x, 6) ^ rotateRight(x, 11) ^ rotateRight(x, 25);
 }
 
+/** Function defined as (4.6) in section 4.1.2 of FIPS PUB 180-3.
+  * \param x Input integer.
+  * \return Transformed integer.
+  */
 static uint32_t littleSigma0(uint32_t x)
 {
 	return rotateRight(x, 7) ^ rotateRight(x, 18) ^ (x >> 3);
 }
 
+/** Function defined as (4.7) in section 4.1.2 of FIPS PUB 180-3.
+  * \param x Input integer.
+  * \return Transformed integer.
+  */
 static uint32_t littleSigma1(uint32_t x)
 {
 	return rotateRight(x, 17) ^ rotateRight(x, 19) ^ (x >> 10);
 }
 
-// Update hash based on 512-bit block m.
-// Implements pseudo-code in section 6.2.2 of FIPS PUB 180-3.
+/** Update hash value based on the contents of a full message buffer.
+  * This is an implementation of HashState#hashBlock().
+  * This implements the pseudo-code in section 6.2.2 of FIPS PUB 180-3.
+  * \param hs The hash state to update.
+  */
 static void sha256Block(HashState *hs)
 {
 	uint32_t a, b, c, d, e, f, g, h;
@@ -124,8 +158,10 @@ static void sha256Block(HashState *hs)
 	hs->h[7] += h;
 }
 
-// Begin calculating hash for new message
-// See section 5.3.3 of FIPS PUB 180-3
+/** Begin calculating hash for new message.
+  * See section 5.3.3 of FIPS PUB 180-3.
+  * \param hs The hash state to initialise.
+  */
 void sha256Begin(HashState *hs)
 {
 	hs->message_length = 0;
@@ -142,20 +178,32 @@ void sha256Begin(HashState *hs)
 	clearM(hs);
 }
 
-// Send one more byte to be hashed.
+/** Add one more byte to the message buffer and call sha256Block()
+  * if the message buffer is full.
+  * \param hs The hash state to act on. The hash state must be one that has
+  *           been initialised using sha256Begin() at some time in the past.
+  * \param byte The byte to add.
+  */
 void sha256WriteByte(HashState *hs, uint8_t byte)
 {
 	hashWriteByte(hs, byte);
 }
 
-// Finish off hashing message (write padding and length) and calculate
-// final hash.
+/** Finalise the hashing of a message by writing appropriate padding and
+  * length bytes.
+  * \param hs The hash state to act on. The hash state must be one that has
+  *           been initialised using sha256Begin() at some time in the past.
+  */
 void sha256Finish(HashState *hs)
 {
 	hashFinish(hs);
 }
 
-// Just like sha256Finish(), except this does a double SHA-256 hash.
+/** Just like sha256Finish(), except this does a double SHA-256 hash. A
+  * double SHA-256 hash is sometimes used in the Bitcoin protocol.
+  * \param hs The hash state to act on. The hash state must be one that has
+  *           been initialised using sha256Begin() at some time in the past.
+  */
 void sha256FinishDouble(HashState *hs)
 {
 	uint8_t temp[32];

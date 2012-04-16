@@ -1,17 +1,28 @@
-// ***********************************************************************
-// xex.c
-// ***********************************************************************
-//
-// Implements XEX mode for encryption of a random-access block device.
-// For details, see "Efficient Instantiations of Tweakable Blockciphers and
-// Refinements to Modes OCB and PMAC" (dated September 24, 2004) by Phillip
-// Rogaway, obtained from
-// http://www.cs.ucdavis.edu/~rogaway/papers/offsets.pdf
-// on 5-February-2012.
-// XEX mode combines the random-access ability of CTR mode with the
-// bit-flipping attack resistance of ECB mode.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file xex.c
+  *
+  * \brief Implements XEX mode for encryption of a random-access block device.
+  *
+  * For details, see "Efficient Instantiations of Tweakable Blockciphers and
+  * Refinements to Modes OCB and PMAC" (dated September 24, 2004) by Phillip
+  * Rogaway, obtained from
+  * http://www.cs.ucdavis.edu/~rogaway/papers/offsets.pdf
+  * on 5-February-2012.
+  * XEX mode combines the random-access ability of CTR mode with the
+  * bit-flipping attack resistance of ECB mode.
+  *
+  * This uses AES (see aes.c) as the underlying block cipher. Using AES in XEX
+  * mode, with ciphertext stealing and with independent keys is sometimes
+  * called "XTS-AES". But as long as the length of a
+  * wallet record (#WALLET_RECORD_LENGTH) is a multiple of 16 bytes,
+  * ciphertext stealing is not necessary. Thus the use
+  * of AES in XEX mode here is identical in operation to XTS-AES.
+  * As in XTS-AES, independent "tweak" and "encryption" keys are used. This
+  * means that the combined key is 256 bits in length. But since this 256 bit
+  * key is composed of two 128 bit keys, the final cipher still only
+  * has 128 bits of security.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -29,14 +40,18 @@
 #include "hwinterface.h"
 #include "endian.h"
 
-// Primary encryption key.
+/** Primary encryption key. */
 static uint8_t nv_storage_encrypt_key[16];
-// The tweak key can be considered as a secondary, independent encryption key.
+/** The tweak key can be considered as a secondary, independent encryption
+  * key. */
 static uint8_t nv_storage_tweak_key[16];
 
-// Double the 128-bit number represented by op1 under GF(2 ^ 128) with
-// reducing polynomial x ^ 128 + x ^ 7 + x ^ 2 + x + 1. This treats
-// op1 as a little-endian number.
+/** Double a 128 bit integer under GF(2 ^ 128) with
+  * reducing polynomial x ^ 128 + x ^ 7 + x ^ 2 + x + 1.
+  * \param op1 The 128 bit integer to double. This should be an array of
+  *            16 bytes representing the 128 bit integer in unsigned,
+  *            little-endian multi-precision format.
+  */
 static void doubleInGF(uint8_t *op1)
 {
 	uint8_t i;
@@ -57,9 +72,20 @@ static void doubleInGF(uint8_t *op1)
 	op1[0] = (uint8_t)(op1[0] ^ (0x87 & last_bit));
 }
 
-// Combined XEX mode encrypt/decrypt, since they're almost the same.
-// See xex_encrypt() for what description of what this does and what each
-// argument refers to.
+/** Combined XEX mode encrypt/decrypt, since they're almost the same.
+  * See xexEncrypt() and xexDecrypt() for a description of what this does
+  * and what each parameter is.
+  * \param out For encryption, this will be the resulting ciphertext. For
+  *            decryption, this will be the resulting plaintext.
+  * \param in For encryption, this will be the source plaintext. For
+  *           decryption, this will be the source ciphertext.
+  * \param n See xexEncrypt().
+  * \param seq See xexEncrypt().
+  * \param tweak_key See xexEncrypt().
+  * \param encrypt_key See xexEncrypt().
+  * \param is_decrypt To decrypt, use a non-zero value for this parameter. To
+  *                   encrypt, use zero for this parameter.
+  */
 static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key, uint8_t is_decrypt)
 {
 	uint8_t expanded_key[EXPANDED_KEY_SIZE];
@@ -90,31 +116,49 @@ static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uin
 	xor16Bytes(out, delta);
 }
 
-// Encrypt the 16-byte block specified by in using AES in XEX mode. The
-// ciphertext will be placed in out. n is a 128-bit number which specifies the
-// number of the data unit (whatever a data unit is defined to be) and seq
-// specifies the block within the data unit. Don't use seq = 0, as this
-// presents a security vulnerability (albeit a convoluted one). For more
-// details about the seq = 0 issue, see section 6 ("Security of XEX") of
-// Rogaway's paper (reference at the top of this file).
-// n and seq don't need to be secret. tweak_key and encrypt_key are two
-// independent 128-bit AES keys.
+/** Encrypt one 16 byte block using AES in XEX mode.
+  * \param out The resulting ciphertext will be written to here. This must be
+  *            a byte array with space for 16 bytes.
+  * \param in The source plaintext. This must be a byte array containing the
+  *           16 byte plaintext.
+  * \param n A 128 bit number which specifies the number of the data
+  *          unit (whatever a data unit is defined to be). This should be a
+  *          byte array of 16 bytes, with the 128 bit number in unsigned,
+  *          little-endian multi-precision format.
+  * \param seq Specifies the block within the data unit.
+  * \param tweak_key A 128 bit AES key.
+  * \param encrypt_key Another 128 bit AES key. This must be independent of
+  *                    tweak_key.
+  * \warning Don't use seq = 0, as this presents a security
+  *          vulnerability (albeit a convoluted one). For more details about
+  *          the seq = 0 issue, see section 6 ("Security of XEX") of
+  *          Rogaway's paper (reference at the top of this file).
+  */
 static void xexEncrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
 {
 	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 0);
 }
 
-// Decrypt the 16-byte block specified by in using AES in XEX mode. The
-// plaintext will be placed in out.
-// See xex_encrypt() for what description of what this does and what each
-// argument refers to.
+/** Decrypt the 16 byte block using AES in XEX mode.
+  * \param out The resulting plaintext will be written to here. This must be
+  *            a byte array with space for 16 bytes.
+  * \param in The source ciphertext. This must be a byte array containing the
+  *           16 byte ciphertext.
+  * \param n See xexEncrypt().
+  * \param seq See xexEncrypt().
+  * \param tweak_key See xexEncrypt().
+  * \param encrypt_key See xexEncrypt().
+  */
 static void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
 {
 	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 1);
 }
 
-// Set the 128-bit encryption key to the first 16 bytes of in and set the
-// 128-bit tweak key to the last 16 bytes of in.
+/** Set the combined 256 bit encryption key.
+  * This is compatible with getEncryptionKey().
+  * \param in A 32 byte array specifying the 256 bit combined encryption key
+  *           to use in XEX encryption/decryption operations.
+  */
 void setEncryptionKey(uint8_t *in)
 {
 	uint8_t i;
@@ -128,9 +172,11 @@ void setEncryptionKey(uint8_t *in)
 	}
 }
 
-// Place encryption keys in the buffer pointed to by out. out must point
-// to an array of 32 bytes. The (primary) encryption key is written to the
-// first 16 bytes and the tweak key is written to the last 16 bytes.
+/** Get the combined 256 bit encryption key.
+  * This is compatible with setEncryptionKey().
+  * \param out A 32 byte array specifying where the current 256 bit combined
+  *            encryption key will be written to.
+  */
 void getEncryptionKey(uint8_t *out)
 {
 	uint8_t i;
@@ -144,7 +190,12 @@ void getEncryptionKey(uint8_t *out)
 	}
 }
 
-// Returns non-zero iff the encryption key is non-zero.
+/** Check if the current combined encryption key is all zeroes. This has
+  * implications for whether a wallet is considered encrypted or
+  * not (see wallet.c).
+  * \return Non-zero if the encryption key is not made up of all zeroes,
+  *         zero if the encryption key is made up of all zeroes.
+  */
 uint8_t isEncryptionKeyNonZero(void)
 {
 	uint8_t r;
@@ -159,9 +210,10 @@ uint8_t isEncryptionKeyNonZero(void)
 	return r;
 }
 
-// Clear out memory which stores encryption key.
-// In order to be sure that keys don't remain in RAM anywhere, you may also
-// need to clear out the space between the heap and the stack.
+/** Clear out memory which stores encryption keys.
+  * In order to be sure that keys don't remain in RAM anywhere, you may also
+  * need to clear out the space between the heap and the stack.
+  */
 void clearEncryptionKey(void)
 {
 	volatile uint8_t i;
@@ -178,8 +230,18 @@ void clearEncryptionKey(void)
 	}
 }
 
-// Wrapper around nonvolatile_write() which also encrypts using the
-// nv_storage_tweak_key/nv_storage_encrypt_key encryption keys.
+/** Wrapper around nonVolatileWrite() which also encrypts data
+  * using xexEncrypt(). Because this uses encryption, it is much slower
+  * than nonVolatileWrite(). The parameters and return values are identical
+  * to that of nonVolatileWrite().
+  * \param data A pointer to the data to be written.
+  * \param address Byte offset specifying where in non-volatile storage to
+  *                start writing to.
+  * \param length The number of bytes to write.
+  * \return See #NonVolatileReturnEnum for return values.
+  * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
+  *          data is actually written to non-volatile storage.
+  */
 NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
 {
 	uint32_t block_start;
@@ -225,8 +287,16 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
 	return NV_NO_ERROR;
 }
 
-// Wrapper around nonVolatileRead() which also decrypts using the
-// nv_storage_tweak_key/nv_storage_encrypt_key encryption keys.
+/** Wrapper around nonVolatileRead() which also decrypts data
+  * using xexDecrypt(). Because this uses encryption, it is much slower
+  * than nonVolatileRead(). The parameters and return values are identical
+  * to that of nonVolatileRead().
+  * \param data A pointer to the buffer which will receive the data.
+  * \param address Byte offset specifying where in non-volatile storage to
+  *                start reading from.
+  * \param length The number of bytes to read.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
 NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
 {
 	uint32_t block_start;

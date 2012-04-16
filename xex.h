@@ -1,14 +1,15 @@
-// ***********************************************************************
-// xex.h
-// ***********************************************************************
-//
-// This describes functions exported by xex.c
-// To use these functions, set the encryption key using setEncryptionKey(),
-// then use encryptedNonVolatileWrite() and encryptedNonVolatileRead()
-// just like their non-encrypted bretheren.
-// The key passed to setEncryptionKey() should be secret.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file xex.h
+  *
+  * \brief Describes functions exported by xex.c.
+  *
+  * To use these functions, set the encryption key using setEncryptionKey(),
+  * then use encryptedNonVolatileWrite() and encryptedNonVolatileRead()
+  * just like their non-encrypted bretheren (nonVolatileWrite() and
+  * nonVolatileRead()).
+  * The key passed to setEncryptionKey() should be secret.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef XEX_H_INCLUDED
 #define XEX_H_INCLUDED

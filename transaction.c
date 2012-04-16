@@ -1,10 +1,19 @@
-// ***********************************************************************
-// transaction.c
-// ***********************************************************************
-//
-// Containes functions specific to Bitcoin transactions.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file transaction.c
+  *
+  * \brief Contains functions specific to Bitcoin transactions.
+  *
+  * There are two main things which are dealt with in this file.
+  * The first is the parsing of Bitcoin transactions. During the parsing
+  * process, useful stuff (such as output addresses and amounts) is
+  * extracted. See the code of parseTransactionInternal() for the guts.
+  *
+  * The second is the generation of Bitcoin-compatible signatures. Bitcoin
+  * uses OpenSSL to generate signatures, and OpenSSL insists on encapsulating
+  * the "r" and "s" values (see ecdsaSign()) in DER format. See the code of
+  * signTransaction() for the guts.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 // Defining this will facilitate testing
 //#define TEST
@@ -12,8 +21,8 @@
 // linker errors from occuring
 //#define INTERFACE_STUBS
 
-// The maximum size of a transaction (in bytes) which parseTransaction()
-// is prepared to handle.
+/** The maximum size of a transaction (in bytes) which parseTransaction()
+  * is prepared to handle. */
 #define MAX_TRANSACTION_SIZE	200000
 
 #if defined(TEST) || defined(INTERFACE_STUBS)
@@ -32,25 +41,50 @@
 #include "hwinterface.h"
 #include "transaction.h"
 
+/** Where the transaction parser is within a transaction. 0 = first byte,
+  * 1 = second byte etc. */
 static uint32_t transaction_data_index;
+/** The total length of the transaction being parsed, in number of bytes. */
 static uint32_t transaction_length;
+/** The number of inputs for the transaction being parsed. */
 static uint16_t transaction_num_inputs;
+/** 0 if no stream read error occurred while parsing a transaction, non-zero
+  * if a stream read error occurred. */
 static uint8_t read_error_occurred;
+/** If this is non-zero, then as the transaction contents are read from the
+  * stream device, they will not be included in the calculation of the
+  * transaction hash (see parseTransaction() for what this is all about).
+  * If this is zero, then they will be included. */
 static uint8_t suppress_transaction_hash;
-static uint8_t suppress_both_hash;
+/** Hash state used to calculate the signature
+  * hash (see parseTransaction() for what this is all about). */
 static HashState sig_hash_hs;
+/** Hash state used to calculate the transaction
+  * hash (see parseTransaction() for what this is all about). */
 static HashState transaction_hash_hs;
 
-// Returns the number of inputs from the most recent transaction parsed by
-// parseTransaction. Returns 0 if there was an error obtaining the number
-// of inputs.
+/** Get the number of inputs from the most recent transaction parsed by
+  * parseTransaction().
+  * \returns The number of inputs on success or 0 if there was an error
+  *          obtaining the number of inputs.
+  */
 uint16_t getTransactionNumInputs(void)
 {
 	return transaction_num_inputs;
 }
 
-// Returns 0 on success and fills buffer with length bytes,
-// otherwise returns 1 to indicate an unexpected end of transaction data.
+/** Get transaction data by reading from the stream device, checking that
+  * the read operation won't go beyond the end of the transaction data.
+  * 
+  * Since all transaction data is read using this function, the updating
+  * of #sig_hash_hs and #transaction_hash_hs is also done.
+  * \param buffer An array of bytes which will be filled with the transaction
+  *               data (if everything goes well). It must have space for
+  *               length bytes.
+  * \param length The number of bytes to read from the stream device.
+  * \return 0 on success, 1 if a stream read error occurred or if the read
+  *         would go beyond the end of the transaction data.
+  */
 static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 {
 	uint8_t i;
@@ -70,13 +104,10 @@ static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 				return 1; // error while trying to get byte from stream
 			}
 			buffer[i] = one_byte;
-			if (!suppress_both_hash)
+			sha256WriteByte(&sig_hash_hs, one_byte);
+			if (!suppress_transaction_hash)
 			{
-				sha256WriteByte(&sig_hash_hs, one_byte);
-				if (!suppress_transaction_hash)
-				{
-					sha256WriteByte(&transaction_hash_hs, one_byte);
-				}
+				sha256WriteByte(&transaction_hash_hs, one_byte);
 			}
 			transaction_data_index++;
 		}
@@ -84,7 +115,11 @@ static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 	}
 }
 
-// Returns 0 if not at end of transaction data, otherwise returns 1.
+/** Checks whether the transaction parser is at the end of the transaction
+  * data.
+  * \return 0 if not at the end of the transaction data, 1 if at the end of
+  *         the transaction data.
+  */
 static uint8_t isEndOfTransactionData(void)
 {
 	if (transaction_data_index >= transaction_length)
@@ -97,11 +132,15 @@ static uint8_t isEndOfTransactionData(void)
 	}
 }
 
-// Read a variable-sized integer from the transaction data stream.
-// Returns 0 on success and writes value of varint to out.
-// Returns 1 to indicate an unexpected end of transaction data.
-// Returns 2 to indicate that the varint is too large.
-// This only supports varints up to 2 ^ 32 - 1.
+/** Parse a variable-sized integer within a transaction. Variable sized
+  * integers are commonly used to represent counts or sizes in Bitcoin
+  * transactions.
+  * This only supports unsigned variable-sized integers up to a maximum
+  * value of 2 ^ 32 - 1.
+  * \param out The value of the integer will be written to here.
+  * \return 0 on success, 1 to indicate an unexpected end of transaction
+  *         data or 2 to indicate that the value of the integer is too large.
+  */
 static uint8_t getVarInt(uint32_t *out)
 {
 	uint8_t temp[4];
@@ -137,8 +176,14 @@ static uint8_t getVarInt(uint32_t *out)
 	return 0;
 }
 
-// See comments for parseTransaction() for description of what this does
-// and return values.
+/** See comments for parseTransaction() for description of what this does
+  * and return values. However, the guts of the transaction parser are in
+  * the code to this function.
+  * \param sig_hash See parseTransaction().
+  * \param transaction_hash See parseTransaction().
+  * \param length See parseTransaction().
+  * \return See parseTransaction().
+  */
 static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length)
 {
 	uint8_t temp[20];
@@ -161,7 +206,6 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	}
 
 	sha256Begin(&sig_hash_hs);
-	suppress_both_hash = 0;
 	sha256Begin(&transaction_hash_hs);
 	suppress_transaction_hash = 0;
 
@@ -330,23 +374,36 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	return 0;
 }
 
-// Parse a Bitcoin transaction, extracting the output amounts/addresses,
-// validating the transaction (ensuring that it is "standard") and computing
-// a double SHA-256 hash of the transaction. length should be the total length
-// of the transaction data stream. If no read errors occur, then exactly
-// length bytes should be read from the stream, even if the transaction is
-// not parsed correctly. Upon success, the double SHA-256 hash will be written
-// out to sig_hash (which should be a byte array which can hold 32 bytes) in
-// little-endian format.
-// In addition to sig_hash ("signature hash"), a transaction hash will be
-// computed and written out to transaction_hash in little-endian format. The
-// transaction hash is just like the signature hash, except input scripts
-// are not included. The transaction hash can be used to determine
-// if (when signing a transaction with multiple inputs) a bunch of
-// transactions are "the same".
-// Returns one of the values in TransactionErrors.
-// This will always read the number of bytes specified by length from the
-// input stream, even in the case of an invalid transaction.
+/** Parse a Bitcoin transaction, extracting the output amounts/addresses,
+  * validating the transaction (ensuring that it is "standard") and computing
+  * a double SHA-256 hash of the transaction. This double SHA-256 hash is the
+  * "signature hash" because it is the hash which is passed on to the signing
+  * function signTransaction().
+  *
+  * The Bitcoin protocol for signing a transaction involves replacing
+  * the corresponding input script with the output script that
+  * the input references. This means that for a transaction with n
+  * inputs, there will be n different signature hashes - one for each input.
+  * Requiring the user to approve a transaction n times would be very
+  * annoying, so there needs to be a way to determine whether a bunch of
+  * transactions are actually "the same".
+  * So in addition to the signature hash, a "transaction hash" will be
+  * computed. The transaction hash is just like the signature hash, except
+  * input scripts are not included. Also, the transaction hash is done using
+  * a single SHA-256 hash instead of a double SHA-256 hash.
+  *
+  * \param sig_hash The signature hash will be written here (if everything
+  *                 goes well), as a 32 byte little-endian multi-precision
+  *                 number.
+  * \param transaction_hash The transaction hash will be written here (if
+  *                         everything goes well), as a 32 byte little-endian
+  *                         multi-precision number.
+  * \param length The total length of the transaction. If no stream read
+  *               errors occured, then exactly length bytes will be read from
+  *               the stream, even if the transaction was not parsed
+  *               correctly.
+  * \return One of the values in #TransactionErrorsEnum.
+  */
 TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length)
 {
 	TransactionErrors r;
@@ -356,7 +413,6 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 	if (!read_error_occurred)
 	{
 		// Always try to consume the entire stream.
-		suppress_both_hash = 1;
 		while (!isEndOfTransactionData())
 		{
 			if (getTransactionBytes(&junk, 1))
@@ -374,7 +430,9 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 	return r;
 }
 
-// Swap endian representation of a 256-bit integer.
+/** Swap endian representation of a 256 bit integer.
+  * \param buffer An array of 32 bytes representing the integer to change.
+  */
 void swapEndian256(uint8_t *buffer)
 {
 	uint8_t i;
@@ -388,20 +446,32 @@ void swapEndian256(uint8_t *buffer)
 	}
 }
 
-// Initial offset of r in signature. It's 4 because 4 bytes are needed for
-// the SEQUENCE/length and INTEGER/length bytes.
+/**
+ * \defgroup DEROffsets Offsets for DER signature encapsulation.
+ *
+ * @{
+ */
+/** Initial offset of r in signature. It's 4 because 4 bytes are needed for
+  * the SEQUENCE/length and INTEGER/length bytes. */
 #define R_OFFSET	4
-// Initial offset of s in signature. It's 39 because: r is initially 33
-// bytes long, and 2 bytes are needed for INTEGER/length. 4 + 33 + 2 = 39.
+/** Initial offset of s in signature. It's 39 because: r is initially 33
+  * bytes long, and 2 bytes are needed for INTEGER/length. 4 + 33 + 2 = 39. */
 #define S_OFFSET	39
+/**@}*/
 
-// Sign the transaction with the (signature) hash specified by sig_hash, using
-// the private key specified by private_key. Both sig_hash and private_key are
-// little-endian 256-bit numbers. The resulting signature will be written
-// out to signature in DER format, with the hash type appended. signature must
-// have space for at least 73 bytes.
-// The return value is the length of the signature (including the
-// hash type byte).
+/** Sign a transaction. This should be called after the transaction is parsed
+  * and a signature hash has been computed. The primary purpose of this
+  * function is to call ecdsaSign() and encapsulate the ECDSA signature in
+  * the DER format which OpenSSL uses.
+  * \param signature The encapsulated signature will be written here. This
+  *                  must be a byte array with space for at least 73 bytes.
+  * \param sig_hash The signature hash of the transaction (see
+  *                 parseTransaction()).
+  * \param private_key The private key to sign the transaction with. This must
+  *                    be a 32 byte little-endian multi-precision integer.
+  * \return The length of the signature (including the hash type byte). This
+  *         function cannot fail.
+  */
 uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 private_key)
 {
 	uint8_t k[32];
