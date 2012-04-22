@@ -1,25 +1,32 @@
-// ***********************************************************************
-// eeprom.c
-// ***********************************************************************
-//
-// Containes functions which implement non-volatile storage using the AVR's
-// EEPROM. It's not much (only 1024 bytes on the ATmega328), but it's enough
-// to test with.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file eeprom.c
+  *
+  * \brief Reads and writes to the AVR's EEPROM.
+  *
+  * This contains functions which implement non-volatile storage using the
+  * AVR's EEPROM. Compared to contemporary mass storage devices, the size of
+  * the storage space is not much (only 1024 bytes on the ATmega328), but it's
+  * enough to fit a couple of wallets.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include <avr/eeprom.h>
 
 #include "../common.h"
 #include "../hwinterface.h"
 
-// Size of EEPROM.
+/** Size of EEPROM, in number of bytes. */
 #define EEPROM_SIZE		1024
 
-// Write to non-volatile storage. address is a byte offset specifying where
-// in non-volatile storage to start writing to. data is a pointer to the
-// data to be written and length is the number of bytes to write. See
-// NonVolatileReturn for return values.
+/** Write to non-volatile storage.
+  * \param data A pointer to the data to be written.
+  * \param address Byte offset specifying where in non-volatile storage to
+  *                start writing to.
+  * \param length The number of bytes to write.
+  * \return See #NonVolatileReturnEnum for return values.
+  * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
+  *          data is actually written to non-volatile storage.
+  */
 NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
 {
 	if ((address > EEPROM_SIZE)
@@ -35,10 +42,13 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 	return NV_NO_ERROR;
 }
 
-// Read from non-volatile storage. address is a byte offset specifying where
-// in non-volatile storage to start reading from. data is a pointer to the
-// buffer which will receive the data and length is the number of bytes to
-// read. See NonVolatileReturn for return values.
+/** Read from non-volatile storage.
+  * \param data A pointer to the buffer which will receive the data.
+  * \param address Byte offset specifying where in non-volatile storage to
+  *                start reading from.
+  * \param length The number of bytes to read.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
 NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
 {
 	if ((address > EEPROM_SIZE)
@@ -54,7 +64,7 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 	return NV_NO_ERROR;
 }
 
-// Ensure that all buffered writes are committed to non-volatile storage.
+/** Ensure that all buffered writes are committed to non-volatile storage. */
 void nonVolatileFlush(void)
 {
 	// Nothing to do.

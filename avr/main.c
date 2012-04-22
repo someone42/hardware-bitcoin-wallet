@@ -1,10 +1,9 @@
-// ***********************************************************************
-// main.c
-// ***********************************************************************
-//
-// Entry point for hardware Bitcoin wallet.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file main.c
+  *
+  * \brief Entry point for hardware Bitcoin wallet.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include <avr/interrupt.h>
 #include "../common.h"
@@ -14,6 +13,8 @@
 #include "hwinit.h"
 #include "lcd_and_input.h"
 
+/** Entry point. This is the first thing which is called after startup code.
+  * This never returns. */
 int main(void)
 {
 	uint8_t r;

@@ -1,12 +1,12 @@
-// ***********************************************************************
-// strings.c
-// ***********************************************************************
-//
-// Containes functions which retrieve device-specific strings. It's
-// important that these strings are stored in program memory (flash),
-// otherwise they eat up valuable RAM.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file strings.c
+  *
+  * \brief Defines and retrieves device-specific strings.
+  *
+  * It's important that these strings are stored in program memory (flash),
+  * using the #PROGMEM attribute, otherwise they eat up valuable RAM.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include <avr/io.h>
 #include <avr/pgmspace.h>
@@ -14,31 +14,59 @@
 #include "../common.h"
 #include "../hwinterface.h"
 
+/**
+ * \defgroup DeviceStrings Device-specific strings.
+ *
+ * @{
+ */
+/** Version string. */
 static const char str_MISCSTR_VERSION[] PROGMEM = "Hardware Bitcoin Wallet for AVR v0.2";
+/** Permission denied (user pressed cancel) string. */
 static const char str_MISCSTR_PERMISSION_DENIED[] PROGMEM = "Permission denied by user";
+/** String specifying that processPacket() didn't like the format or
+  * contents of a packet. */
 static const char str_MISCSTR_INVALID_PACKET[] PROGMEM = "Unrecognised command";
+/** String for #WALLET_FULL wallet error. */
 static const char str_WALLET_FULL[] PROGMEM = "Wallet has run out of space";
+/** String for #WALLET_EMPTY wallet error. */
 static const char str_WALLET_EMPTY[] PROGMEM = "Wallet has nothing in it";
+/** String for #WALLET_READ_ERROR wallet error. */
 static const char str_WALLET_READ_ERROR[] PROGMEM = "EEPROM Read error";
+/** String for #WALLET_WRITE_ERROR error. */
 static const char str_WALLET_WRITE_ERROR[] PROGMEM = "EEPROM Write error";
+/** String for #WALLET_ADDRESS_NOT_FOUND wallet error. */
 static const char str_WALLET_ADDRESS_NOT_FOUND[] PROGMEM = "Address not in wallet";
+/** String for #WALLET_NOT_THERE wallet error. */
 static const char str_WALLET_NOT_THERE[] PROGMEM = "Wallet doesn't exist";
+/** String for #WALLET_END_OF_LIST wallet error. */
 static const char str_WALLET_END_OF_LIST[] PROGMEM = "End of address list";
+/** String for #WALLET_INVALID_HANDLE wallet error. */
 static const char str_WALLET_INVALID_HANDLE[] PROGMEM = "Invalid address handle";
+/** String for #TRANSACTION_INVALID_FORMAT transaction parser error. */
 static const char str_TRANSACTION_INVALID_FORMAT[] PROGMEM = "Format of transaction is unknown or invalid";
+/** String for #TRANSACTION_TOO_MANY_INPUTS transaction parser error. */
 static const char str_TRANSACTION_TOO_MANY_INPUTS[] PROGMEM = "Too many inputs in transaction";
+/** String for #TRANSACTION_TOO_MANY_OUTPUTS transaction parser error. */
 static const char str_TRANSACTION_TOO_MANY_OUTPUTS[] PROGMEM = "Too many outputs in transaction";
+/** String for #TRANSACTION_TOO_LARGE transaction parser error. */
 static const char str_TRANSACTION_TOO_LARGE[] PROGMEM = "Transaction's size is too large";
+/** String for #TRANSACTION_NON_STANDARD transaction parser error. */
 static const char str_TRANSACTION_NON_STANDARD[] PROGMEM = "Transaction is non-standard";
+/** String for #TRANSACTION_READ_ERROR transaction parser error. */
 static const char str_TRANSACTION_READ_ERROR[] PROGMEM = "Stream read error";
+/** String for unknown error. */
 static const char str_UNKNOWN[] PROGMEM = "Unknown error";
+/**@}*/
 
-
-// Obtain one character from one of the device's strings. pos = 0 specifies
-// the first character, pos = 1 the second etc. spec specifies which string
-// to get the character from. set specifies which set of strings to use.
-// The interpretation of spec depends on set; see the comments near StringSet
-// for clarification.
+/** Obtain one character from one of the device's strings.
+  * \param set Specifies which set of strings to use; should be
+  *            one of #StringSetEnum.
+  * \param spec Specifies which string to get the character from. The
+  *             interpretation of this depends on the value of set;
+  *             see #StringSetEnum for clarification.
+  * \param pos The position of the character within the string; 0 means first,
+  *            1 means second etc.
+  */
 char getString(StringSet set, uint8_t spec, uint16_t pos)
 {
 	if (set == STRINGSET_MISC)
@@ -125,8 +153,13 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 	}
 }
 
-// Get the length of one of the device's strings. See getString() for what
-// set and spec refer to.
+/** Get the length of one of the device's strings.
+  * \param set Specifies which set of strings to use; should be
+  *            one of #StringSetEnum.
+  * \param spec Specifies which string to get the character from. The
+  *             interpretation of this depends on the value of set;
+  *             see #StringSetEnum for clarification.
+  */
 uint16_t getStringLength(StringSet set, uint8_t spec)
 {
 	if (set == STRINGSET_MISC)

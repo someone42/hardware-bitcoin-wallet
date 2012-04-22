@@ -1,17 +1,22 @@
-// ***********************************************************************
-// lcd_and_input.c
-// ***********************************************************************
-//
-// Containes functions which drive a HD44780-based LCD. It's assumed
-// that the LCD has 2 lines, each character is 5x8 dots and there are 40
-// bytes per line of DDRAM.
-// The datasheet was obtained on 22-September-2011, from:
-// http://lcd-linux.sourceforge.net/pdfdocs/hd44780.pdf
-// All references to "the datasheet" refer to this document.
-// This also (incidentally) deals with button inputs, since there's a
-// timer ISR which can handle the debouncing.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file lcd_and_input.c
+  *
+  * \brief HD44780-based LCD driver and input button reader.
+  *
+  * It's assumed that the LCD has 2 lines, each character is 5x8 dots and
+  * there are 40 bytes per line of DDRAM.
+  * The datasheet was obtained on 22-September-2011, from:
+  * http://lcd-linux.sourceforge.net/pdfdocs/hd44780.pdf
+  *
+  * All references to "the datasheet" refer to this document.
+  *
+  * This also (incidentally) deals with button inputs, since there's a
+  * timer ISR which can handle the debouncing. The pin assignments in this
+  * file are referred to by their Arduino pin mapping; if not using an
+  * Arduino, see http://arduino.cc/en/Hacking/PinMapping168
+  * for pin mappings.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include <avr/io.h>
 #include <util/delay.h>
@@ -22,40 +27,62 @@
 #include "../common.h"
 #include "../hwinterface.h"
 
-// Maximum number of address/amount pairs that can be stored in RAM waiting
-// for confirmation from the user. This incidentally sets the maximum
-// number of outputs per transaction that parse_transaction() can deal with.
-// This must be < 256.
+/** Maximum number of address/amount pairs that can be stored in RAM waiting
+  * for approval from the user. This incidentally sets the maximum
+  * number of outputs per transaction that parseTransaction() can deal with.
+  * \warning This must be < 256.
+  */
 #define MAX_OUTPUTS		2
 
-// The Arduino pin numbers that the LCD interface is connected to.
-#define RS_PIN			12 // register select
-#define E_PIN			11 // starts read/write
+/**
+ * \defgroup LCDPins Arduino pin numbers that the LCD is connected to.
+ *
+ * @{
+ */
+/** Register select. */
+#define RS_PIN			12
+/** Begin read/write. */
+#define E_PIN			11
+/** First (least significant bit) data pin. */
 #define D4_PIN			5
+/** Second data pin. */
 #define D5_PIN			4
+/** Third data pin. */
 #define D6_PIN			3
+/** Fourth (most significant bit) data pin. */
 #define D7_PIN			2
+/**@}*/
 
-// The Arduino pin numbers that the input buttons are connected to.
+/** The Arduino pin number that the accept button is connected to. */
 #define ACCEPT_PIN		6
+/** The Arduino pin number that the cancel button is connected to. */
 #define	CANCEL_PIN		7
 
-// Number of columns per line.
+/** Number of columns per line. */
 #define NUM_COLUMNS		16
-// Scroll speed, in multiples of 5 ms. Example: 100 means scroll will happen
-// every 500 ms. Must be < 65536.
+/** Scroll speed, in multiples of 5 ms. Example: 100 means scroll will happen
+  * every 500 ms.
+  * \warning This must be < 65536.
+  */
 #define SCROLL_SPEED	150
-// Scroll pause length, in multiples of 5 ms. Whenever a string is written
-// to the LCD, scrolling will pause for this long. Must be < 65536.
+/** Scroll pause length, in multiples of 5 ms. Whenever a string is written
+  * to the LCD, the display will pause for this long before scrolling starts.
+  * direction.
+  * \warning This must be < 65536.
+  */
 #define SCROLL_PAUSE	450
 
-// Number of consistent samples (each sample is 5 ms apart) required to
-// register a button press. Must be < 256.
+/** Number of consistent samples (each sample is 5 ms apart) required to
+  * register a button press.
+  * \warning This must be < 256.
+  */
 #define DEBOUNCE_COUNT	8
 
-// Set one of the digital output pins based on the Arduino pin mapping.
-// pin is the Arduino pin number (0 to 13 inclusive) and value is non-zero
-// for output high and zero for output low.
+/** Set one of the digital output pins based on the Arduino pin mapping.
+  * \param pin The Arduino pin number (0 to 13 inclusive) to set.
+  * \param value Non-zero will set the pint high and zero will set the pin
+  *              low.
+  */
 static inline void writeArduinoPin(const uint8_t pin, const uint8_t value)
 {
 	uint8_t bit;
@@ -89,9 +116,11 @@ static inline void writeArduinoPin(const uint8_t pin, const uint8_t value)
 	}
 }
 
-// Write the least-significant 4 bits of value to the HD44780.
-// See page 49 of the datasheet for EN timing. All delays have at least
-// a 2x safety factor.
+/** Write the least-significant 4 bits of value to the HD44780.
+  * See page 49 of the datasheet for EN timing. All delays have at least
+  * a 2x safety factor.
+  * \param value The 4 bit value to write.
+  */
 static void write4(uint8_t value)
 {
 	writeArduinoPin(D4_PIN, (uint8_t)(value & 0x01));
@@ -109,16 +138,21 @@ static void write4(uint8_t value)
 	_delay_us(74);
 }
 
-// Write 8 bits to the HD44780 using write4() twice.
-// Warning: have you set RS_PIN to your desired value?
+/** Write 8 bits to the HD44780 using write4() twice.
+  * \param value The 8 bit value to write.
+  * \warning Make sure register select (#RS_PIN) is set to an appropriate
+  *          value before calling this function.
+  */
 static void write8(uint8_t value)
 {
 	write4((uint8_t)(value >> 4));
 	write4(value);
 }
 
-// Set one of the Arduino digital I/O pins to be an input pin with
-// internal pull-up enabled.
+/** Set one of the Arduino digital I/O pins to be an input pin with
+  * internal pull-up enabled.
+  * \param pin The Arduino pin number to set as an input pin.
+  */
 static inline void setArduinoPinInput(const uint8_t pin)
 {
 	uint8_t bit;
@@ -138,8 +172,10 @@ static inline void setArduinoPinInput(const uint8_t pin)
 	}
 }
 
-// Returns non-zero if the Arduino digital I/O pin is high, returns 0 if it
-// is low.
+/** Read one of the Arduino digital I/O pins.
+  * \param pin The Arduino pin number to read.
+  * \return Non-zero if the pin is high, 0 if it is low.
+  */
 static inline uint8_t sampleArduinoPin(const uint8_t pin)
 {
 	uint8_t bit;
@@ -157,30 +193,36 @@ static inline uint8_t sampleArduinoPin(const uint8_t pin)
 	}
 }
 
-// 0-based column index.
+/** 0-based column index. This specifies which column on the LCD the next
+  * character will appear in. */
 static uint8_t current_column;
-// Largest size (in number of characters) of either line.
+/** Largest size (in number of characters) of either line. */
 static uint8_t max_line_size;
-// Scroll position (0 = leftmost) in number of characters.
+/** Scroll position (0 = leftmost) in number of characters. */
 static uint8_t scroll_pos;
-// 0 = towards the right (text appears to move left), non-zero = towards
-// the left (text appears to move right).
+/** 0 = towards the right (text appears to move left), non-zero = towards
+  * the left (text appears to move right). */
 static uint8_t scroll_direction;
-// Countdown to next scroll.
+/** Countdown to next scroll. */
 static uint16_t scroll_counter;
-// Status of accept/cancel buttons; 0 = not pressed, non-zero = pressed.
+/** Status of accept button; 0 = not pressed, non-zero = pressed. */
 static volatile uint8_t accept_button;
+/** Status of cancel button; 0 = not pressed, non-zero = pressed. */
 static volatile uint8_t cancel_button;
-// Debounce counters for accept/cancel buttons
+/** Debounce counter for accept button. */
 static uint8_t accept_debounce;
+/** Debounce counter for cancel button. */
 static uint8_t cancel_debounce;
 
-// Storage for amount/address pairs.
+/** Storage for the text of transaction output amounts. */
 static char list_amount[MAX_OUTPUTS][22];
+/** Storage for the text of transaction output addresses. */
 static char list_address[MAX_OUTPUTS][36];
+/** Index into #list_amount and #list_address which specifies where the next
+  * output amount/address will be copied into. */
 static uint8_t list_index;
 
-// This does the scrolling and checks the state of the buttons.
+/** This does the scrolling and checks the state of the buttons. */
 ISR(TIMER0_COMPA_vect)
 {
 	uint8_t temp;
@@ -252,6 +294,7 @@ ISR(TIMER0_COMPA_vect)
 	}
 }
 
+/** Clear LCD of all text. */
 static void clearLcd(void)
 {
 	current_column = 0;
@@ -264,8 +307,10 @@ static void clearLcd(void)
 	_delay_ms(10);
 }
 
-// See page 46 of the datasheet. All delays have a 2x safety factor.
-// This also sets up timer 0 to fire an interrupt every 5 ms.
+/** See page 46 of the datasheet for the HD44780 initialisation sequence. All
+  * delays have a 2x safety factor. This also sets up timer 0 to fire an
+  * interrupt every 5 ms.
+  */
 void initLcdAndInput(void)
 {
 	cli();
@@ -300,8 +345,11 @@ void initLcdAndInput(void)
 	list_index = 0;
 }
 
-// If line is zero, this sets the cursor to the start of the first line,
-// otherwise this sets the cursor to the start of the second line.
+/** Set LCD cursor position to the start of a line.
+  * \param line If this is zero, the cursor will be set to the start of the
+  *             first line, otherwise the cursor will be set to the start of
+  *             the second line.
+  */
 static void gotoStartOfLine(uint8_t line)
 {
 	writeArduinoPin(RS_PIN, 0);
@@ -316,10 +364,13 @@ static void gotoStartOfLine(uint8_t line)
 	current_column = 0;
 }
 
-// Write a null-terminated string str to the display. Characters past
-// column 40 are dropped.
-// If is_progmem is non-zero, then str is treated as a pointer to program
-// memory.
+/** Write a null-terminated string to the display.
+  * \param str The null-terminated string to write.
+  * \param is_progmem If this is non-zero, then str is treated as a pointer
+  *                   to program memory (data with the #PROGMEM attribute),
+  *                   otherwise str is treated as a pointer to RAM.
+  * \warning Characters past column 40 are dropped (ignored).
+  */
 static void writeString(char *str, uint8_t is_progmem)
 {
 	char c;
@@ -355,12 +406,15 @@ static void writeString(char *str, uint8_t is_progmem)
 	scroll_counter = SCROLL_PAUSE;
 }
 
-// Notify the user interface that the transaction parser has seen a new
-// Bitcoin amount/address pair. Both the amount and address are
-// null-terminated text strings such as "0.01" and
-// "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn" respectively. If no error occurred,
-// return 0. If there was not enough space to store the amount/address pair,
-// then return some non-zero value.
+/** Notify the user interface that the transaction parser has seen a new
+  * Bitcoin amount/address pair.
+  * \param text_amount The output amount, as a null-terminated text string
+  *                    such as "0.01".
+  * \param text_address The output address, as a null-terminated text string
+  *                     such as "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn".
+  * \return 0 if no error occurred, non-zero if there was not enough space to
+  *         store the amount/address pair.
+  */
 uint8_t newOutputSeen(char *text_amount, char *text_address)
 {
 	char *amount_dest;
@@ -380,14 +434,14 @@ uint8_t newOutputSeen(char *text_amount, char *text_address)
 	return 0;
 }
 
-// Notify the user interface that the list of Bitcoin amount/address pairs
-// should be cleared.
+/** Notify the user interface that the list of Bitcoin amount/address pairs
+  * should be cleared. */
 void clearOutputsSeen(void)
 {
 	list_index = 0;
 }
 
-// Wait until neither accept nor cancel are being pressed.
+/** Wait until neither accept nor cancel buttons are being pressed. */
 static void waitForNoButtonPress(void)
 {
 	do
@@ -396,8 +450,10 @@ static void waitForNoButtonPress(void)
 	} while (accept_button || cancel_button);
 }
 
-// Wait until accept or cancel is pressed. Returns 0 if the accept button
-// was pressed, non-zero if the cancel button was pressed.
+/** Wait until accept or cancel button is pressed.
+  * \return 0 if the accept button was pressed, non-zero if the cancel
+  *         button was pressed.
+  */
 static uint8_t waitForButtonPress(void)
 {
 	uint8_t current_accept_button;
@@ -419,26 +475,50 @@ static uint8_t waitForButtonPress(void)
 	}
 }
 
-// The code would be much more readable if the string literals were all
-// implicitly defined within ask_user(). However, then they eat up valuable
-// RAM. Declaring them here means that they can have the PROGMEM attribute
-// added (to place them in program memory).
+/**
+ * \defgroup AskStrings String literals for user prompts.
+ *
+ * The code would be much more readable if the string literals were all
+ * implicitly defined within askUser(). However, then they eat up valuable
+ * RAM. Declaring them here means that they can have the #PROGMEM attribute
+ * added (to place them in program memory).
+ *
+ * @{
+ */
+/** First line of #ASKUSER_NUKE_WALLET prompt. */
 static char str_delete_line0[] PROGMEM = "Delete existing wallet";
+/** Second line of #ASKUSER_NUKE_WALLET prompt. */
 static char str_delete_line1[] PROGMEM = "and start a new one?";
+/** First line of #ASKUSER_NEW_ADDRESS prompt. */
 static char str_new_line0[] PROGMEM = "Create new";
+/** Second line of #ASKUSER_NEW_ADDRESS prompt. */
 static char str_new_line1[] PROGMEM = "address?";
+/** What will be prepended to output amounts for #ASKUSER_SIGN_TRANSACTION
+  * prompt. */
 static char str_sign_part0[] PROGMEM = "Sending ";
+/** What will be appended to output amounts for #ASKUSER_SIGN_TRANSACTION
+  * prompt. */
 static char str_sign_part1[] PROGMEM = " BTC to";
+/** First line of #ASKUSER_FORMAT prompt. */
 static char str_format_line0[] PROGMEM = "Do you want to";
+/** Second line of #ASKUSER_FORMAT prompt. */
 static char str_format_line1[] PROGMEM = "delete everything?";
+/** First line of #ASKUSER_CHANGE_NAME prompt. */
 static char str_change_line0[] PROGMEM = "Change the name";
+/** Second line of #ASKUSER_CHANGE_NAME prompt. */
 static char str_change_line1[] PROGMEM = "of your wallet?";
-static char str_unknown_line0[] PROGMEM = "Unknown command in ask_user()";
+/** First line of unknown prompt. */
+static char str_unknown_line0[] PROGMEM = "Unknown command in askUser()";
+/** Second line of unknown prompt. */
 static char str_unknown_line1[] PROGMEM = "Press any button to continue";
+/** What will be displayed if a stream read or write error occurs. */
 static char str_stream_error[] PROGMEM = "Stream error";
+/**@}*/
 
-// Ask user if they want to allow some action. Returns 0 if the user
-// accepted, non-zero if the user denied.
+/** Ask user if they want to allow some action.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \return 0 if the user accepted, non-zero if the user denied.
+  */
 uint8_t askUser(AskUserCommand command)
 {
 	uint8_t i;
@@ -479,7 +559,7 @@ uint8_t askUser(AskUserCommand command)
 			r = waitForButtonPress();
 			if (r)
 			{
-				// All outputs must be confirmed in order for a transaction
+				// All outputs must be approved in order for a transaction
 				// to be signed. Thus if the user denies spending to one
 				// output, the entire transaction is forfeit.
 				break;
@@ -519,7 +599,7 @@ uint8_t askUser(AskUserCommand command)
 	return r;
 }
 
-// Notify user of stream error via. LCD.
+/** Notify user of stream error via. LCD. */
 void streamError(void)
 {
 	clearLcd();

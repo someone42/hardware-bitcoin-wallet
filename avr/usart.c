@@ -1,11 +1,14 @@
-// ***********************************************************************
-// usart.c
-// ***********************************************************************
-//
-// Containes functions which do stream I/O using the AVR's USART. This
-// allows a computer to communicate with the AVR over a serial link.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file usart.c
+  *
+  * \brief Implements stream I/O using the AVR's USART.
+  *
+  * This allows the host to communicate with the AVR over a serial link.
+  * On some Arduinos, the USART is connected to a USB-to-serial bridge,
+  * allowing the host to communicate with the AVR over a USB connection.
+  * See initUsart() for serial communication parameters.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -16,38 +19,52 @@
 #include "../hwinterface.h"
 #include "hwinit.h"
 
-// Size of transmit and receive buffers. They must be a power of 2 and
-// must be <= 256. The receive buffer's size must be >= 16.
+/** Size of transmit buffer, in number of bytes.
+  * \warning This must be a power of 2.
+  * \warning This must be >= 16 and must be <= 256.
+  */
 #define TX_BUFFER_SIZE	32
+/** Size of receive buffer, in number of bytes.
+  * \warning This must be a power of 2.
+  * \warning This must be >= 16 and must be <= 256.
+  */
 #define RX_BUFFER_SIZE	128
 
-// Bitwise AND masks for buffer indices.
+/** Bitwise AND mask for transmit buffer index. */
 #define TX_BUFFER_MASK	(TX_BUFFER_SIZE - 1)
+/** Bitwise AND mask for receive buffer index. */
 #define RX_BUFFER_MASK	(RX_BUFFER_SIZE - 1)
 
-// The transmit/receive buffer.
+/** Storage for the transmit buffer. */
 static volatile uint8_t tx_buffer[TX_BUFFER_SIZE];
+/** Storage for the receive buffer. */
 static volatile uint8_t rx_buffer[RX_BUFFER_SIZE];
-// Index in transmit/receive buffer of first character to send/be received.
+/** Index in the transmit buffer of the first character to send. */
 static volatile uint8_t tx_buffer_start;
+/** Index in the receive buffer of the first character to get. */
 static volatile uint8_t rx_buffer_start;
-// Index + 1 in transmit/receive buffer of last character to send/be received.
+/** Index + 1 in the transmit buffer of the last character to send. */
 static volatile uint8_t tx_buffer_end;
+/** Index + 1 in the receive buffer of the last character to get. */
 static volatile uint8_t rx_buffer_end;
-// Set to non-zero if transmit/receive buffer is full.
+/** Set to non-zero if transmit buffer is full, otherwise set to 0. */
 static volatile uint8_t tx_buffer_full;
+/** Set to non-zero if receive buffer is full, otherwise set to 0. */
 static volatile uint8_t rx_buffer_full;
-// Set to non-zero if a receive buffer overrun occurs
+/** Set to non-zero if a receive buffer overrun occurs, otherwise set to 0. */
 static volatile uint8_t rx_buffer_overrun;
 
-// Bytes to receive until sending next acknowledge.
+/** Number of bytes which can be received until the next acknowledgement must
+  * be sent. */
 static uint32_t rx_acknowledge;
-// Bytes to send until waiting for acknowledge.
+/** Number of bytes which can be sent before waiting for the next
+  * acknowledgement to be received. */
 static uint32_t tx_acknowledge;
 
-// Initialises USART0 with the parameters:
-// baud rate 57600, 8 data bits, no parity bit, 1 start bit, 0 stop bits.
-// This also clears the transmit/receive buffers.
+/** Initialises USART0 with the parameters:
+  * baud rate 57600, 8 data bits, no parity bit, 1 start bit, 0 stop bits.
+  * This also clears the transmit/receive buffers.
+  */
 void initUsart(void)
 {
 	uint8_t temp;
@@ -81,6 +98,8 @@ void initUsart(void)
 	sei();
 }
 
+/** Interrupt service routine which is called whenever the USART receives
+  * a byte. */
 ISR(USART_RX_vect)
 {
 	if (rx_buffer_full)
@@ -103,10 +122,11 @@ ISR(USART_RX_vect)
 	}
 }
 
-// Interrupt service routine for USART Data Register Empty.
-// UDRE0 is used instead of TXC0 (transmit complete) because the ISR only
-// moves one byte into the transmit buffer, not an entire frame (however large
-// that happens to be).
+/** Interrupt service routine for USART Data Register Empty.
+  * UDRE0 is used instead of TXC0 (transmit complete) because the ISR only
+  * moves one byte into the transmit buffer, not an entire frame (however
+  * large that happens to be).
+  */
 ISR(USART_UDRE_vect)
 {
 	if ((tx_buffer_start != tx_buffer_end) || tx_buffer_full)
@@ -124,8 +144,10 @@ ISR(USART_UDRE_vect)
 	}
 }
 
-// Send one byte through USART0. If the transmit buffer is full, this will
-// block until it isn't.
+/** Send one byte through USART0. If the transmit buffer is full, this will
+  * block until it isn't.
+  * \param data The byte to send.
+  */
 static void usartSend(uint8_t data)
 {
 	uint8_t send_immediately;
@@ -162,8 +184,10 @@ static void usartSend(uint8_t data)
 	}
 }
 
-// Receive one byte through USART0. If there isn't a byte in the receive
-// buffer, this will block until there is.
+/** Receive one byte through USART0. If there isn't a byte in the receive
+  * buffer, this will block until there is.
+  * \return The byte that was received.
+  */
 static uint8_t usartReceive(void)
 {
 	uint8_t r;
@@ -183,9 +207,10 @@ static uint8_t usartReceive(void)
 	return r;
 }
 
-// Grab one byte from the communication stream, placing that byte
-// in *one_byte. If no error occurred, return 0, otherwise return a non-zero
-// value to indicate a read error.
+/** Grab one byte from the communication stream.
+  * \param one_byte Where the received byte will be written to.
+  * \return 0 if no error occurred, non-zero if a read error occurred.
+  */
 uint8_t streamGetOneByte(uint8_t *one_byte)
 {
 	*one_byte = usartReceive();
@@ -212,9 +237,10 @@ uint8_t streamGetOneByte(uint8_t *one_byte)
 	return 0;
 }
 
-// Send one byte to the communication stream.
-// If no error occurred, return 0, otherwise return a non-zero value
-// to indicate a write error.
+/** Send one byte to the communication stream.
+  * \param one_byte The byte to send.
+  * \return 0 if no error occurred, non-zero if a write error occurred.
+  */
 uint8_t streamPutOneByte(uint8_t one_byte)
 {
 	usartSend(one_byte);
@@ -238,10 +264,11 @@ uint8_t streamPutOneByte(uint8_t one_byte)
 	return 0;
 }
 
+/** Beginning of BSS (zero-initialised) section. */
 extern void __bss_start;
 
-// This is a separate function so that the saved variables in sanitise_ram()
-// won't get mangled.
+/** This is a separate function so that the saved variables in sanitiseRam()
+  * won't get mangled. */
 static NOINLINE void sanitiseRamInternal(void)
 {
 	volatile uint16_t i;
@@ -266,12 +293,15 @@ static NOINLINE void sanitiseRamInternal(void)
 	sei();
 }
 
-// This is here because the easiest way to clear everything that is
-// potentially sensitive is to clear (nearly) everything. The only bits
-// of data that aren't cleared are the serial communication acknowledgement
-// counters, because clearing those would cause them to go out of sync
-// with the host (causing one or the other to stall waiting for
-// acknowledgement).
+/** Overwrite anything in RAM which could contain sensitive data.
+  *
+  * This is here because the easiest way to clear everything that is
+  * potentially sensitive is to clear (nearly) everything. The only
+  * data that aren't cleared are the serial communication acknowledgement
+  * counters, because clearing those would cause them to go out of sync
+  * with the host (causing one or the other to stall waiting for
+  * acknowledgement).
+  */
 void sanitiseRam(void)
 {
 	uint32_t saved_rx_acknowledge;

@@ -1,10 +1,9 @@
-// ***********************************************************************
-// lcd_and_input.h
-// ***********************************************************************
-//
-// This describes functions exported by lcd_and_input.c
-//
-// This file is licensed as described by the file LICENCE.
+/** \file lcd_and_input.h
+  *
+  * \brief This describes functions exported by lcd_and_input.c
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #ifndef LCD_AND_INPUT_H_INCLUDED
 #define LCD_AND_INPUT_H_INCLUDED

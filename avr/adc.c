@@ -1,12 +1,13 @@
-// ***********************************************************************
-// adc.c
-// ***********************************************************************
-//
-// Containes functions which sample from one of the AVR's analog-to-digital
-// convertor inputs. Hopefully that input is connected to a hardware
-// random number generator.
-//
-// This file is licensed as described by the file LICENCE.
+/** \file adc.c
+  *
+  * \brief Samples the AVR's analog-to-digital convertor.
+  *
+  * Contains functions which sample from one of the AVR's analog-to-digital
+  * convertor inputs. Hopefully that input (see initAdc() for which input
+  * is selected) is connected to a hardware random number generator.
+  *
+  * This file is licensed as described by the file LICENCE.
+  */
 
 #include <avr/io.h>
 
@@ -14,7 +15,9 @@
 #include "../hwinterface.h"
 #include "hwinit.h"
 
-// Enable ADC with prescaler 128 (ADC clock 125 kHz), pointing at input ADC0.
+/** Enable ADC with prescaler 128 (ADC clock 125 kHz), pointing at input ADC0.
+  * On Arduino, that's analog in, pin 0.
+  */
 void initAdc(void)
 {
 	ADMUX = _BV(REFS0);
@@ -23,6 +26,7 @@ void initAdc(void)
 	PRR = (uint8_t)(PRR & ~_BV(PRADC));
 }
 
+/** Get one 10 bit sample from the ADC. */
 static uint16_t adcSample(void)
 {
 	uint8_t sample_lo;
@@ -39,8 +43,13 @@ static uint16_t adcSample(void)
 	return ((uint16_t)sample_hi << 8) | sample_lo; 
 }
 
-// Fill buffer with n random bytes. Return an estimate of the total number
-// of bits (not bytes) of entropy in the buffer.
+/** Fill buffer with random bytes from a hardware random number generator.
+  * \param buffer The buffer to fill. This should have enough space for n
+  *               bytes.
+  * \param n The size of the buffer.
+  * \return An estimate of the total number of bits (not bytes) of entropy in
+  *         the buffer.
+  */
 uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 {
 	uint16_t sample;
