@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <memory.h>
 #endif // #ifdef TEST
 
 #include "common.h"
@@ -137,7 +138,7 @@ static void sha256Block(HashState *hs)
 	h = hs->h[7];
 	for (t = 0; t < 64; t++)
 	{
-		t1 = h + bigSigma1(e) + ch(e, f, g) + LOOKUP_DWORD(&(k[t])) + w[t];
+		t1 = h + bigSigma1(e) + ch(e, f, g) + LOOKUP_DWORD(k[t]) + w[t];
 		t2 = bigSigma0(a) + maj(a, b, c);
 		h = g;
 		g = f;
@@ -238,10 +239,7 @@ static void sha256(uint8_t *message, uint32_t length)
 		sha256WriteByte(&hs, message[i]);
 	}
 	sha256Finish(&hs);
-	for (i = 0; i < 8; i++)
-	{
-		h[i] = hs.h[i];
-	}
+	memcpy(h, hs.h, 32);
 }
 
 static void skipWhiteSpace(FILE *f)
@@ -335,10 +333,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 			compare_h[i] = (uint32_t)value;
 		}
 		skipWhiteSpace(f);
-		if ((h[0] == compare_h[0]) && (h[1] == compare_h[1])
-			&& (h[2] == compare_h[2]) && (h[3] == compare_h[3])
-			&& (h[4] == compare_h[4]) && (h[5] == compare_h[5])
-			&& (h[6] == compare_h[6]) && (h[7] == compare_h[7]))
+		if (!memcmp(h, compare_h, 32))
 		{
 			//printf("%08x%08x%08x%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
 			succeeded++;

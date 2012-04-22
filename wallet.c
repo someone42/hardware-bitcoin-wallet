@@ -38,6 +38,7 @@
 #include "ecdsa.h"
 #include "hwinterface.h"
 #include "xex.h"
+#include "bignum256.h"
 
 #if defined(TEST) || defined(INTERFACE_STUBS)
 #include <stdlib.h>
@@ -211,7 +212,6 @@ WalletErrors initWallet(void)
 {
 	uint8_t buffer[32];
 	uint8_t hash[32];
-	uint8_t i;
 	uint32_t version;
 
 	wallet_loaded = 0;
@@ -240,13 +240,10 @@ WalletErrors initWallet(void)
 		last_error = WALLET_READ_ERROR;
 		return last_error;
 	}
-	for (i = 0; i < 32; i++)
+	if (bigCompare(buffer, hash) != BIGCMP_EQUAL)
 	{
-		if (buffer[i] != hash[i])
-		{
-			last_error = WALLET_NOT_THERE;
-			return last_error;
-		}
+		last_error = WALLET_NOT_THERE;
+		return last_error;
 	}
 
 	// Read number of addresses.
@@ -292,7 +289,6 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 	uint32_t address;
 	NonVolatileReturn r;
 	uint8_t pass;
-	uint8_t i;
 
 	r = NV_NO_ERROR;
 	for (pass = 0; pass < 4; pass++)
@@ -303,17 +299,11 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 		{
 			if (pass == 0)
 			{
-				for (i = 0; i < 32; i++)
-				{
-					buffer[i] = 0;
-				}
+				memset(buffer, 0, sizeof(buffer));
 			}
 			else if (pass == 1)
 			{
-				for (i = 0; i < 32; i++)
-				{
-					buffer[i] = 0xff;
-				}
+				memset(buffer, 0xff, sizeof(buffer));
 			}
 			else
 			{
@@ -573,7 +563,6 @@ WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_publi
 		return r;
 	}
 	// Calculate public key.
-	setFieldToP();
 	setToG(out_public_key);
 	pointMultiply(out_public_key, buffer);
 	// Calculate address. The Bitcoin convention is to hash the public key in
@@ -598,10 +587,7 @@ WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_publi
 	}
 	ripemd160Finish(&hs);
 	writeHashToByteArray(buffer, &hs, 1);
-	for (i = 0; i < 20; i++)
-	{
-		out_address[i] = buffer[i];
-	}
+	memcpy(out_address, buffer, 20);
 
 	last_error = WALLET_NO_ERROR;
 	return last_error;

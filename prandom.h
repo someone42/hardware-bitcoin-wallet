@@ -11,7 +11,6 @@
 #include "common.h"
 #include "bignum256.h"
 
-extern void xor16Bytes(uint8_t *r, uint8_t *op1);
 extern void getRandom256(BigNum256 n);
 extern void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num);
 

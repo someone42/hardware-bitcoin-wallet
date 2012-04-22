@@ -127,17 +127,6 @@ static uint8_t xTimesEInGF(uint8_t x)
 	return (uint8_t)(xTimes8InGF(x) ^ xTimes4InGF(x) ^ xTimes2InGF(x));
 }
 
-/** Copy 16 bytes from in to out. */
-static void copy16(uint8_t *out, uint8_t *in)
-{
-	uint8_t i;
-
-	for (i = 0; i < 16; i++)
-	{
-		out[i] = in[i];
-	}
-}
-
 /** Exchanges (or restores) columns in each of 4 rows.
   * To exchange, use 5 for shift_or_inv. To restore, use 13 for shift_or_inv.
   * Why 5 and 13? 5 = 1 + 4 (mod 16), and 13 = 1 - 4 (mod 16). shift_or_inv
@@ -161,11 +150,11 @@ static void shiftOrInvShiftRows(uint8_t *state, uint8_t shift_or_inv)
 		{
 			if (shift_or_inv == 5)
 			{
-				tmp[o1] = LOOKUP_BYTE(&(sbox[state[o2]]));
+				tmp[o1] = LOOKUP_BYTE(sbox[state[o2]]);
 			}
 			else
 			{
-				tmp[o1] = LOOKUP_BYTE(&(inv_sbox[state[o2]]));
+				tmp[o1] = LOOKUP_BYTE(inv_sbox[state[o2]]);
 			}
 			o1 = (uint8_t)((o1 + 4) & 15);
 			o2 = (uint8_t)((o2 + 4) & 15);
@@ -174,7 +163,7 @@ static void shiftOrInvShiftRows(uint8_t *state, uint8_t shift_or_inv)
 		o2 = (uint8_t)((o2 + shift_or_inv) & 15);
 	}
 
-	copy16(state, tmp);
+	memcpy(state, tmp, 16);
 }
 
 /** Recombine and mix each row in a column. */
@@ -191,10 +180,10 @@ static void mixSubColumns(uint8_t *state)
 	for (i = 0; i < 16; i++)
 	{
 		tmp[i] = (uint8_t)(
-			xTimes2InGF(LOOKUP_BYTE(&(sbox[state[o1]])))
-			^ xTimes3InGF(LOOKUP_BYTE(&(sbox[state[o2]])))
-			^ LOOKUP_BYTE(&(sbox[state[o3]]))
-			^ LOOKUP_BYTE(&(sbox[state[o4]])));
+			xTimes2InGF(LOOKUP_BYTE(sbox[state[o1]]))
+			^ xTimes3InGF(LOOKUP_BYTE(sbox[state[o2]]))
+			^ LOOKUP_BYTE(sbox[state[o3]])
+			^ LOOKUP_BYTE(sbox[state[o4]]));
 		otemp = o1;
 		o1 = o2;
 		o2 = o3;
@@ -209,7 +198,7 @@ static void mixSubColumns(uint8_t *state)
 		}
 	}
 
-	copy16(state, tmp);
+	memcpy(state, tmp, 16);
 }
 
 /** Restore and un-mix each row in a column. */
@@ -249,18 +238,22 @@ static void invMixSubColumns(uint8_t *state)
 
 	for (i = 0; i < 16; i++)
 	{
-		state[i] = LOOKUP_BYTE(&(inv_sbox[tmp[i]]));
+		state[i] = LOOKUP_BYTE(inv_sbox[tmp[i]]);
 	}
 }
 
-/** Encrypt/decrypt columns of the key. */
-static void addRoundKey(uint32_t *state, uint32_t *key)
+/** XOR (r = r XOR op1) 16 bytes with another 16 bytes.
+  * \param r One operand for the XOR operation. The result will also be
+  *          written here.
+  * \param op1 The other operand for the XOR operation.
+  */
+void xor16Bytes(uint8_t *r, uint8_t *op1)
 {
-	uint8_t idx;
+	uint8_t i;
 
-	for (idx = 0; idx < 4; idx++)
+	for (i = 0; i < 16; i++)
 	{
-		state[idx] ^= key[idx];
+		r[i] ^= op1[i];
 	}
 }
 
@@ -281,7 +274,7 @@ void aesExpandKey(uint8_t *expanded_key, uint8_t *key)
 	uint8_t tmp0, tmp1, tmp2, tmp3, tmp4;
 	uint8_t idx;
 
-	copy16(expanded_key, key);
+	memcpy(expanded_key, key, 16);
 
 	for (idx = 16; idx < 176; idx = (uint8_t)(idx + 4))
 	{
@@ -292,10 +285,10 @@ void aesExpandKey(uint8_t *expanded_key, uint8_t *key)
 		if ((idx & 15) == 0)
 		{
 			tmp4 = tmp3;
-			tmp3 = LOOKUP_BYTE(&(sbox[tmp0]));
-			tmp0 = (uint8_t)(LOOKUP_BYTE(&(sbox[tmp1])) ^ r_con[idx >> 4]);
-			tmp1 = LOOKUP_BYTE(&(sbox[tmp2]));
-			tmp2 = LOOKUP_BYTE(&(sbox[tmp4]));
+			tmp3 = LOOKUP_BYTE(sbox[tmp0]);
+			tmp0 = (uint8_t)(LOOKUP_BYTE(sbox[tmp1]) ^ r_con[idx >> 4]);
+			tmp1 = LOOKUP_BYTE(sbox[tmp2]);
+			tmp2 = LOOKUP_BYTE(sbox[tmp4]);
 		}
 
 		expanded_key[idx + 0] = (uint8_t)(expanded_key[idx - 16 + 0] ^ tmp0);
@@ -316,9 +309,9 @@ void aesEncrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 {
 	uint8_t round;
 
-	copy16(out, in);
+	memcpy(out, in, 16);
 
-	addRoundKey((uint32_t *)out, (uint32_t *)expanded_key);
+	xor16Bytes(out, expanded_key);
 
 	for (round = 1; round < 11; round++)
 	{
@@ -331,7 +324,7 @@ void aesEncrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 			shiftOrInvShiftRows(out, 5);
 		}
 
-		addRoundKey((uint32_t *)out, ((uint32_t *)expanded_key) + round * 4);
+		xor16Bytes(out, &(expanded_key[round * 16]));
 	}
 }
 
@@ -346,14 +339,14 @@ void aesDecrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 {
 	uint8_t round;
 
-	copy16(out, in);
+	memcpy(out, in, 16);
 
-	addRoundKey((uint32_t *)out, ((uint32_t *)expanded_key) + 40);
+	xor16Bytes(out, &(expanded_key[160]));
 	shiftOrInvShiftRows(out, 13);
 
 	for (round = 10; round--; )
 	{
-		addRoundKey((uint32_t *)out, ((uint32_t *)expanded_key) + round * 4);
+		xor16Bytes(out, &(expanded_key[round * 16]));
 		if (round != 0)
 		{
 			invMixSubColumns(out);

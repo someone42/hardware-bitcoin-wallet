@@ -281,10 +281,25 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	bigSubtract(p1->y, u, s);
 }
 
+/** Set field parameters to be those defined by the prime number p which
+  * is used in secp256k1. */
+static void setFieldToP(void)
+{
+	bigSetField(secp256k1_p, secp256k1_complement_p, sizeof(secp256k1_complement_p));
+}
+
+/** Set field parameters to be those defined by the prime number n which
+  * is used in secp256k1. */
+static void setFieldToN(void)
+{
+	bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
+}
+
 /** Perform scalar multiplication (p = k x p) of the point p by the scalar k.
   * The result will be stored back into p. The multiplication is
   * accomplished by repeated point doubling and adding of the
-  * original point.
+  * original point. All multi-precision integer operations are done under
+  * the prime finite field specified by #secp256k1_p.
   * \param p The point (in affine coordinates) to multiply.
   * \param k The 32 byte multi-precision scalar to multiply p by.
   */
@@ -299,6 +314,7 @@ void pointMultiply(PointAffine *p, BigNum256 k)
 	uint8_t one_bit;
 	PointAffine *lookup_affine[2];
 
+	setFieldToP();
 	// The Montgomery ladder method can't be used here because it requires
 	// point addition to be done in pure Jacobian coordinates. Point addition
 	// in pure Jacobian coordinates would make point multiplication about
@@ -338,21 +354,14 @@ void setToG(PointAffine *p)
 	p->is_point_at_infinity = 0;
 	for (i = 0; i < 32; i++)
 	{
-		buffer[i] = LOOKUP_BYTE(&(secp256k1_Gx[i]));
+		buffer[i] = LOOKUP_BYTE(secp256k1_Gx[i]);
 	}
 	bigAssign(p->x, (BigNum256)buffer);
 	for (i = 0; i < 32; i++)
 	{
-		buffer[i] = LOOKUP_BYTE(&(secp256k1_Gy[i]));
+		buffer[i] = LOOKUP_BYTE(secp256k1_Gy[i]);
 	}
 	bigAssign(p->y, (BigNum256)buffer);
-}
-
-/** Set field parameters to be those defined by the prime number p which
-  * is used in secp256k1. */
-void setFieldToP(void)
-{
-	bigSetField(secp256k1_p, secp256k1_complement_p, sizeof(secp256k1_complement_p));
 }
 
 /** Attempt to sign the message with a given message digest.
@@ -394,11 +403,10 @@ uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_ke
 	}
 
 	// Compute ephemeral elliptic curve key pair (k, bigR)
-	setFieldToP();
 	setToG(&bigR);
 	pointMultiply(&bigR, k);
 	// bigR now contains k * G
-	bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
+	setFieldToN();
 	bigModulo(r, bigR.x);
 	// r now contains (k * G).x (mod n)
 	if (bigIsZero(r))
@@ -505,7 +513,7 @@ static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNu
 	uint8_t k1[32];
 	uint8_t k2[32];
 
-	bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
+	setFieldToN();
 	bigModulo(temp1, hash);
 	bigInvert(temp2, s);
 	bigMultiply(k1, temp2, temp1);
@@ -522,7 +530,7 @@ static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNu
 	affineToJacobian(&pj, &p);
 	pointAdd(&pj, &junk, &p2);
 	jacobianToAffine(&result, &pj);
-	bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
+	setFieldToN();
 	bigModulo(result.x, result.x);
 	if (bigCompare(result.x, r) == BIGCMP_EQUAL)
 	{

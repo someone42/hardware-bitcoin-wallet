@@ -99,10 +99,7 @@ static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uin
 	{
 		doubleInGF(delta);
 	}
-	for (i = 0; i < 16; i++)
-	{
-		buffer[i] = in[i];
-	}
+	memcpy(buffer, in, 16);
 	xor16Bytes(buffer, delta);
 	aesExpandKey(expanded_key, encrypt_key);
 	if (is_decrypt)
@@ -161,15 +158,8 @@ static void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8
   */
 void setEncryptionKey(uint8_t *in)
 {
-	uint8_t i;
-	for (i = 0; i < 16; i++)
-	{
-		nv_storage_encrypt_key[i] = in[i];
-	}
-	for (i = 0; i < 16; i++)
-	{
-		nv_storage_tweak_key[i] = in[i + 16];
-	}
+	memcpy(nv_storage_encrypt_key, in, 16);
+	memcpy(nv_storage_tweak_key, &(in[16]), 16);
 }
 
 /** Get the combined 256 bit encryption key.
@@ -179,15 +169,8 @@ void setEncryptionKey(uint8_t *in)
   */
 void getEncryptionKey(uint8_t *out)
 {
-	uint8_t i;
-	for (i = 0; i < 16; i++)
-	{
-		out[i] = nv_storage_encrypt_key[i];
-	}
-	for (i = 0; i < 16; i++)
-	{
-		out[i + 16] = nv_storage_tweak_key[i];
-	}
+	memcpy(out, nv_storage_encrypt_key, 16);
+	memcpy(&(out[16]), nv_storage_tweak_key, 16);
 }
 
 /** Check if the current combined encryption key is all zeroes. This has
@@ -216,18 +199,11 @@ uint8_t isEncryptionKeyNonZero(void)
   */
 void clearEncryptionKey(void)
 {
-	volatile uint8_t i;
-	for (i = 0; i < 16; i++)
-	{
-		// Just to be sure
-		nv_storage_tweak_key[i] = 0xff;
-		nv_storage_encrypt_key[i] = 0xff;
-	}
-	for (i = 0; i < 16; i++)
-	{
-		nv_storage_tweak_key[i] = 0;
-		nv_storage_encrypt_key[i] = 0;
-	}
+	// Just to be sure, do two passes.
+	memset(nv_storage_tweak_key, 0xff, 16);
+	memset(nv_storage_encrypt_key, 0xff, 16);
+	memset(nv_storage_tweak_key, 0, 16);
+	memset(nv_storage_encrypt_key, 0, 16);
 }
 
 /** Wrapper around nonVolatileWrite() which also encrypts data
@@ -250,17 +226,13 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
 	uint8_t ciphertext[16];
 	uint8_t plaintext[16];
 	uint8_t n[16];
-	uint8_t i;
 	NonVolatileReturn r;
 
 	block_start = address & 0xfffffff0;
 	block_offset = (uint8_t)(address & 0x0000000f);
 	block_end = (address + length - 1) & 0xfffffff0;
 
-	for (i = 0; i < 16; i++)
-	{
-		n[i] = 0;
-	}
+	memset(n, 0, 16);
 	for (; block_start <= block_end; block_start += 16)
 	{
 		r = nonVolatileRead(ciphertext, block_start, 16);
@@ -305,17 +277,13 @@ NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint
 	uint8_t ciphertext[16];
 	uint8_t plaintext[16];
 	uint8_t n[16];
-	uint8_t i;
 	NonVolatileReturn r;
 
 	block_start = address & 0xfffffff0;
 	block_offset = (uint8_t)(address & 0x0000000f);
 	block_end = (address + length - 1) & 0xfffffff0;
 
-	for (i = 0; i < 16; i++)
-	{
-		n[i] = 0;
-	}
+	memset(n, 0, 16);
 	for (; block_start <= block_end; block_start += 16)
 	{
 		r = nonVolatileRead(ciphertext, block_start, 16);

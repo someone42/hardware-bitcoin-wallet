@@ -27,21 +27,6 @@
 #include <memory.h>
 #endif // #ifdef TEST
 
-/** XOR (r = r XOR op1) 16 bytes with another 16 bytes.
-  * \param r One operand for the XOR operation. The result will also be
-  *          written here.
-  * \param op1 The other operand for the XOR operation.
-  */
-void xor16Bytes(uint8_t *r, uint8_t *op1)
-{
-	uint8_t i;
-
-	for (i = 0; i < 16; i++)
-	{
-		r[i] ^= op1[i];
-	}
-}
-
 /** Safety factor for entropy accumulation. The hardware random number
   * generator can (but should strive not to) overestimate its entropy. It can
   * overestimate its entropy by this factor without loss of security. */
@@ -174,12 +159,7 @@ extern int rand(void);
 // accumulation behaviour of getRandom256().
 uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 {
-	int i;
-
-	for (i = 0 ;i < n; i++)
-	{
-		buffer[i] = 0;
-	}
+	memset(buffer, 0, n);
 	buffer[0] = (uint8_t)rand();
 	return 8;
 }
@@ -206,10 +186,7 @@ int main(int argc, char **argv)
 	// each byte of the seed is changed.
 	for (i = 0; i < 64; i++)
 	{
-		for (j = 0; j < 64; j++)
-		{
-			seed[j] = 0;
-		}
+		memset(seed, 0, 64);
 		seed[i] = 1;
 		generateDeterministic256(keys[i], seed, 0);
 		for (j = 0; j < i; j++)
@@ -222,10 +199,7 @@ int main(int argc, char **argv)
 		}
 	}
 	// Check that generateDeterministic256() isn't ignoring num.
-	for (j = 0; j < 64; j++)
-	{
-		seed[j] = 0;
-	}
+	memset(seed, 0, 64);
 	seed[0] = 1;
 	generateDeterministic256(key2, seed, 1);
 	for (j = 0; j < 64; j++)

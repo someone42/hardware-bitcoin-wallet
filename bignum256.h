@@ -2,8 +2,8 @@
   *
   * \brief Describes functions and constants exported by bignum256.c.
   * 
-  * To use the functions described here, you must call bigSetField() first to
-  * set field parameters.
+  * To use most of the functions described here, you must call bigSetField()
+  * first to set field parameters. See bignum256.c for more details.
   *
   * This file is licensed as described by the file LICENCE.
   */

@@ -31,6 +31,11 @@ typedef unsigned long uint32_t;
 
 #endif // #ifdef NO_STDINT_H
 
+// The only functions from string.h used by hardware Bitcoin wallet
+// are memcpy() and memset(). If string.h is not available on the target
+// platform/toolchain, these functions will have to be implemented somewhere.
+#include <string.h>
+
 /** In certain situations, inlining can cause an overall increase in stack
   * space. For example, let foo() use 100 bytes of stack space, bar() 104 bytes
   * and sno() 50 bytes. If sno() calls foo() and then (after foo() returns)
@@ -55,18 +60,18 @@ typedef unsigned long uint32_t;
 #if defined(AVR) && defined(__GNUC__)
 #include <avr/io.h>
 #include <avr/pgmspace.h>
-#define LOOKUP_DWORD(x)		(pgm_read_dword_near(x))
-#define LOOKUP_BYTE(x)		(pgm_read_byte_near(x))
+#define LOOKUP_DWORD(x)		(pgm_read_dword_near(&(x)))
+#define LOOKUP_BYTE(x)		(pgm_read_byte_near(&(x)))
 #else
 #define PROGMEM
 /** Use this to access #PROGMEM lookup tables which have dword (32 bit)
   * entries. For example, normally you would use `r = dword_table[i];` but
-  * for a #PROGMEM table, use `r = LOOKUP_DWORD(&(dword_table[i]));`. */
-#define LOOKUP_DWORD(x)		(*(x))
+  * for a #PROGMEM table, use `r = LOOKUP_DWORD(dword_table[i]);`. */
+#define LOOKUP_DWORD(x)		(x)
 /** Use this to access #PROGMEM lookup tables which have byte (8 bit)
   * entries. For example, normally you would use `r = byte_table[i];` but
-  * for a #PROGMEM table, use `r = LOOKUP_BYTE(&(byte_table[i]));`. */
-#define LOOKUP_BYTE(x)		(*(x))
+  * for a #PROGMEM table, use `r = LOOKUP_BYTE(byte_table[i]);`. */
+#define LOOKUP_BYTE(x)		(x)
 #endif // #if defined(AVR) && defined(__GNUC__)
 
 #endif // #ifndef COMMON_H_INCLUDED

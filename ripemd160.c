@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <memory.h>
 #endif // #ifdef TEST
 
 #include "common.h"
@@ -187,13 +188,13 @@ static void ripemd160Block(HashState *hs)
 			K2 = 0x00000000;
 			break;
 		}
-		T = rol(A1 + R1 + hs->m[LOOKUP_BYTE(&(r1[j]))] + K1, LOOKUP_BYTE(&(s1[j]))) + E1;
+		T = rol(A1 + R1 + hs->m[LOOKUP_BYTE(r1[j])] + K1, LOOKUP_BYTE(s1[j])) + E1;
 		A1 = E1;
 		E1 = D1;
 		D1 = rol(C1, 10);
 		C1 = B1;
 		B1 = T;
-		T = rol(A2 + R2 + hs->m[LOOKUP_BYTE(&(r2[j]))] + K2, LOOKUP_BYTE(&(s2[j]))) + E2;
+		T = rol(A2 + R2 + hs->m[LOOKUP_BYTE(r2[j])] + K2, LOOKUP_BYTE(s2[j])) + E2;
 		A2 = E2;
 		E2 = D2;
 		D2 = rol(C2, 10);
@@ -266,10 +267,7 @@ static void ripemd160(uint8_t *message, uint32_t length)
 		ripemd160WriteByte(&hs, message[i]);
 	}
 	ripemd160Finish(&hs);
-	for (i = 0; i < 5; i++)
-	{
-		h[i] = hs.h[i];
-	}
+	memcpy(h, hs.h, 20);
 }
 
 // All the tests (including the million "a" test) are from Appendix B of the
@@ -309,9 +307,7 @@ int main(void)
 		str = (char *)test_strings[i];
 		ripemd160((uint8_t *)str, strlen(str));
 		compare_h = (uint32_t *)&(test_hashes[i * 5]);
-		if ((h[0] == compare_h[0]) && (h[1] == compare_h[1])
-			&& (h[2] == compare_h[2]) && (h[3] == compare_h[3])
-			&& (h[4] == compare_h[4]))
+		if (!memcmp(h, compare_h, 20))
 		{
 			//printf("%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4]);
 			succeeded++;

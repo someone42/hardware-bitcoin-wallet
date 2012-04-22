@@ -94,21 +94,17 @@ static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, con
 	uint8_t j;
 	uint8_t bit;
 
-	for (i = 0; i < size; i++)
-	{
-		temp[i] = 0;
-		r[i] = 0;
-	}
+	memset(temp, 0, (uint16_t)(size + 1));
+	memset(r, 0, size);
 	op1[size] = 0;
-	temp[size] = 0;
 
 	for (i = (uint8_t)(size - 1); i < size; i--)
 	{
 		bit = 0x80;
 		for (j = 0; j < 8; j++)
 		{
-			temp[i] = LOOKUP_BYTE(&(shift_list[j * 2]));
-			temp[i + 1] = LOOKUP_BYTE(&(shift_list[j * 2 + 1]));
+			temp[i] = LOOKUP_BYTE(shift_list[j * 2]);
+			temp[i + 1] = LOOKUP_BYTE(shift_list[j * 2 + 1]);
 			if (bigCompareVariableSize(temp, op1, (uint8_t)(size + 1)) != BIGCMP_GREATER)
 			{
 				bigSubtractVariableSizeNoModulo(op1, op1, temp, (uint8_t)(size + 1));
@@ -136,25 +132,19 @@ void amountToText(char *out, uint8_t *in)
 	uint8_t j;
 	uint8_t index;
 
-	for (i = 0; i < 8; i++)
-	{
-		r[i] = in[i];
-	}
+	memcpy(r, in, 8);
 
 	// Write amount into a string like: "000000000000.00000000".
 	index = 20;
 	for (i = 0; i < 20; i++)
 	{
-		for (j = 0; j < 8; j++)
-		{
-			op1[j] = r[j];
-		}
+		memcpy(op1, r, 8);
 		bigDivide(r, op1, temp, 8, base10_shift_list);
 		if (i == 8)
 		{
 			out[index--] = '.';
 		}
-		out[index--] = LOOKUP_BYTE(&(base10_char_list[op1[0]]));
+		out[index--] = LOOKUP_BYTE(base10_char_list[op1[0]]);
 	}
 	out[21] = '\0';
 
@@ -239,12 +229,9 @@ void hashToAddr(char *out, uint8_t *in)
 	index = 34;
 	for (i = 0; i < 35; i++)
 	{
-		for (j = 0; j < 25; j++)
-		{
-			op1[j] = r[j];
-		}
+		memcpy(op1, r, 25);
 		bigDivide(r, op1, temp, 25, base58_shift_list);
-		out[index--] = LOOKUP_BYTE(&(base58_char_list[op1[0]]));
+		out[index--] = LOOKUP_BYTE(base58_char_list[op1[0]]);
 	}
 	out[35] = '\0';
 
@@ -322,7 +309,7 @@ const struct Base10TestStruct base10_tests[] = {
 /** Some of these are real Bitcoin addresses, obtained from blockexplorer
   * and from forums.
   * Others were generated using http://blockexplorer.com/q/hashtoaddress. */
-const struct base58test_struct base58_tests[] = {
+const struct Base58TestStruct base58_tests[] = {
 {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
   "1111111111111111111114oLvT2"},
@@ -416,10 +403,10 @@ int main(void)
 		}
 	}
 
-	num_tests = sizeof(base58tests) / sizeof(struct Base58TestStruct);
+	num_tests = sizeof(base58_tests) / sizeof(struct Base58TestStruct);
 	for (i = 0; i < num_tests; i++)
 	{
-		hashToAddr(addr, (uint8_t *)base58tests[i].hash);
+		hashToAddr(addr, (uint8_t *)base58_tests[i].hash);
 		if (strcmp(base58_tests[i].addr, addr))
 		{
 			printf("Base58 test number %d failed\n", i);

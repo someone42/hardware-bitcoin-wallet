@@ -552,7 +552,6 @@ uint8_t processPacket(void)
 {
 	uint8_t command;
 	uint8_t buffer[40];
-	uint8_t i;
 	uint8_t r;
 	AddressHandle ah;
 
@@ -749,18 +748,10 @@ uint8_t processPacket(void)
 		}
 		if (!r)
 		{
-			volatile uint8_t *buffer_alias;
 			clearEncryptionKey();
 			sanitiseRam();
-			buffer_alias = buffer;
-			for (i = 0; i < 32; i++)
-			{
-				buffer_alias[i] = 0xff;
-			}
-			for (i = 0; i < 32; i++)
-			{
-				buffer_alias[i] = 0x0;
-			}
+			memset(buffer, 0xff, sizeof(buffer));
+			memset(buffer, 0, sizeof(buffer));
 			if (translateWalletError(uninitWallet(), 0, NULL))
 			{
 				return 1; // write error

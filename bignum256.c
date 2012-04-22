@@ -23,8 +23,11 @@
   * bytes (such functions will use the typedef #BigNum256), but some functions
   * accept variable-sized arrays.
   *
-  * To use the exported functions here, you must call bigSetField() first to
-  * set field parameters. If you don't do this, you'll get a segfault!
+  * To use most of the exported functions here, you must call bigSetField()
+  * first to set field parameters. If you don't do this, you'll get a
+  * segfault! Functions which do not operate under a prime finite field (eg.
+  * bigSubtractVariableSizeNoModulo() and bigCompare()) do not need
+  * bigSetField() to be called first.
   *
   * This file is licensed as described by the file LICENCE.
   */
@@ -158,11 +161,7 @@ uint8_t bigIsZero(BigNum256 op1)
   */
 void bigSetZero(BigNum256 r)
 {
-	uint8_t i;
-	for (i = 0; i < 32; i++)
-	{
-		r[i] = 0;
-	}
+	memset(r, 0, 32);
 }
 
 /** Assign one 32 byte multi-precision number to another.
@@ -171,11 +170,7 @@ void bigSetZero(BigNum256 r)
   */
 void bigAssign(BigNum256 r, BigNum256 op1)
 {
-	uint8_t i;
-	for (i = 0; i < 32; i++)
-	{
-		r[i] = op1[i];
-	}
+	memcpy(r, op1, 32);
 }
 
 /** Set prime finite field parameters. The arrays passed as parameters to
@@ -359,10 +354,7 @@ void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size,
 	uint8_t i;
 	uint8_t j;
 
-	for (i = 0; i < (op1_size + op2_size); i++)
-	{
-		r[i] = 0;
-	}
+	memset(r, 0, (uint16_t)(op1_size + op2_size));
 	// The multiplication algorithm here is what GMP calls the "schoolbook"
 	// method. It's also sometimes referred to as "long multiplication". It's
 	// the most straightforward method of multiplication.
@@ -404,7 +396,6 @@ void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	uint8_t temp[64];
 	uint8_t full_r[64];
-	uint8_t i;
 	uint8_t remaining;
 
 	bigMultiplyVariableSizeNoModulo(full_r, op1, 32, op2, 32);
@@ -419,10 +410,7 @@ void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	remaining = 64;
 	while (remaining > 32)
 	{
-		for (i = 0; i < 64; i++)
-		{
-			temp[i] = 0;
-		}
+		memset(temp, 0, 64);
 		// n should be equal to 2 ^ 256 - complement_n. Therefore, subtracting
 		// off (upper 256 bits of r) * n is equivalent to setting the
 		// upper 256 bits of r to 0 and
@@ -431,10 +419,7 @@ void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2)
 			temp,
 			complement_n, size_complement_n,
 			&(full_r[32]), (uint8_t)(remaining - 32));
-		for (i = 32; i < 64; i++)
-		{
-			full_r[i] = 0;
-		}
+		memset(&(full_r[32]), 0, 32);
 		bigAddVariableSizeNoModulo(full_r, full_r, temp, remaining);
 		// This update of the bound is only valid for remaining > 32.
 		remaining = (uint8_t)(remaining - 32 + size_complement_n);

@@ -19,14 +19,9 @@
   */
 void clearM(HashState *hs)
 {
-	uint8_t i;
-
 	hs->index_m = 0;
 	hs->byte_position_m = 0;
-	for (i = 0; i < 16; i++)
-	{
-		hs->m[i] = 0;
-	}
+	memset(hs->m, 0, 64);
 }
 
 /** Add one more byte to the message buffer and call HashState#hashBlock()
@@ -98,10 +93,7 @@ void hashFinish(HashState *hs)
 		hashWriteByte(hs, 0);
 	}
 	// Write 64 bit length (in bits).
-	for (i = 0; i < 8; i++)
-	{
-		buffer[i] = 0;
-	}
+	memset(buffer, 0, 8);
 	if (hs->is_big_endian)
 	{
 		writeU32BigEndian(&(buffer[4]), length_bits);
