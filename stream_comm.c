@@ -63,29 +63,23 @@ static uint32_t payload_length;
 /** Write a number of bytes to the output stream.
   * \param buffer The array of bytes to be written.
   * \param length The number of bytes to write.
-  * \return 0 on success, non-zero if a stream write error occurred.
   */
-static uint8_t writeBytes(uint8_t *buffer, uint16_t length)
+static void writeBytesToStream(uint8_t *buffer, uint16_t length)
 {
 	uint16_t i;
 
 	for (i = 0; i < length; i++)
 	{
-		if (streamPutOneByte(buffer[i]))
-		{
-			return 1; // write error
-		}
+		streamPutOneByte(buffer[i]);
 	}
-	return 0;
 }
 
 /** Sends a packet with a string as payload.
   * \param set See getString().
   * \param spec See getString().
   * \param command The type of the packet, as defined in the file PROTOCOL.
-  * \return 0 on success, non-zero if there was a stream write error.
   */
-static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
+static void writeString(StringSet set, uint8_t spec, uint8_t command)
 {
 	uint8_t buffer[5];
 	uint8_t one_char;
@@ -95,19 +89,12 @@ static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
 	buffer[0] = command;
 	length = getStringLength(set, spec);
 	writeU32LittleEndian(&(buffer[1]), length);
-	if (writeBytes(buffer, 5))
-	{
-		return 1; // write error
-	}
+	writeBytesToStream(buffer, 5);
 	for (i = 0; i < length; i++)
 	{
 		one_char = (uint8_t)getString(set, spec, i);
-		if (streamPutOneByte(one_char))
-		{
-			return 1; // write error
-		}
+		streamPutOneByte(one_char);
 	}
-	return 0;
 }
 
 /** Translates a return value from one of the wallet functions into a response
@@ -120,9 +107,8 @@ static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
   *               number of bytes.
   * \param data A byte array holding the data of the success payload.
   *             Use #NULL for no payload.
-  * \return 0 on success, non-zero if there was a stream write error.
   */
-static uint8_t translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
+static void translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
 {
 	uint8_t buffer[5];
 
@@ -130,60 +116,41 @@ static uint8_t translateWalletError(WalletErrors r, uint8_t length, uint8_t *dat
 	{
 		buffer[0] = 0x02;
 		writeU32LittleEndian(&(buffer[1]), length);
-		if (writeBytes(buffer, 5))
-		{
-			return 1; // write error
-		}
-		if (writeBytes(data, length))
-		{
-			return 1; // write error
-		}
+		writeBytesToStream(buffer, 5); // type and length
+		writeBytesToStream(data, length); // value
 	}
 	else
 	{
-		return writeString(STRINGSET_WALLET, (uint8_t)r, 0x03);
+		writeString(STRINGSET_WALLET, (uint8_t)r, 0x03);
 	}
-
-	return 0;
 }
 
 /** Read bytes from the stream.
   * \param buffer The byte array where the bytes will be placed. This must
   *               have enough space to store length bytes.
   * \param length The number of bytes to read.
-  * \return 0 on success, non-zero if a stream read error occurred.
   */
-static uint8_t readBytes(uint8_t *buffer, uint8_t length)
+static void getBytesFromStream(uint8_t *buffer, uint8_t length)
 {
 	uint8_t i;
 
 	for (i = 0; i < length; i++)
 	{
-		if (streamGetOneByte(&(buffer[i])))
-		{
-			return 1; // read error
-		}
+		buffer[i] = streamGetOneByte();
 	}
 	payload_length -= length;
-	return 0;
 }
 
 /** Format non-volatile storage, erasing its contents in a way that makes
   * them irretrievable.
-  * \return 0 on success or non-zero if there was a stream write error.
   */
-uint8_t formatStorage(void)
+static void formatStorage(void)
 {
 	WalletErrors wallet_return;
 
 	wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
-	if (translateWalletError(wallet_return, 0, NULL))
-	{
-		return 1; // write error
-	}
-
+	translateWalletError(wallet_return, 0, NULL);
 	uninitWallet(); // force wallet to unload
-	return 0;
 }
 
 /** Sign a transaction and (if everything goes well) send the signature in a
@@ -192,9 +159,8 @@ uint8_t formatStorage(void)
   *           to sign the transaction.
   * \param sig_hash The signature hash of the transaction, as calculated by
   *                 parseTransaction(). This must be an array of 32 bytes.
-  * \return Same values as validateAndSignTransaction().
   */
-static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t *sig_hash)
+static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *sig_hash)
 {
 	uint8_t signature[73];
 	uint8_t private_key[32];
@@ -208,78 +174,61 @@ static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t
 		signature_length = signTransaction(signature, sig_hash, private_key);
 	}
 	wallet_return = walletGetLastError();
-	if (translateWalletError (wallet_return, signature_length, signature))
-	{
-		return 1; // write error
-	}
-	return 0;
+	translateWalletError(wallet_return, signature_length, signature);
 }
 
 /** Read a transaction from the stream, parse it and ask the user
   * if they approve it.
-  * \param out_confirmed A non-zero value will be written to here if the
-  *                      user approved the transaction, otherwise a zero value
-  *                      will be written.
+  * \param out_approved A non-zero value will be written to here if the
+  *                     user approved the transaction, otherwise a zero value
+  *                     will be written.
   * \param sig_hash The signature hash of the transaction will be written to
   *                 here by parseTransaction(). This must be an array of 32
   *                 bytes.
   * \param transaction_length The length of the transaction, in number of
   *                           bytes. This can be derived from the payload
   *                           length of a packet.
-  * \return Same values as validateAndSignTransaction().
   */
-static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *sig_hash, uint32_t transaction_length)
+static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_hash, uint32_t transaction_length)
 {
 	TransactionErrors r;
 	uint8_t transaction_hash[32];
 
 	// Validate transaction and calculate hashes of it.
-	*out_confirmed = 0;
+	*out_approved = 0;
 	clearOutputsSeen();
 	r = parseTransaction(sig_hash, transaction_hash, transaction_length);
-	if (r == TRANSACTION_READ_ERROR)
-	{
-		return 2; // read error
-	}
 	if (r != TRANSACTION_NO_ERROR)
 	{
 		// Transaction parse error.
-		if (writeString(STRINGSET_TRANSACTION, (uint8_t)r, 0x03))
-		{
-			return 1; // write error
-		}
-		else
-		{
-			return 0;
-		}
+		writeString(STRINGSET_TRANSACTION, (uint8_t)r, 0x03);
+		return;
 	}
 
 	// Get permission from user.
-	*out_confirmed = 0;
-	// Does transaction_hash match previous confirmed transaction?
+	*out_approved = 0;
+	// Does transaction_hash match previous approved transaction?
 	if (prev_transaction_hash_valid)
 	{
 		if (bigCompare(transaction_hash, prev_transaction_hash) == BIGCMP_EQUAL)
 		{
-			*out_confirmed = 1;
+			*out_approved = 1;
 			prev_transaction_hash_valid--;
 		}
 	}
-	if (!(*out_confirmed))
+	if (!(*out_approved))
 	{
 		// Need to explicitly get permission from user.
-		// The call to parseTransaction should have logged all the outputs
+		// The call to parseTransaction() should have logged all the outputs
 		// to the user interface.
 		if (askUser(ASKUSER_SIGN_TRANSACTION))
 		{
-			if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
-			{
-				return 1; // write error
-			}
+			writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
 		}
 		else
 		{
-			*out_confirmed = 1;
+			// User approved transaction.
+			*out_approved = 1;
 			memcpy(prev_transaction_hash, transaction_hash, 32);
 			// The transaction hash can only be reused another
 			// (number of inputs) - 1 times. This is to prevent an exploit
@@ -295,9 +244,7 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
 				prev_transaction_hash_valid--;
 			}
 		}
-	}
-
-	return 0;
+	} // if (!(*out_approved))
 }
 
 /** Validate and sign a transaction. This basically calls
@@ -312,34 +259,19 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
   * \param transaction_length The length of the transaction, in number of
   *                           bytes. This can be derived from the payload
   *                           length of a packet.
-  * \return 0 on success, 1 if a stream write error occurred or 2 if a stream
-  *         read error occurred. "Success" here is defined as "no stream read
-  *         or write errors occurred"; 0 will be returned even if the
-  *         transaction was rejected by the user.
   */
-static NOINLINE uint8_t validateAndSignTransaction(AddressHandle ah, uint32_t transaction_length)
+static NOINLINE void validateAndSignTransaction(AddressHandle ah, uint32_t transaction_length)
 {
-	uint8_t confirmed;
-	uint8_t r;
+	uint8_t approved;
 	uint8_t sig_hash[32];
 
-	r = parseTransactionAndAsk(&confirmed, sig_hash, transaction_length);
-	if (r)
-	{
-		return r;
-	}
-
-	if (confirmed)
+	approved = 0;
+	parseTransactionAndAsk(&approved, sig_hash, transaction_length);
+	if (approved)
 	{
 		// Okay to sign transaction.
-		r = signTransactionByAddressHandle(ah, sig_hash);
-		if (r)
-		{
-			return r;
-		}
+		signTransactionByAddressHandle(ah, sig_hash);
 	}
-
-	return 0;
 }
 
 /** Send a packet containing an address and its corresponding public key.
@@ -352,9 +284,8 @@ static NOINLINE uint8_t validateAndSignTransaction(AddressHandle ah, uint32_t tr
   *                     If this is zero, the address handle will be read from
   *                     the input stream. No address handle will be prepended
   *                     to the output packet.
-  * \return 1 if a stream read or write error occurred, 0 on success.
   */
-static NOINLINE uint8_t getAndSendAddressAndPublicKey(uint8_t generate_new)
+static NOINLINE void getAndSendAddressAndPublicKey(uint8_t generate_new)
 {
 	AddressHandle ah;
 	PointAffine public_key;
@@ -375,72 +306,44 @@ static NOINLINE uint8_t getAndSendAddressAndPublicKey(uint8_t generate_new)
 	else
 	{
 		// Read address handle from input stream.
-		if (readBytes(buffer, 4))
-		{
-			return 1; // read error
-		}
+		getBytesFromStream(buffer, 4);
 		ah = readU32LittleEndian(buffer);
 		r = getAddressAndPublicKey(address, &public_key, ah);
 	}
 
 	if (r == WALLET_NO_ERROR)
 	{
-		buffer[0] = 0x02;
+		streamPutOneByte(0x02);
 		if (generate_new)
 		{
 			// 4 (address handle) + 20 (address) + 65 (public key)
-			writeU32LittleEndian(&(buffer[1]), 89);
+			writeU32LittleEndian(buffer, 89);
 		}
 		else
 		{
 			// 20 (address) + 65 (public key)
-			writeU32LittleEndian(&(buffer[1]), 85);
+			writeU32LittleEndian(buffer, 85);
 		}
-		if (writeBytes(buffer, 5))
-		{
-			return 1; // write error
-		}
+		writeBytesToStream(buffer, 4);
 		if (generate_new)
 		{
 			writeU32LittleEndian(buffer, ah);
-			if (writeBytes(buffer, 4))
-			{
-				return 1; // write error
-			}
+			writeBytesToStream(buffer, 4);
 		}
-		if (writeBytes(address, 20))
-		{
-			return 1; // write error
-		}
-		buffer[0] = 0x04;
-		if (writeBytes(buffer, 1))
-		{
-			return 1; // write error
-		}
-		if (writeBytes(public_key.x, 32))
-		{
-			return 1; // write error
-		}
-		if (writeBytes(public_key.y, 32))
-		{
-			return 1; // write error
-		}
+		writeBytesToStream(address, 20);
+		streamPutOneByte(0x04);
+		writeBytesToStream(public_key.x, 32);
+		writeBytesToStream(public_key.y, 32);
 	}
 	else
 	{
-		if (translateWalletError (r, 0, NULL))
-		{
-			return 1; // write error
-		}
+		translateWalletError (r, 0, NULL);
 	} // end if (r == WALLET_NO_ERROR)
-
-	return 0;
 }
 
 /** Send a packet containing a list of wallets.
-  * \return 1 if a stream write error occurred, 0 on success.
   */
-static NOINLINE uint8_t listWallets(void)
+static NOINLINE void listWallets(void)
 {
 	uint8_t version[4];
 	uint8_t name[NAME_LENGTH];
@@ -450,57 +353,33 @@ static NOINLINE uint8_t listWallets(void)
 	if (getWalletInfo(version, name) != WALLET_NO_ERROR)
 	{
 		wallet_return = walletGetLastError();
-		if (translateWalletError(wallet_return, 0, NULL))
-		{
-			return 1; // write error
-		}
+		translateWalletError(wallet_return, 0, NULL);
 	}
 	else
 	{
-		buffer[0] = 0x02;
-		writeU32LittleEndian(&(buffer[1]), 4 + NAME_LENGTH);
-		if (writeBytes(buffer, 5))
-		{
-			return 1; // write error
-		}
-		if (writeBytes(version, 4))
-		{
-			return 1; // write error
-		}
-		if (writeBytes(name, NAME_LENGTH))
-		{
-			return 1; // write error
-		}
+		streamPutOneByte(0x02);
+		writeU32LittleEndian(buffer, 4 + NAME_LENGTH);
+		writeBytesToStream(buffer, 4);
+		writeBytesToStream(version, 4);
+		writeBytesToStream(name, NAME_LENGTH);
 	}
-
-	return 0;
 }
 
 /** Read but ignore #payload_length bytes from input stream. This will also
   * set #payload_length to 0 (if everything goes well). This function is
   * useful for ensuring that the entire payload of a packet is read from the
   * stream device.
-  * \return 0 on success, non-zero if there was a stream read error.
   */
-static uint8_t readAndIgnoreInput(void)
+static void readAndIgnoreInput(void)
 {
-	uint8_t junk;
-
 	if (payload_length)
 	{
 		for (; payload_length--; )
 		{
-			if (streamGetOneByte(&junk))
-			{
-				return 1; // read error
-			}
+			streamGetOneByte();
 		}
 	}
-	return 0;
 }
-
-/** All I/O errors returned by expectLength() are >= EXPECT_LENGTH_IO_ERROR. */
-#define EXPECT_LENGTH_IO_ERROR		42
 
 /** Expect the payload length of a packet to be equal to desired_length, and
   * send an error message (and read but ignore #payload_length bytes from the
@@ -509,27 +388,19 @@ static uint8_t readAndIgnoreInput(void)
   * the file PROTOCOL.
   * \param desired_length The expected payload length (in bytes) of the packet
   *                       currently being received from the stream device.
-  * \return 0 for success,
-  * 1 for payload length != desired_length, #EXPECT_LENGTH_IO_ERROR for stream
-  * read error and #EXPECT_LENGTH_IO_ERROR + 1 for stream write error.
+  * \return 0 for success, 1 for payload length != desired_length.
   */
 static uint8_t expectLength(const uint8_t desired_length)
 {
 	if (payload_length != desired_length)
 	{
-		if (readAndIgnoreInput())
-		{
-			return EXPECT_LENGTH_IO_ERROR; // read error
-		}
-		if (writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
-		{
-			return EXPECT_LENGTH_IO_ERROR + 1; // write error
-		}
+		readAndIgnoreInput();
+		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03);
 		return 1; // mismatched length
 	}
 	else
 	{
-		return 0;
+		return 0; // success
 	}
 }
 
@@ -542,12 +413,8 @@ static uint8_t expectLength(const uint8_t desired_length)
   * communication session between the hardware Bitcoin wallet and a host
   * should consist of the wallet and host alternating between sending a
   * packet and receiving a packet.
-  * \return 0 if the packet was received successfully, non-zero if a stream
-  *         read or write error occurred. 0 will still be returned if a
-  *         command failed due to reasons other than stream I/O; here, "an
-  *         error" means a problem reading/writing from/to the stream device.
   */
-uint8_t processPacket(void)
+void processPacket(void)
 {
 	uint8_t command;
 	// Technically, the length of buffer should also be >= 4, since it is used
@@ -555,30 +422,22 @@ uint8_t processPacket(void)
 	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
 	// right mind would use encryption with smaller than 32 bit keys.
 	uint8_t buffer[MAX(NAME_LENGTH, WALLET_ENCRYPTION_KEY_LENGTH)];
-	uint8_t r;
 	uint32_t num_addresses;
 	AddressHandle ah;
 	WalletErrors wallet_return;
 
-	if (streamGetOneByte(&command))
-	{
-		return 1; // read error
-	}
-	if (readBytes(buffer, 4))
-	{
-		return 1; // read error
-	}
+	command = streamGetOneByte();
+	getBytesFromStream(buffer, 4);
 	payload_length = readU32LittleEndian(buffer);
 
 	// Checklist for each case:
 	// 1. Have you checked or dealt with length?
 	// 2. Have you fully read the input stream before writing (to avoid
 	//    deadlocks)?
-	// 3. Have you dealt with read and write errors?
-	// 4. Have you asked permission from the user (for potentially dangerous
+	// 3. Have you asked permission from the user (for potentially dangerous
 	//    operations)?
-	// 5. Have you checked for errors from wallet functions?
-	// 6. Have you used the right check for the wallet functions?
+	// 4. Have you checked for errors from wallet functions?
+	// 5. Have you used the right check for the wallet functions?
 
 	switch (command)
 	{
@@ -586,14 +445,8 @@ uint8_t processPacket(void)
 	case 0x00:
 		// Ping request.
 		// Just throw away the data and then send response.
-		if (readAndIgnoreInput())
-		{
-			return 1; // read error
-		}
-		if (writeString(STRINGSET_MISC, MISCSTR_VERSION, 0x01))
-		{
-			return 1; // write error
-		}
+		readAndIgnoreInput();
+		writeString(STRINGSET_MISC, MISCSTR_VERSION, 0x01);
 		break;
 
 	// Commands 0x01, 0x02 and 0x03 should never be received; they are only
@@ -601,278 +454,153 @@ uint8_t processPacket(void)
 
 	case 0x04:
 		// Create new wallet.
-		r = expectLength(72);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
+		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
 		{
-			return 1; // read or write error
-		}
-		if (!r)
-		{
-			if (readBytes(buffer, WALLET_ENCRYPTION_KEY_LENGTH))
-			{
-				return 1; // read error
-			}
+			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
-			if (readBytes(buffer, NAME_LENGTH))
-			{
-				return 1; // read error
-			}
+			getBytesFromStream(buffer, NAME_LENGTH);
 			if (askUser(ASKUSER_NUKE_WALLET))
 			{
-				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
-				{
-					return 1; // write error
-				}
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
 			}
 			else
 			{
 				wallet_return = newWallet(buffer);
-				if (translateWalletError(wallet_return, 0, NULL))
-				{
-					return 1; // write error
-				}
+				translateWalletError(wallet_return, 0, NULL);
 			}
-		} // if (!r)
+		}
 		break;
 
 	case 0x05:
 		// Create new address in wallet.
-		r = expectLength(0);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
-		{
-			return 1; // read or write error
-		}
-		if (!r)
+		if (!expectLength(0))
 		{
 			if (askUser(ASKUSER_NEW_ADDRESS))
 			{
-				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
-				{
-					return 1; // write error
-				}
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
 			}
 			else
 			{
-				if (getAndSendAddressAndPublicKey(1))
-				{
-					return 1; // read or write error
-				}
+				getAndSendAddressAndPublicKey(1);
 			}
-		} // if (!r)
+		}
 		break;
 
 	case 0x06:
 		// Get number of addresses in wallet.
-		r = expectLength(0);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
-		{
-			return 1; // read or write error
-		}
-		if (!r)
+		if (!expectLength(0))
 		{
 			num_addresses = getNumAddresses();
 			writeU32LittleEndian(buffer, num_addresses);
 			wallet_return = walletGetLastError();
-			if (translateWalletError(wallet_return, 4, buffer))
-			{
-				return 1; // write error
-			}
-		} // if (!r)
+			translateWalletError(wallet_return, 4, buffer);
+		}
 		break;
 
 	case 0x09:
 		// Get public key corresponding to an address handle.
-		r = expectLength(4);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
+		if (!expectLength(4))
 		{
-			return 1; // read or write error
+			getAndSendAddressAndPublicKey(0);
 		}
-		if (!r)
-		{
-			if (getAndSendAddressAndPublicKey(0))
-			{
-				return 1; // read or write error
-			}
-		} // if (!r)
 		break;
 
 	case 0x0a:
 		// Sign a transaction.
 		if (payload_length <= 4)
 		{
-			if (readAndIgnoreInput())
-			{
-				return 1; // read error
-			}
-			if (writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
-			{
-				return 1; // write error
-			}
+			readAndIgnoreInput();
+			writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03);
 		}
 		else
 		{
-			if (readBytes(buffer, 4))
-			{
-				return 1; // read error
-			}
+			getBytesFromStream(buffer, 4);
 			ah = readU32LittleEndian(buffer);
-			// Don't need to subtract 4 off payload_length because readBytes
-			// has already done so.
-			if (validateAndSignTransaction(ah, payload_length))
-			{
-				return 1; // read or write error
-			}
+			// Don't need to subtract 4 off payload_length because
+			// getBytesFromStream() has already done so.
+			validateAndSignTransaction(ah, payload_length);
 			payload_length = 0;
 		}
 		break;
 
 	case 0x0b:
 		// Load wallet.
-		r = expectLength(WALLET_ENCRYPTION_KEY_LENGTH);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
+		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
 		{
-			return 1; // read or write error
-		}
-		if (!r)
-		{
-			if (readBytes(buffer, WALLET_ENCRYPTION_KEY_LENGTH))
-			{
-				return 1; // read error
-			}
+			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
 			wallet_return = initWallet();
-			if (translateWalletError (wallet_return, 0, NULL))
-			{
-				return 1; // write error
-			}
-		} // if (!r)
+			translateWalletError (wallet_return, 0, NULL);
+		}
 		break;
 
 	case 0x0c:
 		// Unload wallet.
-		r = expectLength(0);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
-		{
-			return 1; // read or write error
-		}
-		if (!r)
+		if (!expectLength(0))
 		{
 			clearEncryptionKey();
 			sanitiseRam();
 			memset(buffer, 0xff, sizeof(buffer));
 			memset(buffer, 0, sizeof(buffer));
 			wallet_return = uninitWallet();
-			if (translateWalletError(wallet_return, 0, NULL))
-			{
-				return 1; // write error
-			}
-		} // if (!r)
+			translateWalletError(wallet_return, 0, NULL);
+		}
 		break;
 
 	case 0x0d:
 		// Format storage.
-		r = expectLength(0);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
-		{
-			return 1; // read or write error
-		}
-		if (!r)
+		if (!expectLength(0))
 		{
 			if (askUser(ASKUSER_FORMAT))
 			{
-				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
-				{
-					return 1; // write error
-				}
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
 			}
 			else
 			{
-				if (formatStorage())
-				{
-					return 1; // write error
-				}
+				formatStorage();
 			}
-		} // if (!r)
+		}
 		break;
 
 	case 0x0e:
 		// Change wallet encryption key.
-		r = expectLength(WALLET_ENCRYPTION_KEY_LENGTH);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
+		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
 		{
-			return 1; // read or write error
-		}
-		if (!r)
-		{
-			if (readBytes(buffer, WALLET_ENCRYPTION_KEY_LENGTH))
-			{
-				return 1; // read error
-			}
+			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			wallet_return = changeEncryptionKey(buffer);
-			if (translateWalletError(wallet_return, 0, NULL))
-			{
-				return 1; // write error
-			}
-		} // if (!r)
+			translateWalletError(wallet_return, 0, NULL);
+		}
 		break;
 
 	case 0x0f:
 		// Change wallet name.
-		r = expectLength(NAME_LENGTH);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
+		if (!expectLength(NAME_LENGTH))
 		{
-			return 1; // read or write error
-		}
-		if (!r)
-		{
-			if (readBytes(buffer, NAME_LENGTH))
-			{
-				return 1; // read error
-			}
+			getBytesFromStream(buffer, NAME_LENGTH);
 			if (askUser(ASKUSER_CHANGE_NAME))
 			{
-				if (writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03))
-				{
-					return 1; // write error
-				}
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
 			}
 			else
 			{
 				wallet_return = changeWalletName(buffer);
-				if (translateWalletError(wallet_return, 0, NULL))
-				{
-					return 1; // write error
-				}
+				translateWalletError(wallet_return, 0, NULL);
 			}
-		} // if (!r)
+		}
 		break;
 
 	case 0x10:
 		// List wallets.
-		r = expectLength(0);
-		if (r >= EXPECT_LENGTH_IO_ERROR)
+		if (!expectLength(0))
 		{
-			return 1; // read or write error
+			listWallets();
 		}
-		if (!r)
-		{
-			if (listWallets())
-			{
-				return 1; // write error
-			}
-		} // if (!r)
 		break;
 
 	default:
 		// Unknown command.
-		if (readAndIgnoreInput())
-		{
-			return 1; // read error
-		}
-		if (writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03))
-		{
-			return 1; // write error
-		}
+		readAndIgnoreInput();
+		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03);
 		break;
 
 	}
@@ -881,25 +609,22 @@ uint8_t processPacket(void)
 	assert(payload_length == 0);
 #endif
 
-	return 0;
 }
 
 #ifdef INTERFACE_STUBS
 
-uint8_t streamGetOneByte(uint8_t *one_byte)
+uint8_t streamGetOneByte(void)
 {
-	*one_byte = 0;
-	return 0; // success
+	return 0;
 }
 
-uint8_t streamPutOneByte(uint8_t one_byte)
+void streamPutOneByte(uint8_t one_byte)
 {
 	// Reference one_byte to make certain compilers happy
 	if (one_byte > 1000)
 	{
-		return 1;
+		exit(1); // will never happen anyway
 	}
-	return 0; // success
 }
 
 uint16_t getStringLength(StringSet set, uint8_t spec)
@@ -955,20 +680,19 @@ static void setInputStream(const uint8_t *buffer, int length)
 }
 
 // Get one byte from the contents of the buffer set by setInputStream().
-uint8_t streamGetOneByte(uint8_t *one_byte)
+uint8_t streamGetOneByte(void)
 {
 	if (stream_ptr >= stream_length)
 	{
-		return 1; // end of stream
+		printf("ERROR: Tried to read past end of stream\n");
+		exit(1);
 	}
-	*one_byte = stream[stream_ptr++];
-	return 0; // success
+	return stream[stream_ptr++];
 }
 
-uint8_t streamPutOneByte(uint8_t one_byte)
+void streamPutOneByte(uint8_t one_byte)
 {
 	printf(" %02x", (int)one_byte);
-	return 0; // success
 }
 
 static const char *getStringInternal(StringSet set, uint8_t spec)
@@ -1238,12 +962,9 @@ static const uint8_t test_stream_change_name[] = {
 
 static void sendOneTestStream(const uint8_t *test_stream, int size)
 {
-	int r;
-
 	setInputStream(test_stream, size);
-	r = processPacket();
+	processPacket();
 	printf("\n");
-	printf("processPacket() returned: %d\n", r);
 }
 
 int main(void)
@@ -1271,6 +992,8 @@ int main(void)
 	printf("Getting address 0...\n");
 	sendOneTestStream(test_stream_get_address0, sizeof(test_stream_get_address0));
 	printf("Signing transaction...\n");
+	sendOneTestStream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
+	printf("Signing transaction again...\n");
 	sendOneTestStream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
 	//printf("Formatting...\n");
 	//sendOneTestStream(test_stream_format, sizeof(test_stream_format));

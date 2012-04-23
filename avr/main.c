@@ -17,8 +17,6 @@
   * This never returns. */
 int main(void)
 {
-	uint8_t r;
-
 	initUsart();
 	initAdc();
 	initLcdAndInput();
@@ -26,17 +24,7 @@ int main(void)
 
 	do
 	{
-		r = processPacket();
-	} while (!r);
-	// A fatal error occurred while trying to process the packet.
-	// Sending an error message via. the stream would be inappropriate. A
-	// safer thing to do is to display an error message on the LCD and then
-	// halt.
-	streamError();
-	cli();
-	for (;;)
-	{
-		// do nothing
-	}
+		processPacket();
+	} while (1);
 }
 

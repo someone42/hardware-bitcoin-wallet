@@ -11,6 +11,6 @@
 
 #include "common.h"
 
-extern uint8_t processPacket(void);
+extern void processPacket(void);
 
 #endif // #ifndef STREAM_COMM_H_INCLUDED

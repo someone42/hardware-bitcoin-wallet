@@ -48,9 +48,6 @@ static uint32_t transaction_data_index;
 static uint32_t transaction_length;
 /** The number of inputs for the transaction being parsed. */
 static uint16_t transaction_num_inputs;
-/** 0 if no stream read error occurred while parsing a transaction, non-zero
-  * if a stream read error occurred. */
-static uint8_t read_error_occurred;
 /** If this is non-zero, then as the transaction contents are read from the
   * stream device, they will not be included in the calculation of the
   * transaction hash (see parseTransaction() for what this is all about).
@@ -113,11 +110,7 @@ static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 	{
 		for (i = 0; i < length; i++)
 		{
-			if (streamGetOneByte(&one_byte))
-			{
-				read_error_occurred = 1;
-				return 1; // error while trying to get byte from stream
-			}
+			one_byte = streamGetOneByte();
 			buffer[i] = one_byte;
 			if (hs_ptr_valid)
 			{
@@ -217,7 +210,6 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	HashState transaction_hash_hs;
 
 	transaction_num_inputs = 0;
-	read_error_occurred = 0;
 	transaction_data_index = 0;
 	transaction_length = length;
 	if (length > MAX_TRANSACTION_SIZE)
@@ -434,22 +426,14 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 
 	r = parseTransactionInternal(sig_hash, transaction_hash, length);
 	hs_ptr_valid = 0;
-	if (!read_error_occurred)
+
+	// Always try to consume the entire stream.
+	while (!isEndOfTransactionData())
 	{
-		// Always try to consume the entire stream.
-		while (!isEndOfTransactionData())
+		if (getTransactionBytes(&junk, 1))
 		{
-			if (getTransactionBytes(&junk, 1))
-			{
-				break;
-			}
+			break;
 		}
-	}
-	else
-	{
-		// Read errors are more fundamental (in terms of cause and effect)
-		// than other errors.
-		return TRANSACTION_READ_ERROR;
 	}
 	return r;
 }
@@ -640,10 +624,9 @@ static const uint8_t private_key[] = {
 
 static uint8_t *transaction_data;
 
-uint8_t streamGetOneByte(uint8_t *one_byte)
+uint8_t streamGetOneByte(void)
 {
-	*one_byte = transaction_data[transaction_data_index];
-	return 0; // success
+	return transaction_data[transaction_data_index];
 }
 
 int main(void)

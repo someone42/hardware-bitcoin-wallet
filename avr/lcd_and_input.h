@@ -1,6 +1,6 @@
 /** \file lcd_and_input.h
   *
-  * \brief This describes functions exported by lcd_and_input.c
+  * \brief Describes functions exported by lcd_and_input.c
   *
   * This file is licensed as described by the file LICENCE.
   */

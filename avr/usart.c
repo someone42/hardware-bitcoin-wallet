@@ -12,12 +12,14 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/sleep.h>
 #include <util/delay.h>
 
 #include "../common.h"
 #include "../endian.h"
 #include "../hwinterface.h"
 #include "hwinit.h"
+#include "lcd_and_input.h"
 
 /** Size of transmit buffer, in number of bytes.
   * \warning This must be a power of 2.
@@ -207,13 +209,48 @@ static uint8_t usartReceive(void)
 	return r;
 }
 
-/** Grab one byte from the communication stream.
-  * \param one_byte Where the received byte will be written to.
-  * \return 0 if no error occurred, non-zero if a read error occurred.
+/** This is called if a stream read or write error occurs. It never returns.
+  * \warning Only call this if the error is unrecoverable. It halts the CPU.
   */
-uint8_t streamGetOneByte(uint8_t *one_byte)
+static void streamReadOrWriteError(void)
 {
-	*one_byte = usartReceive();
+	streamError();
+	cli();
+	sleep_mode();
+	for (;;)
+	{
+		// do nothing
+	}
+}
+
+/** Grab one byte from the communication stream. There is no way for this
+  * function to indicate a read error. This is intentional; it
+  * makes program flow simpler (no need to put checks everywhere). As a
+  * consequence, this function should only return if the received byte is
+  * free of read errors.
+  *
+  * Previously, if a read or write error occurred, processPacket() would
+  * return, an error message would be displayed and execution would halt.
+  * There is no reason why this couldn't be done inside streamGetOneByte()
+  * or streamPutOneByte(). So nothing was lost by omitting the ability to
+  * indicate read or write errors.
+  *
+  * Perhaps the argument can be made that if this function indicated read
+  * errors, the caller could attempt some sort of recovery. Perhaps
+  * processPacket() could send something to request the retransmission of
+  * a packet. But retransmission requests are something which can be dealt
+  * with by the implementation of the stream. Thus a caller of
+  * streamGetOneByte() will assume that the implementation handles things
+  * like automatic repeat request, flow control and error detection and that
+  * if a true "stream read error" occurs, the communication link is shot to
+  * bits and nothing the caller can do will fix that.
+  * \return The received byte.
+  */
+uint8_t streamGetOneByte(void)
+{
+	uint8_t one_byte;
+
+	one_byte = usartReceive();
 	rx_acknowledge--;
 	if (rx_acknowledge == 0)
 	{
@@ -231,17 +268,22 @@ uint8_t streamGetOneByte(uint8_t *one_byte)
 	}
 	if (rx_buffer_overrun)
 	{
-		rx_buffer_overrun = 0;
-		return 1;
+		streamReadOrWriteError();
 	}
-	return 0;
+	return one_byte;
 }
 
-/** Send one byte to the communication stream.
+/** Send one byte to the communication stream. There is no way for this
+  * function to indicate a write error. This is intentional; it
+  * makes program flow simpler (no need to put checks everywhere). As a
+  * consequence, this function should only return if the byte was sent
+  * free of write errors.
+  *
+  * See streamGetOneByte() for some justification about why write errors
+  * aren't indicated by a return value.
   * \param one_byte The byte to send.
-  * \return 0 if no error occurred, non-zero if a write error occurred.
   */
-uint8_t streamPutOneByte(uint8_t one_byte)
+void streamPutOneByte(uint8_t one_byte)
 {
 	usartSend(one_byte);
 	tx_acknowledge--;
@@ -261,7 +303,6 @@ uint8_t streamPutOneByte(uint8_t one_byte)
 		}
 		tx_acknowledge = readU32LittleEndian(buffer);
 	}
-	return 0;
 }
 
 /** Beginning of BSS (zero-initialised) section. */

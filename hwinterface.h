@@ -92,16 +92,41 @@ extern char getString(StringSet set, uint8_t spec, uint16_t pos);
   */
 extern uint16_t getStringLength(StringSet set, uint8_t spec);
 
-/** Grab one byte from the communication stream.
-  * \param one_byte Where the received byte will be written to.
-  * \return 0 if no error occurred, non-zero if a read error occurred.
+/** Grab one byte from the communication stream. There is no way for this
+  * function to indicate a read error. This is intentional; it
+  * makes program flow simpler (no need to put checks everywhere). As a
+  * consequence, this function should only return if the received byte is
+  * free of read errors.
+  *
+  * Previously, if a read or write error occurred, processPacket() would
+  * return, an error message would be displayed and execution would halt.
+  * There is no reason why this couldn't be done inside streamGetOneByte()
+  * or streamPutOneByte(). So nothing was lost by omitting the ability to
+  * indicate read or write errors.
+  *
+  * Perhaps the argument can be made that if this function indicated read
+  * errors, the caller could attempt some sort of recovery. Perhaps
+  * processPacket() could send something to request the retransmission of
+  * a packet. But retransmission requests are something which can be dealt
+  * with by the implementation of the stream. Thus a caller of
+  * streamGetOneByte() will assume that the implementation handles things
+  * like automatic repeat request, flow control and error detection and that
+  * if a true "stream read error" occurs, the communication link is shot to
+  * bits and nothing the caller can do will fix that.
+  * \return The received byte.
   */
-extern uint8_t streamGetOneByte(uint8_t *one_byte);
-/** Send one byte to the communication stream.
+extern uint8_t streamGetOneByte(void);
+/** Send one byte to the communication stream. There is no way for this
+  * function to indicate a write error. This is intentional; it
+  * makes program flow simpler (no need to put checks everywhere). As a
+  * consequence, this function should only return if the byte was sent
+  * free of write errors.
+  *
+  * See streamGetOneByte() for some justification about why write errors
+  * aren't indicated by a return value.
   * \param one_byte The byte to send.
-  * \return 0 if no error occurred, non-zero if a write error occurred.
   */
-extern uint8_t streamPutOneByte(uint8_t one_byte);
+extern void streamPutOneByte(uint8_t one_byte);
 
 /** Notify the user interface that the transaction parser has seen a new
   * Bitcoin amount/address pair.
