@@ -124,10 +124,10 @@ static NOINLINE void generateDeterministic256Part2(BigNum256 out, uint8_t *hash,
   * to encrypt the first and second halves (respectively) of the resulting
   * hash using AES. The final result is the two encrypted halves.
   *
-  * If having a 512-bit seed is deemed "too big" for an application:
+  * If having a 512 bit seed is deemed "too big" for an application:
   * - The first and second 128 bits can be the same, meaning that the
   *   encryption key for the two halves is the same.
-  * - The last 256-bits of the seed can have up to 128 bits set to 0.
+  * - The last 256 bits of the seed can have up to 128 bits set to 0.
   *
   * Implementing both of these options would reduce the entropy in the seed
   * to 256 bits, which should still be enough. But if possible, it is better
@@ -210,7 +210,7 @@ int main(int argc, char **argv)
 			exit(1);
 		}
 	}
-	// Check that generateDeterministic256() is actually deterministic
+	// Check that generateDeterministic256() is actually deterministic.
 	generateDeterministic256(key2, seed, 0);
 	if (bigCompare(key2, keys[0]) != BIGCMP_EQUAL)
 	{
@@ -220,7 +220,7 @@ int main(int argc, char **argv)
 
 	if (argc != 2)
 	{
-		printf("Usage: %s <n>, where <n> is number of 256-bit samples to take\n", argv[0]);
+		printf("Usage: %s <n>, where <n> is number of 256 bit samples to take\n", argv[0]);
 		printf("Samples will go into random.dat\n");
 		exit(1);
 	}

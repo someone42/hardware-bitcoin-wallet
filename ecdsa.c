@@ -314,6 +314,9 @@ void pointMultiply(PointAffine *p, BigNum256 k)
 	uint8_t one_bit;
 	PointAffine *lookup_affine[2];
 
+	memset(&accumulator, 0, sizeof(PointJacobian));
+	memset(&junk, 0, sizeof(PointJacobian));
+	memset(&always_point_at_infinity, 0, sizeof(PointAffine));
 	setFieldToP();
 	// The Montgomery ladder method can't be used here because it requires
 	// point addition to be done in pure Jacobian coordinates. Point addition
@@ -473,7 +476,7 @@ static void checkPointIsOnCurve(PointAffine *p)
 	}
 }
 
-// Read little-endian hex string containing 256-bit integer and store into r.
+// Read little-endian hex string containing 256 bit integer and store into r.
 static void bigFRead(BigNum256 r, FILE *f)
 {
 	int i;
@@ -500,7 +503,7 @@ static void skipWhiteSpace(FILE *f)
 // Returns 0 if signature is good, 1 otherwise.
 // (r, s) is the signature. hash is the message digest of the message that was
 // signed. (public_key_x, public_key_y) is the public key. All are supposed to
-// be little-endian 256-bit integers.
+// be little-endian 256 bit integers.
 static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 public_key_x, BigNum256 public_key_y)
 {
 	PointAffine p;
@@ -761,7 +764,7 @@ int main(void)
 	// Using OpenSSL 0.9.8h, the private key should be located within out.der
 	// at offsets 0x0E to 0x2D (zero-based, inclusive), the x-component of
 	// the public key at 0x3D to 0x5C and the y-component at 0x5D to 0x7C.
-	// They are 256-bit integers stored big-endian.
+	// They are 256 bit integers stored big-endian.
 	//
 	// These tests require that the private and public keys be little-endian
 	// hex strings within keypairs.txt, where each keypair is represented by

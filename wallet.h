@@ -24,6 +24,9 @@ typedef uint32_t AddressHandle;
   * than this. */
 #define MAX_ADDRESSES		0xFFFFFFFE
 
+/** Maximum length, in bytes, of the name of a wallet. */
+#define NAME_LENGTH			40
+
 /** Return values for walletGetLastError(). Many other wallet functions will
   * also return one of these values. */
 typedef enum WalletErrorsEnum

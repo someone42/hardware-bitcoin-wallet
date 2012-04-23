@@ -386,8 +386,8 @@ static WalletErrors writeWalletChecksum(void)
 
 /** Create new wallet. A brand new wallet contains no addresses and should
   * have a unique, unpredictable deterministic private key generation seed.
-  * \param name Should point to 40 bytes (padded with spaces if necessary)
-  *             containing the desired name of the wallet.
+  * \param name Should point to #NAME_LENGTH bytes (padded with spaces if
+  *             necessary) containing the desired name of the wallet.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred. If this returns #WALLET_NO_ERROR, then the
   *         wallet will also be loaded.
@@ -420,7 +420,7 @@ WalletErrors newWallet(uint8_t *name)
 		return last_error;
 	}
 	// Write name of wallet.
-	if (nonVolatileWrite(name, OFFSET_NAME, 40) != NV_NO_ERROR)
+	if (nonVolatileWrite(name, OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
@@ -655,7 +655,8 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 }
 
 /** Change the encryption key of a wallet.
-  * \param new_key A byte array of 32 bytes specifying the new encryption key.
+  * \param new_key A byte array of #WALLET_ENCRYPTION_KEY_LENGTH bytes
+  *                specifying the new encryption key.
   *                An encryption key consisting of all zeroes is interpreted
   *                as meaning "no encryption".
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
@@ -663,7 +664,7 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
   */
 WalletErrors changeEncryptionKey(uint8_t *new_key)
 {
-	uint8_t old_key[32];
+	uint8_t old_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t buffer[16];
 	NonVolatileReturn r;
 	uint32_t address;
@@ -713,8 +714,9 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 }
 
 /** Change the name of the currently loaded wallet.
-  * \param new_name This should point to 40 bytes (padded with spaces if
-  *                 necessary) containing the new desired name of the wallet.
+  * \param new_name This should point to #NAME_LENGTH bytes (padded with
+  *                 spaces if necessary) containing the new desired name of
+  *                 the wallet.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred.
   */
@@ -729,7 +731,7 @@ WalletErrors changeWalletName(uint8_t *new_name)
 	}
 
 	// Write wallet name.
-	if (nonVolatileWrite(new_name, OFFSET_NAME, 40) != NV_NO_ERROR)
+	if (nonVolatileWrite(new_name, OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
@@ -761,7 +763,7 @@ WalletErrors changeWalletName(uint8_t *new_name)
   *                    byte array with enough space to store 4 bytes.
   * \param out_name The (space-padded) name of the wallet will be written
   *                 to here (if everything goes well). This should be a
-  *                 byte array with enough space to store 40 bytes.
+  *                 byte array with enough space to store #NAME_LENGTH bytes.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred.
   */
@@ -772,7 +774,7 @@ WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
 		last_error = WALLET_READ_ERROR;
 		return last_error;
 	}
-	if (nonVolatileRead(out_name, OFFSET_NAME, 40) != NV_NO_ERROR)
+	if (nonVolatileRead(out_name, OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -906,9 +908,9 @@ int main(void)
 	uint8_t temp[128];
 	uint8_t address1[20];
 	uint8_t address2[20];
-	uint8_t name[40];
-	uint8_t encryption_key[32];
-	uint8_t new_encryption_key[32];
+	uint8_t name[NAME_LENGTH];
+	uint8_t encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
+	uint8_t new_encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t version[4];
 	uint8_t *address_buffer;
 	uint8_t one_byte;
@@ -927,7 +929,7 @@ int main(void)
 	succeeded = 0;
 	failed = 0;
 	initWalletTest();
-	memset(encryption_key, 0, 32);
+	memset(encryption_key, 0, WALLET_ENCRYPTION_KEY_LENGTH);
 	setEncryptionKey(encryption_key);
 	// Blank out non-volatile storage area (set to all nulls).
 	temp[0] = 0;
@@ -984,7 +986,7 @@ int main(void)
 	}
 
 	// Try creating a wallet and testing initWallet() on it.
-	memcpy(name, "123456789012345678901234567890abcdefghij", 40);
+	memcpy(name, "123456789012345678901234567890abcdefghij", NAME_LENGTH);
 	if (newWallet(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
@@ -1472,7 +1474,7 @@ int main(void)
 	free(handles_buffer);
 
 	// Check that changeEncryptionKey() works.
-	memset(new_encryption_key, 0, 32);
+	memset(new_encryption_key, 0, WALLET_ENCRYPTION_KEY_LENGTH);
 	new_encryption_key[0] = 1;
 	if (changeEncryptionKey(new_encryption_key) == WALLET_NO_ERROR)
 	{
@@ -1505,7 +1507,7 @@ int main(void)
 	}
 
 	// Check name matches what was given in newWallet().
-	if (!memcmp(temp, name, 40))
+	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		succeeded++;
 	}
@@ -1537,7 +1539,7 @@ int main(void)
 	}
 
 	// Check name matches what was given in newWallet().
-	if (!memcmp(temp, name, 40))
+	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		succeeded++;
 	}
@@ -1550,7 +1552,7 @@ int main(void)
 	// Change wallet's name and check that getWalletInfo() reflects the
 	// name change.
 	initWallet();
-	memcpy(name, "HHHHH HHHHHHHHHHHHHHHHH HHHHHHHHHHHHHH  ", 40);
+	memcpy(name, "HHHHH HHHHHHHHHHHHHHHHH HHHHHHHHHHHHHH  ", NAME_LENGTH);
 	if (changeWalletName(name) == WALLET_NO_ERROR)
 	{
 		succeeded++;
@@ -1561,7 +1563,7 @@ int main(void)
 		failed++;
 	}
 	getWalletInfo(version, temp);
-	if (!memcmp(temp, name, 40))
+	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		succeeded++;
 	}
@@ -1575,7 +1577,7 @@ int main(void)
 	// wallet.
 	uninitWallet();
 	getWalletInfo(version, temp);
-	if (!memcmp(temp, name, 40))
+	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		succeeded++;
 	}
@@ -1597,7 +1599,7 @@ int main(void)
 		failed++;
 	}
 	getWalletInfo(version, temp);
-	if (!memcmp(temp, name, 40))
+	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		succeeded++;
 	}

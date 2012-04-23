@@ -151,10 +151,11 @@ static void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8
 	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 1);
 }
 
-/** Set the combined 256 bit encryption key.
+/** Set the combined encryption key.
   * This is compatible with getEncryptionKey().
-  * \param in A 32 byte array specifying the 256 bit combined encryption key
-  *           to use in XEX encryption/decryption operations.
+  * \param in A #WALLET_ENCRYPTION_KEY_LENGTH byte array specifying the
+  *           combined encryption key to use in XEX encryption/decryption
+  *           operations.
   */
 void setEncryptionKey(uint8_t *in)
 {
@@ -162,10 +163,10 @@ void setEncryptionKey(uint8_t *in)
 	memcpy(nv_storage_tweak_key, &(in[16]), 16);
 }
 
-/** Get the combined 256 bit encryption key.
+/** Get the combined encryption key.
   * This is compatible with setEncryptionKey().
-  * \param out A 32 byte array specifying where the current 256 bit combined
-  *            encryption key will be written to.
+  * \param out A #WALLET_ENCRYPTION_KEY_LENGTH byte array specifying where the
+  *            current combined encryption key will be written to.
   */
 void getEncryptionKey(uint8_t *out)
 {
@@ -365,9 +366,9 @@ static void scanTestVectors(char *filename, int is_data_unit_seq_number)
 		printf("Could not open %s, please get it \
 (\"AES Known Answer Test (KAT) Vectors\") \
 from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
-		printf("There should be two versions: one with 128-bit hex strings as the tweak\n");
+		printf("There should be two versions: one with 128 bit hex strings as the tweak\n");
 		printf("value, and one with a \"data unit sequence number\" as the tweak value.\n");
-		printf("Rename the one with 128-bit hex string tweak values \"XTSGenAES128i.rsp\"\n");
+		printf("Rename the one with 128 bit hex string tweak values \"XTSGenAES128i.rsp\"\n");
 		printf("and rename the one with data unit sequence numbers \"XTSGenAES128d.rsp\".\n");
 		exit(1);
 	}

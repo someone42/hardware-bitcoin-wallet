@@ -21,10 +21,8 @@ int main(void)
 
 	initUsart();
 	initAdc();
-	initStreamComm();
 	initLcdAndInput();
 	initWallet();
-	clearEncryptionKey();
 
 	do
 	{

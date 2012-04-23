@@ -36,6 +36,11 @@ typedef unsigned long uint32_t;
 // platform/toolchain, these functions will have to be implemented somewhere.
 #include <string.h>
 
+/** Get maximum of a and b.
+  * \warning Do not use this if the evaluation of a and b has side effects.
+  */
+#define MAX(a, b)			(((a) > (b))? (a) : (b))
+
 /** In certain situations, inlining can cause an overall increase in stack
   * space. For example, let foo() use 100 bytes of stack space, bar() 104 bytes
   * and sno() 50 bytes. If sno() calls foo() and then (after foo() returns)

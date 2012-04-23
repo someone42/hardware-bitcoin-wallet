@@ -118,8 +118,8 @@ static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, con
 
 /** Convert a transaction amount (which is in 10 ^ -8 BTC) to a human-readable
   * value such as "0.05", contained in a null-terminated character string.
-  * \param out Should point to a char array which has space for at least 22
-  *            characters (including the terminating null).
+  * \param out Should point to a char array which has space for at least
+  *            #TEXT_AMOUNT_LENGTH characters, including the terminating null.
   * \param in A 64 bit, unsigned, little-endian integer with the amount in
   *           10 ^ -8 BTC.
   */
@@ -182,8 +182,8 @@ void amountToText(char *out, uint8_t *in)
   * as "1Dinox3mFw8yykpAZXFGEKeH4VX1Mzbcxe".
   * \param out The human-readable base 58 Bitcoin address will be written
   *            here in the form of a null-terminated string. This should
-  *            point to a buffer with space for at least 36 chars
-  *            including the terminating null).
+  *            point to a buffer with space for at least #TEXT_ADDRESS_LENGTH
+  *            characters, including the terminating null.
   * \param in The 160 bit hash to convert. This should point to an array of
   *           20 bytes containing the hash in big-endian format (as is
   *           typical for hashes).
@@ -373,8 +373,8 @@ const struct Base58TestStruct base58_tests[] = {
 
 int main(void)
 {
-	char text[22];
-	char addr[36];
+	char amount[TEXT_AMOUNT_LENGTH];
+	char addr[TEXT_ADDRESS_LENGTH];
 	int num_tests;
 	int i;
 	int succeeded;
@@ -386,14 +386,14 @@ int main(void)
 	num_tests = sizeof(base10_tests) / sizeof(struct Base10TestStruct);
 	for (i = 0; i < num_tests; i++)
 	{
-		amountToText(text, (uint8_t *)base10_tests[i].value);
-		if (strcmp(base10_tests[i].text, text))
+		amountToText(amount, (uint8_t *)base10_tests[i].value);
+		if (strcmp(base10_tests[i].text, amount))
 		{
 			printf("Base10 test number %d failed\n", i);
 			printf("Input: ");
 			bigPrintVariableSize((uint8_t *)base10_tests[i].value, 8, 0);
 			printf("\n");
-			printf("Got: %s\n", text);
+			printf("Got: %s\n", amount);
 			printf("Expected: %s\n", base10_tests[i].text);
 			failed++;
 		}

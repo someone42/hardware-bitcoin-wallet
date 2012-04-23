@@ -56,12 +56,27 @@ static uint8_t read_error_occurred;
   * transaction hash (see parseTransaction() for what this is all about).
   * If this is zero, then they will be included. */
 static uint8_t suppress_transaction_hash;
-/** Hash state used to calculate the signature
-  * hash (see parseTransaction() for what this is all about). */
-static HashState sig_hash_hs;
-/** Hash state used to calculate the transaction
-  * hash (see parseTransaction() for what this is all about). */
-static HashState transaction_hash_hs;
+/** If this is zero, then as the transaction contents are read from the
+  * stream device, they will not be included in the calculation of the
+  * transaction hash or the signature hash. If this is non-zero, then they
+  * will be included. This is used to stop #sig_hash_hs_ptr
+  * and #transaction_hash_hs_ptr from being written to if they don't point
+  * to a valid hash state. */
+static uint8_t hs_ptr_valid;
+/** Pointer to hash state used to calculate the signature
+  * hash (see parseTransaction() for what this is all about).
+  * \warning If this does not point to a valid hash state structure, ensure
+  *          that #hs_ptr_valid is set to zero to
+  *          stop getTransactionBytes() from attempting to dereference this.
+  */
+static HashState *sig_hash_hs_ptr;
+/** Pointer to hash state used to calculate the transaction
+  * hash (see parseTransaction() for what this is all about).
+  * \warning If this does not point to a valid hash state structure, ensure
+  *          that #hs_ptr_valid is set to zero to
+  *          stop getTransactionBytes() from attempting to dereference this.
+  */
+static HashState *transaction_hash_hs_ptr;
 
 /** Get the number of inputs from the most recent transaction parsed by
   * parseTransaction().
@@ -77,7 +92,7 @@ uint16_t getTransactionNumInputs(void)
   * the read operation won't go beyond the end of the transaction data.
   * 
   * Since all transaction data is read using this function, the updating
-  * of #sig_hash_hs and #transaction_hash_hs is also done.
+  * of #sig_hash_hs_ptr and #transaction_hash_hs_ptr is also done.
   * \param buffer An array of bytes which will be filled with the transaction
   *               data (if everything goes well). It must have space for
   *               length bytes.
@@ -104,10 +119,13 @@ static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 				return 1; // error while trying to get byte from stream
 			}
 			buffer[i] = one_byte;
-			sha256WriteByte(&sig_hash_hs, one_byte);
-			if (!suppress_transaction_hash)
+			if (hs_ptr_valid)
 			{
-				sha256WriteByte(&transaction_hash_hs, one_byte);
+				sha256WriteByte(sig_hash_hs_ptr, one_byte);
+				if (!suppress_transaction_hash)
+				{
+					sha256WriteByte(transaction_hash_hs_ptr, one_byte);
+				}
 			}
 			transaction_data_index++;
 		}
@@ -193,8 +211,10 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	uint16_t i;
 	uint8_t j;
 	uint32_t i32;
-	char text_amount[22];
-	char text_address[36];
+	char text_amount[TEXT_AMOUNT_LENGTH];
+	char text_address[TEXT_ADDRESS_LENGTH];
+	HashState sig_hash_hs;
+	HashState transaction_hash_hs;
 
 	transaction_num_inputs = 0;
 	read_error_occurred = 0;
@@ -205,6 +225,9 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 		return TRANSACTION_TOO_LARGE; // transaction too large
 	}
 
+	sig_hash_hs_ptr = &sig_hash_hs;
+	transaction_hash_hs_ptr = &transaction_hash_hs;
+	hs_ptr_valid = 1;
 	sha256Begin(&sig_hash_hs);
 	sha256Begin(&transaction_hash_hs);
 	suppress_transaction_hash = 0;
@@ -410,6 +433,7 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 	uint8_t junk;
 
 	r = parseTransactionInternal(sig_hash, transaction_hash, length);
+	hs_ptr_valid = 0;
 	if (!read_error_occurred)
 	{
 		// Always try to consume the entire stream.
@@ -634,7 +658,7 @@ int main(void)
 
 	length = sizeof(test_tx1);
 	transaction_data = malloc(length);
-	memcpy(transaction_data, test_tx1, lwngth);
+	memcpy(transaction_data, test_tx1, length);
 	printf("parseTransaction() returned: %d\n", (int)parseTransaction(sig_hash, transaction_hash, length));
 	printf("Signature hash: ");
 	for (i = 0; i < 32; i++)

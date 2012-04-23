@@ -573,9 +573,9 @@ static void generateTestCases(const uint8_t *max)
 			if (bigIsZero((BigNum256)max))
 			{
 				// Special case; 2 ^ 256 is represented as 0 and every
-				// representable 256-bit number is >= 0. Thus the test
+				// representable 256 bit number is >= 0. Thus the test
 				// below will always be true even though it should be
-				// false every time (since every representable 256-bit
+				// false every time (since every representable 256 bit
 				// number is < 2 ^ 256).
 				break;
 			}
@@ -590,7 +590,7 @@ static void generateTestCases(const uint8_t *max)
 /** Convert number from byte array format to GMP limb array format.
   * \param out Destination GMP limb array.
   * \param in Source little-endian byte array.
-  * \param n The number of limbs in the GMP limb array..
+  * \param n The number of limbs in the GMP limb array.
   */
 static void byteToMpn(mp_limb_t *out, BigNum256 in, int n)
 {
@@ -605,7 +605,7 @@ static void byteToMpn(mp_limb_t *out, BigNum256 in, int n)
 /** Convert number from GMP limb array format to byte array format.
   * \param out Destination little-endian byte array.
   * \param in Source GMP limb array.
-  * \param n The number of limbs in the GMP limb array..
+  * \param n The number of limbs in the GMP limb array.
   */
 static void mpnToByte(BigNum256 out, mp_limb_t *in, int n)
 {
@@ -953,7 +953,7 @@ int main(void)
 				{
 					if (!bigIsZero(op1))
 					{
-						// Calculate result using functions in this file
+						// Calculate result using functions in this file.
 						bigInvert(result, op1);
 
 						// The mpn_gcdext function in GMP is a bit of a pain

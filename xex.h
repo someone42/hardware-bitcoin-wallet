@@ -1,6 +1,6 @@
 /** \file xex.h
   *
-  * \brief Describes functions exported by xex.c.
+  * \brief Describes functions and constants exported by xex.c.
   *
   * To use these functions, set the encryption key using setEncryptionKey(),
   * then use encryptedNonVolatileWrite() and encryptedNonVolatileRead()
@@ -16,6 +16,10 @@
 
 #include "common.h"
 #include "hwinterface.h"
+
+/** Length, in bytes, of the encryption key that setEncryptionKey() and
+  * getEncryptionKey() deal with. */
+#define WALLET_ENCRYPTION_KEY_LENGTH		32
 
 extern void setEncryptionKey(uint8_t *in);
 extern void getEncryptionKey(uint8_t *out);

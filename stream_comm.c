@@ -88,6 +88,7 @@ static uint8_t writeBytes(uint8_t *buffer, uint16_t length)
 static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
 {
 	uint8_t buffer[5];
+	uint8_t one_char;
 	uint16_t length;
 	uint16_t i;
 
@@ -100,7 +101,8 @@ static uint8_t writeString(StringSet set, uint8_t spec, uint8_t command)
 	}
 	for (i = 0; i < length; i++)
 	{
-		if (streamPutOneByte((uint8_t)getString(set, spec, i)))
+		one_char = (uint8_t)getString(set, spec, i);
+		if (streamPutOneByte(one_char))
 		{
 			return 1; // write error
 		}
@@ -172,7 +174,10 @@ static uint8_t readBytes(uint8_t *buffer, uint8_t length)
   */
 uint8_t formatStorage(void)
 {
-	if (translateWalletError(sanitiseNonVolatileStorage(0, 0xffffffff), 0, NULL))
+	WalletErrors wallet_return;
+
+	wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
+	if (translateWalletError(wallet_return, 0, NULL))
 	{
 		return 1; // write error
 	}
@@ -194,6 +199,7 @@ static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t
 	uint8_t signature[73];
 	uint8_t private_key[32];
 	uint8_t signature_length;
+	WalletErrors wallet_return;
 
 	signature_length = 0;
 	if (getPrivateKey(private_key, ah) == WALLET_NO_ERROR)
@@ -201,7 +207,8 @@ static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t
 		// Note: signTransaction() cannot fail.
 		signature_length = signTransaction(signature, sig_hash, private_key);
 	}
-	if (translateWalletError (walletGetLastError(), signature_length, signature))
+	wallet_return = walletGetLastError();
+	if (translateWalletError (wallet_return, signature_length, signature))
 	{
 		return 1; // write error
 	}
@@ -223,7 +230,6 @@ static NOINLINE uint8_t signTransactionByAddressHandle(AddressHandle ah, uint8_t
   */
 static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *sig_hash, uint32_t transaction_length)
 {
-	uint8_t i;
 	TransactionErrors r;
 	uint8_t transaction_hash[32];
 
@@ -274,10 +280,7 @@ static NOINLINE uint8_t parseTransactionAndAsk(uint8_t *out_confirmed, uint8_t *
 		else
 		{
 			*out_confirmed = 1;
-			for (i = 0; i < 32; i++)
-			{
-				prev_transaction_hash[i] = transaction_hash[i];
-			}
+			memcpy(prev_transaction_hash, transaction_hash, 32);
 			// The transaction hash can only be reused another
 			// (number of inputs) - 1 times. This is to prevent an exploit
 			// where an attacker crafts a lot of copies (with differing inputs
@@ -440,12 +443,14 @@ static NOINLINE uint8_t getAndSendAddressAndPublicKey(uint8_t generate_new)
 static NOINLINE uint8_t listWallets(void)
 {
 	uint8_t version[4];
-	uint8_t name[40];
+	uint8_t name[NAME_LENGTH];
 	uint8_t buffer[5];
+	WalletErrors wallet_return;
 
 	if (getWalletInfo(version, name) != WALLET_NO_ERROR)
 	{
-		if (translateWalletError(walletGetLastError(), 0, NULL))
+		wallet_return = walletGetLastError();
+		if (translateWalletError(wallet_return, 0, NULL))
 		{
 			return 1; // write error
 		}
@@ -453,7 +458,7 @@ static NOINLINE uint8_t listWallets(void)
 	else
 	{
 		buffer[0] = 0x02;
-		writeU32LittleEndian(&(buffer[1]), 44);
+		writeU32LittleEndian(&(buffer[1]), 4 + NAME_LENGTH);
 		if (writeBytes(buffer, 5))
 		{
 			return 1; // write error
@@ -462,7 +467,7 @@ static NOINLINE uint8_t listWallets(void)
 		{
 			return 1; // write error
 		}
-		if (writeBytes(name, 40))
+		if (writeBytes(name, NAME_LENGTH))
 		{
 			return 1; // write error
 		}
@@ -528,12 +533,6 @@ static uint8_t expectLength(const uint8_t desired_length)
 	}
 }
 
-/** This must be called on device startup. */
-void initStreamComm(void)
-{
-	prev_transaction_hash_valid = 0;
-}
-
 /** Get packet from stream and deal with it. This basically implements the
   * protocol described in the file PROTOCOL.
   * 
@@ -544,16 +543,22 @@ void initStreamComm(void)
   * should consist of the wallet and host alternating between sending a
   * packet and receiving a packet.
   * \return 0 if the packet was received successfully, non-zero if a stream
-  * read or write error occurred. 0 will still be returned if a command
-  * failed due to reasons other than stream I/O; here, "an error" means a
-  * problem reading/writing from/to the stream device.
+  *         read or write error occurred. 0 will still be returned if a
+  *         command failed due to reasons other than stream I/O; here, "an
+  *         error" means a problem reading/writing from/to the stream device.
   */
 uint8_t processPacket(void)
 {
 	uint8_t command;
-	uint8_t buffer[40];
+	// Technically, the length of buffer should also be >= 4, since it is used
+	// in a couple of places to obtain 32 bit values. This is guaranteed by
+	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
+	// right mind would use encryption with smaller than 32 bit keys.
+	uint8_t buffer[MAX(NAME_LENGTH, WALLET_ENCRYPTION_KEY_LENGTH)];
 	uint8_t r;
+	uint32_t num_addresses;
 	AddressHandle ah;
+	WalletErrors wallet_return;
 
 	if (streamGetOneByte(&command))
 	{
@@ -603,12 +608,12 @@ uint8_t processPacket(void)
 		}
 		if (!r)
 		{
-			if (readBytes(buffer, 32))
+			if (readBytes(buffer, WALLET_ENCRYPTION_KEY_LENGTH))
 			{
 				return 1; // read error
 			}
 			setEncryptionKey(buffer);
-			if (readBytes(buffer, 40))
+			if (readBytes(buffer, NAME_LENGTH))
 			{
 				return 1; // read error
 			}
@@ -621,7 +626,8 @@ uint8_t processPacket(void)
 			}
 			else
 			{
-				if (translateWalletError(newWallet(buffer), 0, NULL))
+				wallet_return = newWallet(buffer);
+				if (translateWalletError(wallet_return, 0, NULL))
 				{
 					return 1; // write error
 				}
@@ -664,8 +670,10 @@ uint8_t processPacket(void)
 		}
 		if (!r)
 		{
-			writeU32LittleEndian(buffer, getNumAddresses());
-			if (translateWalletError(walletGetLastError(), 4, buffer))
+			num_addresses = getNumAddresses();
+			writeU32LittleEndian(buffer, num_addresses);
+			wallet_return = walletGetLastError();
+			if (translateWalletError(wallet_return, 4, buffer))
 			{
 				return 1; // write error
 			}
@@ -720,19 +728,20 @@ uint8_t processPacket(void)
 
 	case 0x0b:
 		// Load wallet.
-		r = expectLength(32);
+		r = expectLength(WALLET_ENCRYPTION_KEY_LENGTH);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (readBytes(buffer, 32))
+			if (readBytes(buffer, WALLET_ENCRYPTION_KEY_LENGTH))
 			{
 				return 1; // read error
 			}
 			setEncryptionKey(buffer);
-			if (translateWalletError (initWallet(), 0, NULL))
+			wallet_return = initWallet();
+			if (translateWalletError (wallet_return, 0, NULL))
 			{
 				return 1; // write error
 			}
@@ -752,7 +761,8 @@ uint8_t processPacket(void)
 			sanitiseRam();
 			memset(buffer, 0xff, sizeof(buffer));
 			memset(buffer, 0, sizeof(buffer));
-			if (translateWalletError(uninitWallet(), 0, NULL))
+			wallet_return = uninitWallet();
+			if (translateWalletError(wallet_return, 0, NULL))
 			{
 				return 1; // write error
 			}
@@ -787,18 +797,19 @@ uint8_t processPacket(void)
 
 	case 0x0e:
 		// Change wallet encryption key.
-		r = expectLength(32);
+		r = expectLength(WALLET_ENCRYPTION_KEY_LENGTH);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (readBytes(buffer, 32))
+			if (readBytes(buffer, WALLET_ENCRYPTION_KEY_LENGTH))
 			{
 				return 1; // read error
 			}
-			if (translateWalletError(changeEncryptionKey(buffer), 0, NULL))
+			wallet_return = changeEncryptionKey(buffer);
+			if (translateWalletError(wallet_return, 0, NULL))
 			{
 				return 1; // write error
 			}
@@ -807,14 +818,14 @@ uint8_t processPacket(void)
 
 	case 0x0f:
 		// Change wallet name.
-		r = expectLength(40);
+		r = expectLength(NAME_LENGTH);
 		if (r >= EXPECT_LENGTH_IO_ERROR)
 		{
 			return 1; // read or write error
 		}
 		if (!r)
 		{
-			if (readBytes(buffer, 40))
+			if (readBytes(buffer, NAME_LENGTH))
 			{
 				return 1; // read error
 			}
@@ -827,7 +838,8 @@ uint8_t processPacket(void)
 			}
 			else
 			{
-				if (translateWalletError(changeWalletName(buffer), 0, NULL))
+				wallet_return = changeWalletName(buffer);
+				if (translateWalletError(wallet_return, 0, NULL))
 				{
 					return 1; // write error
 				}

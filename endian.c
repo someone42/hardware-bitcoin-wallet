@@ -8,7 +8,7 @@
 #include "common.h"
 #include "endian.h"
 
-/** Write 32-bit unsigned integer into a byte array in big-endian format.
+/** Write 32 bit unsigned integer into a byte array in big-endian format.
   * \param out The destination byte array. This must have space for at
   *            least 4 bytes.
   * \param in The source integer.
@@ -21,7 +21,7 @@ void writeU32BigEndian(uint8_t *out, uint32_t in)
 	out[3] = (uint8_t)in;
 }
 
-/** Write 32-bit unsigned integer into a byte array in little-endian format.
+/** Write 32 bit unsigned integer into a byte array in little-endian format.
   * \param out The destination byte array. This must have space for at
   *            least 4 bytes.
   * \param in The source integer.
@@ -34,7 +34,7 @@ void writeU32LittleEndian(uint8_t *out, uint32_t in)
 	out[3] = (uint8_t)(in >> 24);
 }
 
-/** Read a 32-bit unsigned integer from a byte array in little-endian format.
+/** Read a 32 bit unsigned integer from a byte array in little-endian format.
   * \param in The source byte array.
   * \return The integer.
   */
@@ -48,7 +48,7 @@ uint32_t readU32LittleEndian(uint8_t *in)
 
 // No-one needs readU32BigEndian(), so it is not implemented.
 
-/** Swap endianness of a 32-bit unsigned integer.
+/** Swap endianness of a 32 bit unsigned integer.
   * \param v The integer to modify.
   */
 void swapEndian(uint32_t *v)

@@ -26,6 +26,7 @@
 
 #include "../common.h"
 #include "../hwinterface.h"
+#include "../baseconv.h"
 
 /** Maximum number of address/amount pairs that can be stored in RAM waiting
   * for approval from the user. This incidentally sets the maximum
@@ -215,9 +216,9 @@ static uint8_t accept_debounce;
 static uint8_t cancel_debounce;
 
 /** Storage for the text of transaction output amounts. */
-static char list_amount[MAX_OUTPUTS][22];
+static char list_amount[MAX_OUTPUTS][TEXT_AMOUNT_LENGTH];
 /** Storage for the text of transaction output addresses. */
-static char list_address[MAX_OUTPUTS][36];
+static char list_address[MAX_OUTPUTS][TEXT_ADDRESS_LENGTH];
 /** Index into #list_amount and #list_address which specifies where the next
   * output amount/address will be copied into. */
 static uint8_t list_index;
@@ -337,8 +338,8 @@ void initLcdAndInput(void)
 	_delay_ms(0.2);
 	write4(3);
 	write4(2);
-	// Now in 4-bit mode.
-	write8(0x28); // function set: 4-bit mode, 2 lines, 5x8 dots
+	// Now in 4 bit mode.
+	write8(0x28); // function set: 4 bit mode, 2 lines, 5x8 dots
 	write8(0x0c); // display on/off control: display on, no cursor
 	clearLcd();
 	write8(0x06); // entry mode set: increment, no display shift
@@ -426,10 +427,10 @@ uint8_t newOutputSeen(char *text_amount, char *text_address)
 	}
 	amount_dest = list_amount[list_index];
 	address_dest = list_address[list_index];
-	strncpy(amount_dest, text_amount, 22);
-	strncpy(address_dest, text_address, 36);
-	amount_dest[21] = '\0';
-	address_dest[35] = '\0';
+	strncpy(amount_dest, text_amount, TEXT_AMOUNT_LENGTH);
+	strncpy(address_dest, text_address, TEXT_ADDRESS_LENGTH);
+	amount_dest[TEXT_AMOUNT_LENGTH - 1] = '\0';
+	address_dest[TEXT_ADDRESS_LENGTH - 1] = '\0';
 	list_index++;
 	return 0;
 }

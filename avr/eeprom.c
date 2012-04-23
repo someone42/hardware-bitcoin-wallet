@@ -35,7 +35,7 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 		return NV_INVALID_ADDRESS;
 	}
 	eeprom_busy_wait();
-	// The (void *)(int) is there because pointers on AVR are 16-bit, so
+	// The (void *)(int) is there because pointers on AVR are 16 bit, so
 	// just doing (void *) would result in a "cast to pointer from integer
 	// of different size" warning.
 	eeprom_write_block(data, (void *)(int)address, length);
@@ -57,7 +57,7 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 		return NV_INVALID_ADDRESS;
 	}
 	eeprom_busy_wait();
-	// The (void *)(int) is there because pointers on AVR are 16-bit, so
+	// The (void *)(int) is there because pointers on AVR are 16 bit, so
 	// just doing (void *) would result in a "cast to pointer from integer
 	// of different size" warning.
 	eeprom_read_block(data, (void *)(int)address, length);

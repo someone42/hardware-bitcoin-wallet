@@ -10,10 +10,17 @@
 
 #include "common.h"
 
-/** Address version to use when converting 160-bit hashes to human-readable
+/** Address version to use when converting 160 bit hashes to human-readable
   * Bitcoin addresses. This should be 0x00 for the main network or 0x6f for
   * testnet. */
 #define ADDRESSVERSION		0x00
+
+/** Required size of a buffer which stores the text of a transaction output
+  * amount. This includes the terminating null. */
+#define TEXT_AMOUNT_LENGTH	22
+/** Required size of a buffer which stores the text of a transaction output
+  * address. This includes the terminating null. */
+#define TEXT_ADDRESS_LENGTH	36
 
 extern void amountToText(char *out, uint8_t *in);
 extern void hashToAddr(char *out, uint8_t *in);
