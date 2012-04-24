@@ -66,9 +66,15 @@ static const char str_UNKNOWN[] PROGMEM = "Unknown error";
   *             see #StringSetEnum for clarification.
   * \param pos The position of the character within the string; 0 means first,
   *            1 means second etc.
+  * \return The character from the specified string.
   */
 char getString(StringSet set, uint8_t spec, uint16_t pos)
 {
+	if (pos >= getStringLength(set, spec))
+	{
+		// Attempting to read beyond end of string.
+		return 0;
+	}
 	if (set == STRINGSET_MISC)
 	{
 		switch (spec)
@@ -159,6 +165,7 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
   * \param spec Specifies which string to get the character from. The
   *             interpretation of this depends on the value of set;
   *             see #StringSetEnum for clarification.
+  * \return The length of the string, in number of characters.
   */
 uint16_t getStringLength(StringSet set, uint8_t spec)
 {

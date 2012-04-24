@@ -138,7 +138,7 @@ static NOINLINE void jacobianToAffine(PointAffine *out, PointJacobian *in)
 	// of dummy operations.
 	bigMultiply(s, in->z, in->z);
 	bigMultiply(t, s, in->z);
-	// Now s = z ^ 2 and t = z ^ 3
+	// Now s = z ^ 2 and t = z ^ 3.
 	bigInvert(s, s);
 	bigInvert(t, t);
 	bigMultiply(out->x, in->x, s);
@@ -175,12 +175,12 @@ static NOINLINE void pointDouble(PointJacobian *p)
 	bigMultiply(t, p->y, p->x);
 	bigAdd(t, t, t);
 	bigAdd(t, t, t);
-	// t is now 4.0 * p->x * p->y ^ 2
+	// t is now 4.0 * p->x * p->y ^ 2.
 	bigMultiply(p->x, p->x, p->x);
 	bigAssign(u, p->x);
 	bigAdd(u, u, u);
 	bigAdd(u, u, p->x);
-	// u is now 3.0 * p->x ^ 2
+	// u is now 3.0 * p->x ^ 2.
 	// For curves with a != 0, a * p->z ^ 4 needs to be added to u.
 	// But since a == 0 in secp256k1, we save 2 squarings and 1
 	// multiplication.
@@ -224,19 +224,19 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	lookup[0] = p1;
 	lookup[1] = junk;
 
-	// O + p2 == p2
+	// O + p2 == p2.
 	// If p1 is O, then copy p2 into p1 and redirect all writes to the dummy
 	// write area.
-	// The following line does: "is_O = p1->is_point_at_infinity ? 1 : 0;"
+	// The following line does: "is_O = p1->is_point_at_infinity ? 1 : 0;".
 	is_O = (uint8_t)((((uint16_t)(-(int)p1->is_point_at_infinity)) >> 8) & 1);
 	affineToJacobian(lookup[1 - is_O], p2);
 	p1 = lookup[is_O];
 	lookup[0] = p1; // p1 might have changed
 
-	// p1 + O == p1
+	// p1 + O == p1.
 	// If p2 is O, then redirect all writes to the dummy write area. This
 	// preserves the value of p1.
-	// The following line does: "is_O2 = p2->is_point_at_infinity ? 1 : 0;"
+	// The following line does: "is_O2 = p2->is_point_at_infinity ? 1 : 0;".
 	is_O2 = (uint8_t)((((uint16_t)(-(int)p2->is_point_at_infinity)) >> 8) & 1);
 	p1 = lookup[is_O2];
 	lookup[0] = p1; // p1 might have changed
@@ -245,17 +245,17 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	bigMultiply(t, s, p1->z);
 	bigMultiply(t, t, p2->y);
 	bigMultiply(s, s, p2->x);
-	// The following two lines do: "cmp_xs = bigCompare(p1->x, s) == BIGCMP_EQUAL ? 0 : 0xff;"
+	// The following two lines do: "cmp_xs = bigCompare(p1->x, s) == BIGCMP_EQUAL ? 0 : 0xff;".
 	cmp_xs = (uint8_t)(bigCompare(p1->x, s) ^ BIGCMP_EQUAL);
 	cmp_xs = (uint8_t)(((uint16_t)(-(int)cmp_xs)) >> 8);
-	// The following two lines do: "cmp_yt = bigCompare(p1->y, t) == BIGCMP_EQUAL ? 0 : 0xff;"
+	// The following two lines do: "cmp_yt = bigCompare(p1->y, t) == BIGCMP_EQUAL ? 0 : 0xff;".
 	cmp_yt = (uint8_t)(bigCompare(p1->y, t) ^ BIGCMP_EQUAL);
 	cmp_yt = (uint8_t)(((uint16_t)(-(int)cmp_yt)) >> 8);
 	// The following branch can never be taken when calling pointMultiply(),
 	// so its existence doesn't compromise timing regularity.
 	if ((cmp_xs | cmp_yt | is_O | is_O2) == 0)
 	{
-		// Points are actually the same; use point doubling
+		// Points are actually the same; use point doubling.
 		pointDouble(p1);
 		return;
 	}
@@ -264,9 +264,9 @@ static NOINLINE void pointAdd(PointJacobian *p1, PointJacobian *junk, PointAffin
 	// this function become dummy operations.
 	p1->is_point_at_infinity = (uint8_t)(p1->is_point_at_infinity | (~cmp_xs & cmp_yt & 1));
 	bigSubtract(s, s, p1->x);
-	// s now contains p2->x * p1->z ^ 2 - p1->x
+	// s now contains p2->x * p1->z ^ 2 - p1->x.
 	bigSubtract(t, t, p1->y);
-	// t now contains p2->y * p1->z ^ 3 - p1->y
+	// t now contains p2->y * p1->z ^ 3 - p1->y.
 	bigMultiply(p1->z, p1->z, s);
 	bigMultiply(v, s, s);
 	bigMultiply(u, v, p1->x);
@@ -391,7 +391,7 @@ void setToG(PointAffine *p)
   */
 uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_key, BigNum256 k)
 {
-	PointAffine bigR;
+	PointAffine big_r;
 
 	// This is one of many data-dependent branches in this function. They do
 	// not compromise timing attack resistance because these branches are
@@ -405,23 +405,23 @@ uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_ke
 		return 1;
 	}
 
-	// Compute ephemeral elliptic curve key pair (k, bigR)
-	setToG(&bigR);
-	pointMultiply(&bigR, k);
-	// bigR now contains k * G
+	// Compute ephemeral elliptic curve key pair (k, big_r).
+	setToG(&big_r);
+	pointMultiply(&big_r, k);
+	// big_r now contains k * G.
 	setFieldToN();
-	bigModulo(r, bigR.x);
-	// r now contains (k * G).x (mod n)
+	bigModulo(r, big_r.x);
+	// r now contains (k * G).x (mod n).
 	if (bigIsZero(r))
 	{
 		return 1;
 	}
 	bigMultiply(s, r, private_key);
-	bigModulo(bigR.y, hash); // use bigR.y as temporary
-	bigAdd(s, s, bigR.y);
-	bigInvert(bigR.y, k);
-	bigMultiply(s, s, bigR.y);
-	// s now contains (hash + (r * private_key)) / k (mod n)
+	bigModulo(big_r.y, hash); // use big_r.y as temporary
+	bigAdd(s, s, big_r.y);
+	bigInvert(big_r.y, k);
+	bigMultiply(s, s, big_r.y);
+	// s now contains (hash + (r * private_key)) / k (mod n).
 	if (bigIsZero(s))
 	{
 		return 1;

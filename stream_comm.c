@@ -81,19 +81,19 @@ static void writeBytesToStream(uint8_t *buffer, uint16_t length)
   */
 static void writeString(StringSet set, uint8_t spec, uint8_t command)
 {
-	uint8_t buffer[5];
+	uint8_t buffer[4];
 	uint8_t one_char;
 	uint16_t length;
 	uint16_t i;
 
-	buffer[0] = command;
+	streamPutOneByte(command); // type
 	length = getStringLength(set, spec);
-	writeU32LittleEndian(&(buffer[1]), length);
-	writeBytesToStream(buffer, 5);
+	writeU32LittleEndian(buffer, length);
+	writeBytesToStream(buffer, 4); // length
 	for (i = 0; i < length; i++)
 	{
 		one_char = (uint8_t)getString(set, spec, i);
-		streamPutOneByte(one_char);
+		streamPutOneByte(one_char); // value
 	}
 }
 
@@ -110,18 +110,18 @@ static void writeString(StringSet set, uint8_t spec, uint8_t command)
   */
 static void translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
 {
-	uint8_t buffer[5];
+	uint8_t buffer[4];
 
 	if (r == WALLET_NO_ERROR)
 	{
-		buffer[0] = 0x02;
-		writeU32LittleEndian(&(buffer[1]), length);
-		writeBytesToStream(buffer, 5); // type and length
+		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
+		writeU32LittleEndian(buffer, length);
+		writeBytesToStream(buffer, 4); // length
 		writeBytesToStream(data, length); // value
 	}
 	else
 	{
-		writeString(STRINGSET_WALLET, (uint8_t)r, 0x03);
+		writeString(STRINGSET_WALLET, (uint8_t)r, PACKET_TYPE_FAILURE);
 	}
 }
 
@@ -141,18 +141,6 @@ static void getBytesFromStream(uint8_t *buffer, uint8_t length)
 	payload_length -= length;
 }
 
-/** Format non-volatile storage, erasing its contents in a way that makes
-  * them irretrievable.
-  */
-static void formatStorage(void)
-{
-	WalletErrors wallet_return;
-
-	wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
-	translateWalletError(wallet_return, 0, NULL);
-	uninitWallet(); // force wallet to unload
-}
-
 /** Sign a transaction and (if everything goes well) send the signature in a
   * response packet.
   * \param ah The address handle whose corresponding private key will be used
@@ -162,7 +150,7 @@ static void formatStorage(void)
   */
 static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *sig_hash)
 {
-	uint8_t signature[73];
+	uint8_t signature[MAX_SIGNATURE_LENGTH];
 	uint8_t private_key[32];
 	uint8_t signature_length;
 	WalletErrors wallet_return;
@@ -201,7 +189,7 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 	if (r != TRANSACTION_NO_ERROR)
 	{
 		// Transaction parse error.
-		writeString(STRINGSET_TRANSACTION, (uint8_t)r, 0x03);
+		writeString(STRINGSET_TRANSACTION, (uint8_t)r, PACKET_TYPE_FAILURE);
 		return;
 	}
 
@@ -223,7 +211,7 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 		// to the user interface.
 		if (askUser(ASKUSER_SIGN_TRANSACTION))
 		{
-			writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
+			writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 		}
 		else
 		{
@@ -290,7 +278,7 @@ static NOINLINE void getAndSendAddressAndPublicKey(uint8_t generate_new)
 	AddressHandle ah;
 	PointAffine public_key;
 	uint8_t address[20];
-	uint8_t buffer[5];
+	uint8_t buffer[4];
 	WalletErrors r;
 
 	if (generate_new)
@@ -313,7 +301,7 @@ static NOINLINE void getAndSendAddressAndPublicKey(uint8_t generate_new)
 
 	if (r == WALLET_NO_ERROR)
 	{
-		streamPutOneByte(0x02);
+		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
 		if (generate_new)
 		{
 			// 4 (address handle) + 20 (address) + 65 (public key)
@@ -324,20 +312,29 @@ static NOINLINE void getAndSendAddressAndPublicKey(uint8_t generate_new)
 			// 20 (address) + 65 (public key)
 			writeU32LittleEndian(buffer, 85);
 		}
-		writeBytesToStream(buffer, 4);
+		writeBytesToStream(buffer, 4); // length
 		if (generate_new)
 		{
 			writeU32LittleEndian(buffer, ah);
 			writeBytesToStream(buffer, 4);
 		}
 		writeBytesToStream(address, 20);
+		// The format of public keys sent is compatible with
+		// "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
+        // 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
+        // section 2.3 ("Data Types and Conversions"). The document basically
+		// says that integers should be represented big-endian and that a 0x04
+		// should be prepended to indicate that the public key is
+		// uncompressed.
 		streamPutOneByte(0x04);
+		swapEndian256(public_key.x);
+		swapEndian256(public_key.y);
 		writeBytesToStream(public_key.x, 32);
 		writeBytesToStream(public_key.y, 32);
 	}
 	else
 	{
-		translateWalletError (r, 0, NULL);
+		translateWalletError(r, 0, NULL);
 	} // end if (r == WALLET_NO_ERROR)
 }
 
@@ -347,7 +344,7 @@ static NOINLINE void listWallets(void)
 {
 	uint8_t version[4];
 	uint8_t name[NAME_LENGTH];
-	uint8_t buffer[5];
+	uint8_t buffer[4];
 	WalletErrors wallet_return;
 
 	if (getWalletInfo(version, name) != WALLET_NO_ERROR)
@@ -357,8 +354,8 @@ static NOINLINE void listWallets(void)
 	}
 	else
 	{
-		streamPutOneByte(0x02);
-		writeU32LittleEndian(buffer, 4 + NAME_LENGTH);
+		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
+		writeU32LittleEndian(buffer, 4 + NAME_LENGTH); // length
 		writeBytesToStream(buffer, 4);
 		writeBytesToStream(version, 4);
 		writeBytesToStream(name, NAME_LENGTH);
@@ -395,7 +392,7 @@ static uint8_t expectLength(const uint8_t desired_length)
 	if (payload_length != desired_length)
 	{
 		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03);
+		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
 		return 1; // mismatched length
 	}
 	else
@@ -442,17 +439,17 @@ void processPacket(void)
 	switch (command)
 	{
 
-	case 0x00:
+	case PACKET_TYPE_PING:
 		// Ping request.
 		// Just throw away the data and then send response.
 		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_VERSION, 0x01);
+		writeString(STRINGSET_MISC, MISCSTR_VERSION, PACKET_TYPE_PING_REPLY);
 		break;
 
-	// Commands 0x01, 0x02 and 0x03 should never be received; they are only
-	// sent.
+	// Commands PACKET_TYPE_PING_REPLY, PACKET_TYPE_SUCCESS and
+	// PACKET_TYPE_FAILURE should never be received; they are only sent.
 
-	case 0x04:
+	case PACKET_TYPE_NEW_WALLET:
 		// Create new wallet.
 		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
 		{
@@ -461,7 +458,7 @@ void processPacket(void)
 			getBytesFromStream(buffer, NAME_LENGTH);
 			if (askUser(ASKUSER_NUKE_WALLET))
 			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
@@ -471,13 +468,13 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x05:
+	case PACKET_TYPE_NEW_ADDRESS:
 		// Create new address in wallet.
 		if (!expectLength(0))
 		{
 			if (askUser(ASKUSER_NEW_ADDRESS))
 			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
@@ -486,7 +483,7 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x06:
+	case PACKET_TYPE_GET_NUM_ADDRESSES:
 		// Get number of addresses in wallet.
 		if (!expectLength(0))
 		{
@@ -497,20 +494,20 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x09:
-		// Get public key corresponding to an address handle.
+	case PACKET_TYPE_GET_ADDRESS_PUBKEY:
+		// Get address and public key corresponding to an address handle.
 		if (!expectLength(4))
 		{
 			getAndSendAddressAndPublicKey(0);
 		}
 		break;
 
-	case 0x0a:
+	case PACKET_TYPE_SIGN_TRANSACTION:
 		// Sign a transaction.
 		if (payload_length <= 4)
 		{
 			readAndIgnoreInput();
-			writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03);
+			writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
 		}
 		else
 		{
@@ -523,18 +520,18 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x0b:
+	case PACKET_TYPE_LOAD_WALLET:
 		// Load wallet.
 		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
 		{
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
 			wallet_return = initWallet();
-			translateWalletError (wallet_return, 0, NULL);
+			translateWalletError(wallet_return, 0, NULL);
 		}
 		break;
 
-	case 0x0c:
+	case PACKET_TYPE_UNLOAD_WALLET:
 		// Unload wallet.
 		if (!expectLength(0))
 		{
@@ -547,22 +544,24 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x0d:
+	case PACKET_TYPE_FORMAT:
 		// Format storage.
 		if (!expectLength(0))
 		{
 			if (askUser(ASKUSER_FORMAT))
 			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
-				formatStorage();
+				wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
+				translateWalletError(wallet_return, 0, NULL);
+				uninitWallet(); // force wallet to unload
 			}
 		}
 		break;
 
-	case 0x0e:
+	case PACKET_TYPE_CHANGE_KEY:
 		// Change wallet encryption key.
 		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
 		{
@@ -572,14 +571,14 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x0f:
+	case PACKET_TYPE_CHANGE_NAME:
 		// Change wallet name.
 		if (!expectLength(NAME_LENGTH))
 		{
 			getBytesFromStream(buffer, NAME_LENGTH);
 			if (askUser(ASKUSER_CHANGE_NAME))
 			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, 0x03);
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
@@ -589,7 +588,7 @@ void processPacket(void)
 		}
 		break;
 
-	case 0x10:
+	case PACKET_TYPE_LIST_WALLETS:
 		// List wallets.
 		if (!expectLength(0))
 		{
@@ -600,7 +599,7 @@ void processPacket(void)
 	default:
 		// Unknown command.
 		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, 0x03);
+		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
 		break;
 
 	}

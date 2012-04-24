@@ -115,11 +115,15 @@ void initWalletTest(void)
   * \warning This must be a multiple of 32 in order for newWallet() to
   *          work properly.
   * \warning This must also be a multiple of 16, since the block size of
-  *          AES is 128 bits. */
+  *          AES is 128 bits.
+  */
 #define WALLET_RECORD_LENGTH	160
 /** The offset where encryption starts. The contents of a record before this
   * offset are not encrypted, while the contents of a record at and after this
-  * offset are encrypted. */
+  * offset are encrypted.
+  * \warning This must also be a multiple of 16, since the block size of
+  *          AES is 128 bits.
+  */
 #define ENCRYPT_START			48
 /** Offset within a record where version is. */
 #define OFFSET_VERSION			0

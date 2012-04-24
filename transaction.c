@@ -441,7 +441,7 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 /** Swap endian representation of a 256 bit integer.
   * \param buffer An array of 32 bytes representing the integer to change.
   */
-void swapEndian256(uint8_t *buffer)
+void swapEndian256(BigNum256 buffer)
 {
 	uint8_t i;
 	uint8_t temp;
@@ -472,7 +472,8 @@ void swapEndian256(uint8_t *buffer)
   * function is to call ecdsaSign() and encapsulate the ECDSA signature in
   * the DER format which OpenSSL uses.
   * \param signature The encapsulated signature will be written here. This
-  *                  must be a byte array with space for at least 73 bytes.
+  *                  must be a byte array with space for
+  *                  at least #MAX_SIGNATURE_LENGTH bytes.
   * \param sig_hash The signature hash of the transaction (see
   *                 parseTransaction()).
   * \param private_key The private key to sign the transaction with. This must
@@ -634,7 +635,7 @@ int main(void)
 	size_t length;
 	uint8_t sig_hash[32];
 	uint8_t transaction_hash[32];
-	uint8_t signature[73];
+	uint8_t signature[MAX_SIGNATURE_LENGTH];
 	int i;
 
 	srand(42);
@@ -656,7 +657,7 @@ int main(void)
 	}
 	printf("\n");
 	printf("signTransaction() returned: %d\n", (int)signTransaction(signature, sig_hash, (BigNum256)private_key));
-	for (i = 0; i < 73; i++)
+	for (i = 0; i < MAX_SIGNATURE_LENGTH; i++)
 	{
 		printf("%02x", (int)signature[i]);
 	}
