@@ -7,15 +7,12 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-
-#ifdef TEST
+#ifdef TEST_SHA256
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <memory.h>
-#endif // #ifdef TEST
+#include "test_helpers.h"
+#endif // #ifdef TEST_SHA256
 
 #include "common.h"
 #include "hash.h"
@@ -220,14 +217,16 @@ void sha256FinishDouble(HashState *hs)
 	sha256Finish(hs);
 }
 
-#ifdef TEST
+#ifdef TEST_SHA256
 
-static int succeeded;
-static int failed;
-
+/** Where hash value will be stored after sha256() returns. */
 static uint32_t h[8];
 
-// Result is returned in h.
+/** Calculate SHA-256 hash of a message. The result is returned in #h.
+  * \param message The message to calculate the hash of. This must be a byte
+  *                array of the size specified by length.
+  * \param length The length (in bytes) of the message.
+  */
 static void sha256(uint8_t *message, uint32_t length)
 {
 	uint32_t i;
@@ -242,25 +241,12 @@ static void sha256(uint8_t *message, uint32_t length)
 	memcpy(h, hs.h, 32);
 }
 
-static void skipWhiteSpace(FILE *f)
-{
-	int one_char;
-	do
-	{
-		one_char = fgetc(f);
-	} while ((one_char == ' ') || (one_char == '\t') || (one_char == '\n') || (one_char == '\r'));
-	ungetc(one_char, f);
-}
-
-static void skipLine(FILE *f)
-{
-	int one_char;
-	do
-	{
-		one_char = fgetc(f);
-	} while (one_char != '\n');
-}
-
+/** Run unit tests using test vectors from a file. The file is expected to be
+  * in the same format as the NIST "SHA Test Vectors for Hashing Byte-Oriented
+  * Messages", which can be obtained from:
+  * http://csrc.nist.gov/groups/STM/cavp/index.html#03
+  * \param filename The name of the file containing the test vectors.
+  */
 static void scanTestVectors(char *filename)
 {
 	FILE *f;
@@ -336,12 +322,12 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 		if (!memcmp(h, compare_h, 32))
 		{
 			//printf("%08x%08x%08x%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7]);
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("Test number %d (Len = %d) failed\n", test_number, length << 3);
-			failed++;
+			reportFailure();
 		}
 		test_number++;
 	}
@@ -350,13 +336,11 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 
 int main(void)
 {
-	succeeded = 0;
-	failed = 0;
+	initTests(__FILE__);
 	scanTestVectors("SHA256ShortMsg.rsp");
 	scanTestVectors("SHA256LongMsg.rsp");
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_SHA256

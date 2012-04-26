@@ -8,11 +8,14 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-// Defining this will provide useless stubs for interface functions, to stop
-// linker errors from occuring
-//#define INTERFACE_STUBS
+#ifdef TEST
+#include <stdlib.h>
+#endif // #ifdef TEST
+
+#ifdef TEST_PRANDOM
+#include <stdio.h>
+#include "test_helpers.h"
+#endif // #ifdef TEST_PRANDOM
 
 #include "common.h"
 #include "sha256.h"
@@ -20,12 +23,6 @@
 #include "bignum256.h"
 #include "prandom.h"
 #include "hwinterface.h"
-
-#ifdef TEST
-#include <stdlib.h>
-#include <stdio.h>
-#include <memory.h>
-#endif // #ifdef TEST
 
 /** Safety factor for entropy accumulation. The hardware random number
   * generator can (but should strive not to) overestimate its entropy. It can
@@ -151,12 +148,16 @@ void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num)
 	generateDeterministic256Part2(out, hash, seed);
 }
 
-#if defined(TEST) || defined(INTERFACE_STUBS)
+#ifdef TEST
 
-extern int rand(void);
-
-// The purpose of this "random" byte source is to test the entropy
-// accumulation behaviour of getRandom256().
+/** The purpose of this "random" byte source is to test the entropy
+  * accumulation behaviour of getRandom256().
+  * \param buffer The buffer to fill. This should have enough space for n
+  *               bytes.
+  * \param n The size of the buffer.
+  * \return An stupid estimate of the total number of bits (not bytes) of
+  *         entropy in the buffer.
+  */
 uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 {
 	memset(buffer, 0, n);
@@ -164,26 +165,32 @@ uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 	return 8;
 }
 
-#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
+#endif // #ifdef TEST
 
-#ifdef TEST
+#ifdef TEST_PRANDOM
 
-// A proper test suite for randomness would be quite big, so this test
-// spits out samples into random.dat, where they can be analysed using
-// an external program.
+/** A proper test suite for randomness would be quite big, so this test
+  * spits out samples into random.dat, where they can be analysed using
+  * an external program.
+  */
 int main(int argc, char **argv)
 {
 	uint8_t r[32];
 	int i, j;
 	int num_samples;
+	int abort;
+	int bytes_written;
 	FILE *f;
 	uint8_t seed[64];
 	uint8_t keys[64][32];
 	uint8_t key2[32];
 
+	initTests(__FILE__);
+
 	// Before outputting samples, do a sanity check that
 	// generateDeterministic256() actually has different outputs when
 	// each byte of the seed is changed.
+	abort = 0;
 	for (i = 0; i < 64; i++)
 	{
 		memset(seed, 0, 64);
@@ -194,28 +201,57 @@ int main(int argc, char **argv)
 			if (bigCompare(keys[i], keys[j]) == BIGCMP_EQUAL)
 			{
 				printf("generateDeterministic256() is ignoring byte %d of seed\n", i);
-				exit(1);
+				abort = 1;
+				break;
 			}
 		}
+		if (abort)
+		{
+			break;
+		}
 	}
+	if (abort)
+	{
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
 	// Check that generateDeterministic256() isn't ignoring num.
 	memset(seed, 0, 64);
 	seed[0] = 1;
 	generateDeterministic256(key2, seed, 1);
+	abort = 0;
 	for (j = 0; j < 64; j++)
 	{
 		if (bigCompare(key2, keys[j]) == BIGCMP_EQUAL)
 		{
 			printf("generateDeterministic256() is ignoring num\n");
-			exit(1);
+			abort = 1;
+			break;
 		}
 	}
+	if (abort)
+	{
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
 	// Check that generateDeterministic256() is actually deterministic.
 	generateDeterministic256(key2, seed, 0);
 	if (bigCompare(key2, keys[0]) != BIGCMP_EQUAL)
 	{
 		printf("generateDeterministic256() is not deterministic\n");
-		exit(1);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
 	}
 
 	if (argc != 2)
@@ -238,14 +274,18 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 	srand(42);
+	bytes_written = 0;
 	for (i = 0; i < num_samples; i++)
 	{
 		getRandom256(r);
-		fwrite(r, 32, 1, f);
+		bytes_written += fwrite(r, 1, 32, f);
 	}
 	fclose(f);
+
+	printf("%d bytes written to random.dat\n", bytes_written);
+	finishTests();
 
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_PRANDOM

@@ -23,11 +23,14 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-// Defining this will provide useless stubs for interface functions, to stop
-// linker errors from occuring
-//#define INTERFACE_STUBS
+#ifdef TEST
+#include <stdlib.h>
+#include <stdio.h>
+#endif // #ifdef TEST
+
+#ifdef TEST_WALLET
+#include "test_helpers.h"
+#endif // #ifdef TEST_WALLET
 
 #include "common.h"
 #include "endian.h"
@@ -40,14 +43,6 @@
 #include "xex.h"
 #include "bignum256.h"
 
-#if defined(TEST) || defined(INTERFACE_STUBS)
-#include <stdlib.h>
-#include <stdio.h>
-#include <memory.h>
-
-FILE *wallet_test_file;
-#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
-
 /** The most recent error to occur in a function in this file,
   * or #WALLET_NO_ERROR if no error occurred in the most recent function
   * call. See #WalletErrorsEnum for possible values. */
@@ -59,6 +54,11 @@ static uint8_t wallet_loaded;
   * number of addresses in the currently loaded wallet. */
 static uint32_t num_addresses;
 
+#ifdef TEST
+/** The file to perform test non-volatile I/O on. */
+FILE *wallet_test_file;
+#endif // #ifdef TEST
+
 /** Find out what the most recent error which occurred in any wallet function
   * was. If no error occurred in the most recent wallet function that was
   * called, this will return #WALLET_NO_ERROR.
@@ -69,7 +69,7 @@ WalletErrors walletGetLastError(void)
 	return last_error;
 }
 
-#if defined(TEST) || defined(INTERFACE_STUBS)
+#ifdef TEST
 
 void initWalletTest(void)
 {
@@ -81,14 +81,14 @@ void initWalletTest(void)
 	}
 }
 
-#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
+#endif // #ifdef TEST
 
-#ifdef TEST
+#ifdef TEST_WALLET
 /** Maximum of addresses which can be stored in storage area - for testing
   * only. This should actually be the capacity of the wallet, since one
   * of the tests is to see what happens when the wallet is full. */
 #define MAX_TESTING_ADDRESSES	7
-#endif // #ifdef TEST
+#endif // #ifdef TEST_WALLET
 
 /**
  * \defgroup WalletStorageFormat Wallet storage format
@@ -497,11 +497,11 @@ AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 		last_error = WALLET_NOT_THERE;
 		return BAD_ADDRESS_HANDLE;
 	}
-#ifdef TEST
+#ifdef TEST_WALLET
 	if (num_addresses == MAX_TESTING_ADDRESSES)
 #else
 	if (num_addresses == MAX_ADDRESSES)
-#endif // #ifdef TEST
+#endif // #ifdef TEST_WALLET
 	{
 		last_error = WALLET_FULL;
 		return BAD_ADDRESS_HANDLE;
@@ -788,29 +788,53 @@ WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
 	return last_error;
 }
 
-#if defined(TEST) || defined(INTERFACE_STUBS)
+#ifdef TEST
 
-// Size of storage area, in bytes.
+/** Size of storage area, in bytes. */
 #define TEST_FILE_SIZE 1024
 
+/** Write to non-volatile storage.
+  * \param data A pointer to the data to be written.
+  * \param address Byte offset specifying where in non-volatile storage to
+  *                start writing to.
+  * \param length The number of bytes to write.
+  * \return See #NonVolatileReturnEnum for return values.
+  * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
+  *          data is actually written to non-volatile storage.
+  */
 NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
 {
+#ifndef TEST_XEX
 	int i;
+#endif // #ifndef TEST_XEX
+
 	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
 	{
 		return NV_INVALID_ADDRESS;
 	}
+	// Don't output write debugging info when testing xex.c, otherwise the
+	// console will go crazy (since the unit tests in xex.c do a lot of
+	// writing).
+#ifndef TEST_XEX
 	printf("nv write, addr = 0x%08x, length = 0x%04x, data =", (int)address, (int)length);
 	for (i = 0; i < length; i++)
 	{
 		printf(" %02x", data[i]);
 	}
 	printf("\n");
+#endif // #ifndef TEST_XEX
 	fseek(wallet_test_file, address, SEEK_SET);
 	fwrite(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
 }
 
+/** Read from non-volatile storage.
+  * \param data A pointer to the buffer which will receive the data.
+  * \param address Byte offset specifying where in non-volatile storage to
+  *                start reading from.
+  * \param length The number of bytes to read.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
 NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
 {
 	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
@@ -822,25 +846,26 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 	return NV_NO_ERROR;
 }
 
+/** Ensure that all buffered writes are committed to non-volatile storage. */
 void nonVolatileFlush(void)
 {
 	fflush(wallet_test_file);
 }
 
+/** Pretend to overwrite anything in RAM which could contain sensitive
+  * data. */
 void sanitiseRam(void)
 {
 	// do nothing
 }
 
-#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
+#endif // #ifdef TEST
 
-#ifdef TEST
+#ifdef TEST_WALLET
 
-static int succeeded;
-static int failed;
-
-// Call everything without and make sure
-// they return WALLET_NOT_THERE somehow.
+/** Call nearly all wallet functions and make sure they
+  * return #WALLET_NOT_THERE somehow. This should only be called if a wallet
+  * is not loaded. */
 static void checkFunctionsReturnWalletNotThere(void)
 {
 	uint8_t temp[128];
@@ -852,58 +877,58 @@ static void checkFunctionsReturnWalletNotThere(void)
 	ah = makeNewAddress(temp, &public_key);
 	if ((ah == BAD_ADDRESS_HANDLE) && (walletGetLastError() == WALLET_NOT_THERE))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("makeNewAddress() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 	check_num_addresses = getNumAddresses();
 	if ((check_num_addresses == 0) && (walletGetLastError() == WALLET_NOT_THERE))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getNumAddresses() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getAddressAndPublicKey() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 	if (getPrivateKey(temp, 0) == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getPrivateKey() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 	if (changeEncryptionKey(temp) == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("changeEncryptionKey() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 	if (changeWalletName(temp) == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("changeWalletName() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 }
 
@@ -929,9 +954,8 @@ int main(void)
 	int i;
 	int j;
 
-	srand(42);
-	succeeded = 0;
-	failed = 0;
+	initTests(__FILE__);
+
 	initWalletTest();
 	memset(encryption_key, 0, WALLET_ENCRYPTION_KEY_LENGTH);
 	setEncryptionKey(encryption_key);
@@ -945,32 +969,32 @@ int main(void)
 	// sanitiseNonVolatileStorage() should nuke everything.
 	if (sanitiseNonVolatileStorage(0, 0xffffffff) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Cannot nuke NV storage using sanitiseNonVolatileStorage()\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that the version field is "wallet not there".
 	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() failed after sanitiseNonVolatileStorage() was called\n");
-		failed++;
+		reportFailure();
 	}
 	if (readU32LittleEndian(version) == VERSION_NOTHING_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("sanitiseNonVolatileStorage() does not set version to nothing there\n");
-		failed++;
+		reportFailure();
 	}
 
 	// initWallet() hasn't been called yet, so nearly every function should
@@ -981,82 +1005,82 @@ int main(void)
 	// (valid) wallet there.
 	if (initWallet() == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("initWallet() doesn't recognise when wallet isn't there\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Try creating a wallet and testing initWallet() on it.
 	memcpy(name, "123456789012345678901234567890abcdefghij", NAME_LENGTH);
 	if (newWallet(name) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Could not create new wallet\n");
-		failed++;
+		reportFailure();
 	}
 	if (initWallet() == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("initWallet() does not recognise new wallet\n");
-		failed++;
+		reportFailure();
 	}
 	if ((getNumAddresses() == 0) && (walletGetLastError() == WALLET_EMPTY))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("New wallet isn't empty\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that the version field is "unencrypted wallet".
 	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() failed after newWallet() was called\n");
-		failed++;
+		reportFailure();
 	}
 	if (readU32LittleEndian(version) == VERSION_UNENCRYPTED)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("newWallet() does not set version to unencrypted wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that sanitise_nv_wallet() deletes wallet.
 	if (sanitiseNonVolatileStorage(0, 0xffffffff) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Cannot nuke NV storage using sanitiseNonVolatileStorage()\n");
-		failed++;
+		reportFailure();
 	}
 	if (initWallet() == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("sanitiseNonVolatileStorage() isn't deleting wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Make some new addresses, then create a new wallet and make sure the
@@ -1065,34 +1089,34 @@ int main(void)
 	newWallet(name);
 	if (makeNewAddress(temp, &public_key) != BAD_ADDRESS_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Couldn't create new address in new wallet\n");
-		failed++;
+		reportFailure();
 	}
 	newWallet(name);
 	if ((getNumAddresses() == 0) && (walletGetLastError() == WALLET_EMPTY))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("newWallet() doesn't delete existing wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Unload wallet and make sure everything realises that the wallet is
 	// not loaded.
 	if (uninitWallet() == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("uninitWallet() failed to do its basic job\n");
-		failed++;
+		reportFailure();
 	}
 	checkFunctionsReturnWalletNotThere();
 
@@ -1100,12 +1124,12 @@ int main(void)
 	// should succeed.
 	if (initWallet() == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("uninitWallet() appears to be permanent\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Change bytes in non-volatile memory and make sure initWallet() fails
@@ -1113,7 +1137,7 @@ int main(void)
 	if (uninitWallet() != WALLET_NO_ERROR)
 	{
 		printf("uninitWallet() failed to do its basic job 2\n");
-		failed++;
+		reportFailure();
 	}
 	abort = 0;
 	for (i = 0; i < WALLET_RECORD_LENGTH; i++)
@@ -1147,44 +1171,44 @@ int main(void)
 	}
 	if (!abort)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
-		failed++;
+		reportFailure();
 	}
 
 	// Create 2 new wallets and check that their addresses aren't the same
 	newWallet(name);
 	if (makeNewAddress(address1, &public_key) != BAD_ADDRESS_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Couldn't create new address in new wallet\n");
-		failed++;
+		reportFailure();
 	}
 	newWallet(name);
 	memset(address2, 0, 20);
 	memset(&public_key, 0, sizeof(PointAffine));
 	if (makeNewAddress(address2, &public_key) != BAD_ADDRESS_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Couldn't create new address in new wallet\n");
-		failed++;
+		reportFailure();
 	}
 	if (memcmp(address1, address2, 20))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("New wallets are creating identical addresses\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that makeNewAddress() wrote to its outputs.
@@ -1200,20 +1224,20 @@ int main(void)
 	if (is_zero)
 	{
 		printf("makeNewAddress() doesn't write the address\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	if (bigIsZero(public_key.x))
 	{
 		printf("makeNewAddress() doesn't write the public key\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Make some new addresses, up to a limit.
@@ -1246,11 +1270,11 @@ int main(void)
 	free(address_buffer);
 	if (!abort)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
-		failed++;
+		reportFailure();
 	}
 
 	// The wallet should be full now.
@@ -1259,18 +1283,18 @@ int main(void)
 	{
 		if (walletGetLastError() == WALLET_FULL)
 		{
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("Creating a new address on a full wallet gives incorrect error\n");
-			failed++;
+			reportFailure();
 		}
 	}
 	else
 	{
 		printf("Creating a new address on a full wallet succeeds (it's not supposed to)\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that getNumAddresses() fails when the wallet is empty.
@@ -1279,18 +1303,18 @@ int main(void)
 	{
 		if (walletGetLastError() == WALLET_EMPTY)
 		{
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("getNumAddresses() doesn't recognise wallet is empty\n");
-			failed++;
+			reportFailure();
 		}
 	}
 	else
 	{
 		printf("getNumAddresses() succeeds when used on empty wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Create a bunch of addresses in the (now empty) wallet and check that
@@ -1307,22 +1331,22 @@ int main(void)
 		{
 			printf("Couldn't create new address in new wallet\n");
 			abort = 1;
-			failed++;
+			reportFailure();
 			break;
 		}
 	}
 	if (!abort)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	if (getNumAddresses() == MAX_TESTING_ADDRESSES)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getNumAddresses() returns wrong number of addresses\n");
-		failed++;
+		reportFailure();
 	}
 
 	// The wallet should contain unique addresses.
@@ -1335,14 +1359,14 @@ int main(void)
 			{
 				printf("Wallet has duplicate addresses\n");
 				abort_duplicate = 1;
-				failed++;
+				reportFailure();
 				break;
 			}
 		}
 	}
 	if (!abort_duplicate)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// The wallet should contain unique public keys.
@@ -1355,14 +1379,14 @@ int main(void)
 			{
 				printf("Wallet has duplicate public keys\n");
 				abort_duplicate = 1;
-				failed++;
+				reportFailure();
 				break;
 			}
 		}
 	}
 	if (!abort_duplicate)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// The address handles should start at 1 and be sequential.
@@ -1373,13 +1397,13 @@ int main(void)
 		{
 			printf("Address handle %d should be %d, but got %d\n", i, i + 1, (int)handles_buffer[i]);
 			abort = 1;
-			failed++;
+			reportFailure();
 			break;
 		}
 	}
 	if (!abort)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// While there's a bunch of addresses in the wallet, check that
@@ -1394,7 +1418,7 @@ int main(void)
 		{
 			printf("Couldn't obtain address in wallet\n");
 			abort_error = 1;
-			failed++;
+			reportFailure();
 			break;
 		}
 		if ((memcmp(address1, &(address_buffer[i * 20]), 20))
@@ -1403,74 +1427,74 @@ int main(void)
 		{
 			printf("getAddressAndPublicKey() returned mismatching address or public key, ah = %d\n", i);
 			abort = 1;
-			failed++;
+			reportFailure();
 			break;
 		}
 	}
 	if (!abort)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	if (!abort_error)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test getAddressAndPublicKey() and getPrivateKey() functions using
 	// invalid and then valid address handles.
 	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_INVALID_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getAddressAndPublicKey() doesn't recognise 0 as invalid address handle\n");
-		failed++;
+		reportFailure();
 	}
 	if (getPrivateKey(temp, 0) == WALLET_INVALID_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getPrivateKey() doesn't recognise 0 as invalid address handle\n");
-		failed++;
+		reportFailure();
 	}
 	if (getAddressAndPublicKey(temp, &public_key, BAD_ADDRESS_HANDLE) == WALLET_INVALID_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getAddressAndPublicKey() doesn't recognise BAD_ADDRESS_HANDLE as invalid address handle\n");
-		failed++;
+		reportFailure();
 	}
 	if (getPrivateKey(temp, BAD_ADDRESS_HANDLE) == WALLET_INVALID_HANDLE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getPrivateKey() doesn't recognise BAD_ADDRESS_HANDLE as invalid address handle\n");
-		failed++;
+		reportFailure();
 	}
 	if (getAddressAndPublicKey(temp, &public_key, handles_buffer[0]) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getAddressAndPublicKey() doesn't recognise valid address handle\n");
-		failed++;
+		reportFailure();
 	}
 	if (getPrivateKey(temp, handles_buffer[0]) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getPrivateKey() doesn't recognise valid address handle\n");
-		failed++;
+		reportFailure();
 	}
 
 	free(address_buffer);
@@ -1482,75 +1506,75 @@ int main(void)
 	new_encryption_key[0] = 1;
 	if (changeEncryptionKey(new_encryption_key) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Couldn't change encryption key\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that the version field is "encrypted wallet".
 	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() failed after changeEncryptionKey() was called\n");
-		failed++;
+		reportFailure();
 	}
 	if (readU32LittleEndian(version) == VERSION_IS_ENCRYPTED)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("changeEncryptionKey() does not set version to encrypted wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check name matches what was given in newWallet().
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() doesn't return correct name when wallet is loaded\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that getWalletInfo() still works after unloading wallet.
 	uninitWallet();
 	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() failed after uninitWallet() was called\n");
-		failed++;
+		reportFailure();
 	}
 	if (readU32LittleEndian(version) == VERSION_IS_ENCRYPTED)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("uninitWallet() caused wallet version to change\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check name matches what was given in newWallet().
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() doesn't return correct name when wallet is not loaded\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Change wallet's name and check that getWalletInfo() reflects the
@@ -1559,22 +1583,22 @@ int main(void)
 	memcpy(name, "HHHHH HHHHHHHHHHHHHHHHH HHHHHHHHHHHHHH  ", NAME_LENGTH);
 	if (changeWalletName(name) == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("changeWalletName() couldn't change name\n");
-		failed++;
+		reportFailure();
 	}
 	getWalletInfo(version, temp);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() doesn't reflect name change\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that name change is preserved when unloading and loading a
@@ -1583,34 +1607,34 @@ int main(void)
 	getWalletInfo(version, temp);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() doesn't reflect name change after unloading wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that initWallet() succeeds (changing the name changes the
 	// checksum, so this tests whether the checksum was updated).
 	if (initWallet() == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("initWallet() failed after name change\n");
-		failed++;
+		reportFailure();
 	}
 	getWalletInfo(version, temp);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getWalletInfo() doesn't reflect name change after reloading wallet\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that loading the wallet with the old key fails.
@@ -1618,12 +1642,12 @@ int main(void)
 	setEncryptionKey(encryption_key);
 	if (initWallet() == WALLET_NOT_THERE)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Loading wallet with old encryption key succeeds\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Check that loading the wallet with the new key succeeds.
@@ -1631,12 +1655,12 @@ int main(void)
 	setEncryptionKey(new_encryption_key);
 	if (initWallet() == WALLET_NO_ERROR)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Loading wallet with new encryption key fails\n");
-		failed++;
+		reportFailure();
 	}
 
 	// Test the getAddressAndPublicKey() and getPrivateKey() functions on an
@@ -1644,28 +1668,27 @@ int main(void)
 	newWallet(name);
 	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_EMPTY)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getAddressAndPublicKey() doesn't deal with empty wallets correctly\n");
-		failed++;
+		reportFailure();
 	}
 	if (getPrivateKey(temp, 0) == WALLET_EMPTY)
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("getPrivateKey() doesn't deal with empty wallets correctly\n");
-		failed++;
+		reportFailure();
 	}
 
 	fclose(wallet_test_file);
 
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_WALLET

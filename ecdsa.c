@@ -23,14 +23,12 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-
-#ifdef TEST
+#ifdef TEST_ECDSA
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
-#endif // #ifdef TEST
+#include "test_helpers.h"
+#endif // #ifdef TEST_ECDSA
 
 #include "common.h"
 #include "bignum256.h"
@@ -95,17 +93,6 @@ static const uint8_t secp256k1_Gy[32] PROGMEM = {
 0x19, 0x54, 0x85, 0xa6, 0x48, 0xb4, 0x17, 0xfd,
 0xa8, 0x08, 0x11, 0x0e, 0xfc, 0xfb, 0xa4, 0x5d,
 0x65, 0xc4, 0xa3, 0x26, 0x77, 0xda, 0x3a, 0x48};
-
-#ifdef TEST
-static void bigPrint(BigNum256 number)
-{
-	uint8_t i;
-	for (i = 31; i < 32; i--)
-	{
-		printf("%02x", number[i]);
-	}
-}
-#endif // #ifdef TEST
 
 /** Convert a point from affine coordinates to Jacobian coordinates. This
   * is very fast.
@@ -430,20 +417,19 @@ uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_ke
 	return 0;
 }
 
-#ifdef TEST
+#ifdef TEST_ECDSA
 
-// The curve parameter b of secp256k1. The other parameter, a, is zero.
+/** The curve parameter b of secp256k1. The other parameter, a, is zero. */
 static const uint8_t secp256k1_b[32] = {
 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-static int succeeded;
-static int failed;
-
-// Check if p is on the curve. This signals success/failure by incrementing
-// succeeded or failed.
+/** Check if a point is on the elliptic curve. This signals success/failure
+  * by calling reportSuccess() or reportFailure().
+  * \param p The point to check.
+  */
 static void checkPointIsOnCurve(PointAffine *p)
 {
 	uint8_t y_squared[32];
@@ -452,7 +438,7 @@ static void checkPointIsOnCurve(PointAffine *p)
 	if (p->is_point_at_infinity)
 	{
 		// O is always on the curve.
-		succeeded++;
+		reportSuccess();
 		return;
 	}
 	bigMultiply(y_squared, p->y, p->y);
@@ -463,20 +449,24 @@ static void checkPointIsOnCurve(PointAffine *p)
 	{
 		printf("Point is not on curve\n");
 		printf("x = ");
-		bigPrint(p->x);
+		printLittleEndian32(p->x);
 		printf("\n");
 		printf("y = ");
-		bigPrint(p->y);
+		printLittleEndian32(p->y);
 		printf("\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 }
 
-// Read little-endian hex string containing 256 bit integer and store into r.
+/** Read hex string containing a little-endian 256 bit integer from a file.
+  * \param r Where the number will be stored into after it is read. This must
+  *          be a byte array with space for 32 bytes.
+  * \param f The file to read from.
+  */
 static void bigFRead(BigNum256 r, FILE *f)
 {
 	int i;
@@ -489,21 +479,18 @@ static void bigFRead(BigNum256 r, FILE *f)
 	}
 }
 
-static void skipWhiteSpace(FILE *f)
-{
-	int one_char;
-	do
-	{
-		one_char = fgetc(f);
-	} while ((one_char == ' ') || (one_char == '\t') || (one_char == '\n') || (one_char == '\r'));
-	ungetc(one_char, f);
-}
-
-// For testing only.
-// Returns 0 if signature is good, 1 otherwise.
-// (r, s) is the signature. hash is the message digest of the message that was
-// signed. (public_key_x, public_key_y) is the public key. All are supposed to
-// be little-endian 256 bit integers.
+/** Verify an ECDSA signature.
+  * \param r One half of the signature (see ecdsaSign()).
+  * \param s The other half of the signature (see ecdsaSign()).
+  * \param hash The message digest of the message that was signed, represented
+  *             as a 32 byte little-endian multi-precision integer.
+  * \param public_key_x x component of public key, represented as a 32 byte
+  *                     little-endian multi-precision integer.
+  * \param public_key_y y component of public key, represented as a 32 byte
+  *                     little-endian multi-precision integer.
+  * \return 0 if signature is good, 1 otherwise.
+  * \warning Use this for testing only. It's called "crappy" for a reason.
+  */
 static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 public_key_x, BigNum256 public_key_y)
 {
 	PointAffine p;
@@ -562,8 +549,7 @@ int main(void)
 	int j;
 	FILE *f;
 
-	succeeded = 0;
-	failed = 0;
+	initTests(__FILE__);
 
 	setFieldToP();
 
@@ -578,11 +564,11 @@ int main(void)
 	if (!p2.is_point_at_infinity)
 	{
 		printf("Point double doesn't handle 2O properly\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	// O + O = O.
 	p.is_point_at_infinity = 1;
@@ -590,11 +576,11 @@ int main(void)
 	if (!p2.is_point_at_infinity)
 	{
 		printf("Point add doesn't handle O + O properly\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	// P + O = P.
 	setToG(&p);
@@ -607,11 +593,11 @@ int main(void)
 		|| (bigCompare(p.y, (BigNum256)secp256k1_Gy) != BIGCMP_EQUAL))
 	{
 		printf("Point add doesn't handle P + O properly\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	// O + P = P.
 	p2.is_point_at_infinity = 1;
@@ -623,11 +609,11 @@ int main(void)
 		|| (bigCompare(p.y, (BigNum256)secp256k1_Gy) != BIGCMP_EQUAL))
 	{
 		printf("Point add doesn't handle O + P properly\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test that P + P produces the same result as 2P.
@@ -643,11 +629,11 @@ int main(void)
 		|| (bigCompare(p.y, compare.y) != BIGCMP_EQUAL))
 	{
 		printf("P + P != 2P\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	checkPointIsOnCurve(&compare);
 
@@ -661,11 +647,11 @@ int main(void)
 	if (!p2.is_point_at_infinity) 
 	{
 		printf("P + -P != O\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test that 2P + P gives a point on curve.
@@ -683,11 +669,11 @@ int main(void)
 	if (!p.is_point_at_infinity) 
 	{
 		printf("pointMultiply not starting at O\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test that pointMultiply by 1 gives P back.
@@ -700,11 +686,11 @@ int main(void)
 		|| (bigCompare(p.y, (BigNum256)secp256k1_Gy) != BIGCMP_EQUAL))
 	{
 		printf("1 * P != P\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test that pointMultiply by 2 gives 2P back.
@@ -721,11 +707,11 @@ int main(void)
 		|| (bigCompare(p.y, compare.y) != BIGCMP_EQUAL))
 	{
 		printf("2 * P != 2P\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test that pointMultiply by various constants gives a point on curve.
@@ -745,11 +731,11 @@ int main(void)
 	if (!p.is_point_at_infinity) 
 	{
 		printf("n * P != O\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test against some point multiplication test vectors.
@@ -797,11 +783,11 @@ int main(void)
 			|| (bigCompare(p.y, compare.y) != BIGCMP_EQUAL))
 		{
 			printf("Keypair test vector %d failed\n", i);
-			failed++;
+			reportFailure();
 		}
 		else
 		{
-			succeeded++;
+			reportSuccess();
 		}
 	}
 	fclose(f);
@@ -811,34 +797,31 @@ int main(void)
 	if (!ecdsaSign(r, s, temp, temp, temp))
 	{
 		printf("ecdsaSign() accepts k == 0\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	bigAssign(temp, (BigNum256)secp256k1_n);
 	if (!ecdsaSign(r, s, temp, temp, temp))
 	{
 		printf("ecdsaSign() accepts k == n\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
-	for (i = 0; i < 32; i++)
-	{
-		temp[i] = 0xff;
-	}
+	memset(temp, 0xff, 32);
 	if (!ecdsaSign(r, s, temp, temp, temp))
 	{
 		printf("ecdsaSign() accepts k > n\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// But it should succeed for k == n - 1.
@@ -847,11 +830,11 @@ int main(void)
 	if (ecdsaSign(r, s, temp, temp, temp))
 	{
 		printf("ecdsaSign() does not accept k == n - 1\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test signatures by signing and then verifying. For keypairs, just
@@ -869,18 +852,12 @@ int main(void)
 		if ((i & 3) == 0)
 		{
 			// Use all ones for hash.
-			for (j = 0; j < 32; j++)
-			{
-				hash[j] = 0xff;
-			}
+			memset(hash, 0xff, 32);
 		}
 		else if ((i & 3) == 1)
 		{
 			// Use all zeroes for hash.
-			for (j = 0; j < 32; j++)
-			{
-				hash[j] = 0x00;
-			}
+			bigSetZero(hash);
 		}
 		else
 		{
@@ -908,40 +885,39 @@ int main(void)
 		{
 			printf("Signature verify failed\n");
 			printf("private_key = ");
-			bigPrint(private_key);
+			printLittleEndian32(private_key);
 			printf("\n");
 			printf("public_key_x = ");
-			bigPrint(public_key_x);
+			printLittleEndian32(public_key_x);
 			printf("\n");
 			printf("public_key_y = ");
-			bigPrint(public_key_y);
+			printLittleEndian32(public_key_y);
 			printf("\n");
 			printf("r = ");
-			bigPrint(r);
+			printLittleEndian32(r);
 			printf("\n");
 			printf("s = ");
-			bigPrint(s);
+			printLittleEndian32(s);
 			printf("\n");
 			printf("hash = ");
-			bigPrint(hash);
+			printLittleEndian32(hash);
 			printf("\n");
 			printf("k = ");
-			bigPrint(temp);
+			printLittleEndian32(temp);
 			printf("\n");
-			failed++;
+			reportFailure();
 		}
 		else
 		{
-			succeeded++;
+			reportSuccess();
 		}
 	}
 	fclose(f);
 
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_ECDSA
 

@@ -12,15 +12,12 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-
-#ifdef TEST
+#ifdef TEST_RIPEMD160
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <memory.h>
-#endif // #ifdef TEST
+#include "test_helpers.h"
+#endif // #ifdef TEST_RIPEMD160
 
 #include "common.h"
 #include "hash.h"
@@ -248,14 +245,16 @@ void ripemd160Finish(HashState *hs)
 	hashFinish(hs);
 }
 
-#ifdef TEST
+#ifdef TEST_RIPEMD160
 
-static int succeeded;
-static int failed;
-
+/** Where hash value will be stored after ripemd160() returns. */
 static uint32_t h[5];
 
-// Result is returned in h.
+/** Calculate RIPEMD-160 hash of a message. The result is returned in #h.
+  * \param message The message to calculate the hash of. This must be a byte
+  *                array of the size specified by length.
+  * \param length The length (in bytes) of the message.
+  */
 static void ripemd160(uint8_t *message, uint32_t length)
 {
 	uint32_t i;
@@ -270,10 +269,11 @@ static void ripemd160(uint8_t *message, uint32_t length)
 	memcpy(h, hs.h, 20);
 }
 
-// All the tests (including the million "a" test) are from Appendix B of the
-// paper.
+/** Number of tests, not including million "a" test. All the tests
+  * (including the million "a" test) are from Appendix B of the paper. */
 #define NUMTESTS 8
 
+/** Test messages. */
 static const char *test_strings[NUMTESTS] = {
 "",
 "a",
@@ -284,6 +284,7 @@ static const char *test_strings[NUMTESTS] = {
 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789",
 "12345678901234567890123456789012345678901234567890123456789012345678901234567890"};
 
+/** RIPEMD-160 hashes of test messages. */
 static const uint32_t test_hashes[5 * NUMTESTS] = {
 0x9c1185a5, 0xc5e9fc54, 0x61280897, 0x7ee8f548, 0xb2258d31,
 0x0bdc9d2d, 0x256b3ee9, 0xdaae347b, 0xe6f4dc83, 0x5a467ffe,
@@ -300,8 +301,8 @@ int main(void)
 	char *str;
 	uint32_t *compare_h;
 
-	succeeded = 0;
-	failed = 0;
+	initTests(__FILE__);
+
 	for (i = 0; i < NUMTESTS; i++)
 	{
 		str = (char *)test_strings[i];
@@ -310,15 +311,16 @@ int main(void)
 		if (!memcmp(h, compare_h, 20))
 		{
 			//printf("%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4]);
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("Test number %d failed\n", i + 1);
 			printf("String: %s\n", str);
-			failed++;
+			reportFailure();
 		}
 	}
+
 	// Million "a" test.
 	str = malloc(1000000);
 	memset(str, 'a', 1000000);
@@ -329,16 +331,16 @@ int main(void)
 		&& (h[4] == 0x25dc1528))
 	{
 		//printf("%08x%08x%08x%08x%08x\n", h[0], h[1], h[2], h[3], h[4]);
-		succeeded++;
+		reportSuccess();
 	}
 	else
 	{
 		printf("Million \"a\" test failed\n");
-		failed++;
+		reportFailure();
 	}
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+
+	finishTests();
 	exit(0);
 }
 
-#endif
+#endif // #ifdef TEST_RIPEMD160

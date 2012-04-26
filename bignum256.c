@@ -32,21 +32,17 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-// Testing requires the GNU Multi-Precision library (without nails)
-//#define TEST
-
 #ifdef TEST
-#include <stdlib.h>
-#include <stdio.h>
-#include <memory.h>
-#include <gmp.h>
-#include "endian.h"
+#include <assert.h>
 #endif // #ifdef TEST
 
-#ifdef _DEBUG
-#include <assert.h>
-#endif // #ifdef _DEBUG
+#ifdef TEST_BIGNUM256
+#include <stdlib.h>
+#include <stdio.h>
+#include <gmp.h>
+#include "endian.h"
+#include "test_helpers.h"
+#endif // #ifdef TEST_BIGNUM256
 
 #include "common.h"
 #include "bignum256.h"
@@ -61,17 +57,6 @@ static BigNum256 n;
 static uint8_t *complement_n;
 /** The size of #complement_n, in number of bytes. */
 static uint8_t size_complement_n;
-
-#ifdef TEST
-static void bigPrint(BigNum256 number)
-{
-	uint8_t i;
-	for (i = 31; i < 32; i--)
-	{
-		printf("%02x", number[i]);
-	}
-}
-#endif // #ifdef TEST
 
 /** Compare two multi-precision numbers of arbitrary size.
   * \param op1 One of the numbers to compare.
@@ -288,10 +273,10 @@ void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	uint8_t zero[32];
 
 	bigSetZero(zero);
-#ifdef _DEBUG
+#ifdef TEST
 	assert(bigCompare(op1, n) == BIGCMP_LESS);
 	assert(bigCompare(op2, n) == BIGCMP_LESS);
-#endif // #ifdef _DEBUG
+#endif // #ifdef TEST
 	too_big = bigAddVariableSizeNoModulo(r, op1, op2, 32);
 	cmp = (uint8_t)(bigCompare(r, n) ^ BIGCMP_LESS);
 	cmp = (uint8_t)((((uint16_t)(-(int)cmp)) >> 8) & 1);
@@ -316,10 +301,10 @@ void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	uint8_t zero[32];
 
 	bigSetZero(zero);
-#ifdef _DEBUG
+#ifdef TEST
 	assert(bigCompare(op1, n) == BIGCMP_LESS);
 	assert(bigCompare(op2, n) == BIGCMP_LESS);
-#endif // #ifdef _DEBUG
+#endif // #ifdef TEST
 	too_small = bigSubtractNoModulo(r, op1, op2);
 	lookup[0] = zero;
 	lookup[1] = n;
@@ -377,9 +362,9 @@ void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size,
 			r[i + j + 1] = (uint8_t)partial_sum;
 			high_carry = (uint8_t)(partial_sum >> 8);
 		}
-#ifdef _DEBUG
+#ifdef TEST
 		assert(high_carry == 0);
-#endif // #ifdef _DEBUG
+#endif // #ifdef TEST
 	}
 }
 
@@ -483,7 +468,7 @@ void bigInvert(BigNum256 r, BigNum256 op1)
 	}
 }
 
-#ifdef TEST
+#ifdef TEST_BIGNUM256
 
 /** Number of low edge test numbers (numbers near minimum). */
 #define LOW_EDGE_CASES		700
@@ -510,7 +495,7 @@ static uint8_t one[32] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /** The prime number used to define the prime finite field for secp256k1. */
-static const uint8_t secp256k1_p[32] = {
+static uint8_t secp256k1_p[32] = {
 0x2f, 0xfc, 0xff, 0xff, 0xfe, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -521,7 +506,7 @@ static const uint8_t secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
 /** The order of the base point used in secp256k1. */
-static const uint8_t secp256k1_n[32] = {
+static uint8_t secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -540,8 +525,11 @@ static uint8_t test_cases[TOTAL_CASES][32];
   * - Low edge cases will start from 0 and go up.
   * - High edge cases will start from max - 1 and go down.
   * - Random test cases will be within [0, max - 1].
+  * \param max The number of elements in the field, expressed as a 32 byte
+  *            little-endian multi-precision integer. As a special case, all
+  *            zeroes represents 2 ^ 256.
   */
-static void generateTestCases(const uint8_t *max)
+static void generateTestCases(BigNum256 max)
 {
 	int test_num;
 	int i;
@@ -582,9 +570,9 @@ static void generateTestCases(const uint8_t *max)
 		} while (bigCompare(current_test, (BigNum256)max) != BIGCMP_LESS);
 		bigAssign(test_cases[test_num++], current_test);
 	}
-#ifdef _DEBUG
+#ifdef TEST
 	assert(test_num == TOTAL_CASES);
-#endif // #ifdef _DEBUG
+#endif // #ifdef TEST
 }
 
 /** Convert number from byte array format to GMP limb array format.
@@ -622,8 +610,6 @@ int main(void)
 	int operation;
 	int i;
 	int j;
-	int succeeded;
-	int failed;
 	uint8_t op1[32];
 	uint8_t op2[32];
 	uint8_t result[64];
@@ -645,11 +631,11 @@ int main(void)
 		exit(1);
 	}
 
-	srand(42);
-	succeeded = 0;
-	failed = 0;
+	initTests(__FILE__);
 
-	// Test bigCompare, since many other functions rely on it.
+	srand(42);
+
+	// Test bigCompareVariableSize(), since many other functions rely on it.
 	op1[0] = 10;
 	op2[0] = 2;
 	op1[1] = 5;
@@ -657,53 +643,53 @@ int main(void)
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_GREATER)
 	{
 		printf("bigCompare doesn't recognise when op1 > op2\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	op1[0] = 1;
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_LESS)
 	{
 		printf("bigCompare doesn't recognise when op1 < op2\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	op1[0] = 2;
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_EQUAL)
 	{
 		printf("bigCompare doesn't recognise when op1 == op2\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	op1[0] = 255;
 	op2[0] = 254;
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_GREATER)
 	{
 		printf("bigCompare doesn't recognise when op1 > op2, possibly a signed/unsigned thing\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	op1[0] = 254;
 	op2[0] = 255;
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_LESS)
 	{
 		printf("bigCompare doesn't recognise when op1 < op2, possibly a signed/unsigned thing\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	op1[0] = 1;
 	op2[0] = 2;
@@ -712,11 +698,11 @@ int main(void)
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_GREATER)
 	{
 		printf("bigCompare doesn't recognise when op1 > op2, possibly an endian thing\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 	op1[0] = 2;
 	op2[0] = 1;
@@ -725,11 +711,11 @@ int main(void)
 	if (bigCompareVariableSize(op1, op2, 2) != BIGCMP_LESS)
 	{
 		printf("bigCompare doesn't recognise when op1 < op2, possibly a endian thing\n");
-		failed++;
+		reportFailure();
 	}
 	else
 	{
-		succeeded++;
+		reportSuccess();
 	}
 
 	// Test internal functions, which don't do modular reduction (hence
@@ -781,7 +767,7 @@ int main(void)
 
 				// Compare results.
 				mpnToByte(result_compare, mpn_result, result_size);
-				if ((memcmp(result, result_compare, result_size * 4))
+				if ((memcmp(result, result_compare, (size_t)(result_size * 4)))
 					|| (returned != compare_returned))
 				{
 					if (operation == 0)
@@ -797,29 +783,29 @@ int main(void)
 						printf("Test failed (internal multiplication)\n");
 					}
 					printf("op1: ");
-					bigPrint(op1);
+					printLittleEndian32(op1);
 					printf("\nop2: ");
-					bigPrint(op2);
+					printLittleEndian32(op2);
 					printf("\nExpected: ");
 					if (result_size > 8)
 					{
-						bigPrint(&(result_compare[32]));
+						printLittleEndian32(&(result_compare[32]));
 					}
-					bigPrint(result_compare);
+					printLittleEndian32(result_compare);
 					printf("\nGot: ");
 					if (result_size > 8)
 					{
-						bigPrint(&(result[32]));
+						printLittleEndian32(&(result[32]));
 					}
-					bigPrint(result);
+					printLittleEndian32(result);
 					printf("\n");
 					printf("Expected return value: %d\n", (int)compare_returned);
 					printf("Got return value: %d\n", (int)returned);
-					failed++;
+					reportFailure();
 				}
 				else
 				{
-					succeeded++;
+					reportSuccess();
 				}
 			} // for (j = 0; j < TOTAL_CASES; j++)
 		} // for (i = 0; i < TOTAL_CASES; i++)
@@ -926,26 +912,26 @@ int main(void)
 							printf("divisor: ");
 							if (divisor_select == 0)
 							{
-								bigPrint((BigNum256)secp256k1_p);
+								printLittleEndian32((BigNum256)secp256k1_p);
 							}
 							else
 							{
-								bigPrint((BigNum256)secp256k1_n);
+								printLittleEndian32((BigNum256)secp256k1_n);
 							}
 							printf("\nop1: ");
-							bigPrint(op1);
+							printLittleEndian32(op1);
 							printf("\nop2: ");
-							bigPrint(op2);
+							printLittleEndian32(op2);
 							printf("\nExpected: ");
-							bigPrint(result_compare);
+							printLittleEndian32(result_compare);
 							printf("\nGot: ");
-							bigPrint(result);
+							printLittleEndian32(result);
 							printf("\n");
-							failed++;
+							reportFailure();
 						}
 						else
 						{
-							succeeded++;
+							reportSuccess();
 						}
 					} // for (j = 0; j < TOTAL_CASES; j++)
 				} // if (operation != 3)
@@ -969,23 +955,23 @@ int main(void)
 							printf("divisor: ");
 							if (divisor_select == 0)
 							{
-								bigPrint((BigNum256)secp256k1_p);
+								printLittleEndian32((BigNum256)secp256k1_p);
 							}
 							else
 							{
-								bigPrint((BigNum256)secp256k1_n);
+								printLittleEndian32((BigNum256)secp256k1_n);
 							}
 							printf("\nop1: ");
-							bigPrint(op1);
+							printLittleEndian32(op1);
 							printf("\nExpected inverse * op1 to be 1\n");
 							printf("Got: ");
-							bigPrint(result);
+							printLittleEndian32(result);
 							printf("\n");
-							failed++;
+							reportFailure();
 						}
 						else
 						{
-							succeeded++;
+							reportSuccess();
 						}
 					} // if (!bigIsZero(op1))
 				} // if (operation != 3) (else clause)
@@ -993,10 +979,9 @@ int main(void)
 		} // for (operation = 0; operation < 4; operation++)
 	}
 
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_BIGNUM256

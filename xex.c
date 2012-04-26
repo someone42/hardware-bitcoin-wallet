@@ -24,15 +24,13 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-
-#ifdef TEST
+#ifdef TEST_XEX
 #include <stdlib.h>
 #include <stdio.h>
-#include <memory.h>
 #include <string.h>
-#endif // #ifdef TEST
+#include "test_helpers.h"
+#include "wallet.h"
+#endif // #ifdef TEST_XEX
 
 #include "common.h"
 #include "aes.h"
@@ -305,42 +303,18 @@ NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint
 	return NV_NO_ERROR;
 }
 
-#ifdef TEST
+#ifdef TEST_XEX
 
-static int succeeded;
-static int failed;
-
-static void skipWhiteSpace(FILE *f)
-{
-	int onechar;
-	do
-	{
-		onechar = fgetc(f);
-	} while ((onechar == ' ') || (onechar == '\t') || (onechar == '\n') || (onechar == '\r'));
-	ungetc(onechar, f);
-}
-
-static void skipLine(FILE *f)
-{
-	int one_char;
-	do
-	{
-		one_char = fgetc(f);
-	} while (one_char != '\n');
-}
-
-static void print16(uint8_t *buffer)
-{
-	int i;
-	for (i = 0; i < 16; i++)
-	{
-		printf("%02x", (int)buffer[i]);
-	}
-}
-
-// If is_data_unit_seq_number is non-zero, this expects data unit sequence
-// numbers (look for "DataUnitSeqNumber =" in the file) as the tweak
-// value. Otherwise, this expects "i =" to specify the tweak value.
+/** Run unit tests using test vectors from a file. The file is expected to be
+  * in the same format as the NIST "XTS-AES Test Vectors",
+  * which can be obtained from: http://csrc.nist.gov/groups/STM/cavp/#08
+  * \param filename The name of the file containing the test vectors.
+  * \param is_data_unit_seq_number If this is non-zero, this function expects
+  *                                data unit sequence numbers (look
+  *                                for "DataUnitSeqNumber =" in the file) as
+  *                                the tweak value. Otherwise, this function
+  *                                expects "i =" to specify the tweak value.
+  */
 static void scanTestVectors(char *filename, int is_data_unit_seq_number)
 {
 	FILE *f;
@@ -554,20 +528,20 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			}
 			if (!test_failed)
 			{
-				succeeded++;
+				reportSuccess();
 			}
 			else
 			{
 				printf("Test %d failed\n", test_number);
 				printf("Key: ");
-				print16(encrypt_key);
-				print16(tweak_key);
+				printBigEndian16(encrypt_key);
+				printBigEndian16(tweak_key);
 				printf("\nFirst 16 bytes of plaintext: ");
-				print16(plaintext);
+				printBigEndian16(plaintext);
 				printf("\nFirst 16 bytes of ciphertext: ");
-				print16(ciphertext);
+				printBigEndian16(ciphertext);
 				printf("\n");
-				failed++;
+				reportFailure();
 			}
 			test_number++;
 			free(plaintext);
@@ -578,13 +552,11 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 	fclose(f);
 }
 
-// Maximum address that a write to non-volatile storage will be
-// Must be multiple of 128
+/** Maximum address that a write to non-volatile storage will be.
+  * Must be multiple of 128. */
 #define MAX_ADDRESS 1024
-// Number of read/write tests to do
+/** Number of read/write tests to do. */
 #define NUM_RW_TESTS 100000
-
-extern void initWalletTest(void);
 
 int main(void)
 {
@@ -594,11 +566,11 @@ int main(void)
 	int i;
 	int j;
 
+	initTests(__FILE__);
+
 	initWalletTest();
 	clearEncryptionKey();
-	srand(42);
-	succeeded = 0;
-	failed = 0;
+
 	scanTestVectors("XTSGenAES128i.rsp", 0);
 	scanTestVectors("XTSGenAES128d.rsp", 1);
 
@@ -617,11 +589,11 @@ int main(void)
 		{
 			printf("Storage mismatch in encryptedNonVolatileRead()\n");
 			printf("Initial fill, address = 0x%08x, length = 128\n", i);
-			failed++;
+			reportFailure();
 		}
 		else
 		{
-			succeeded++;
+			reportSuccess();
 		}
 	}
 
@@ -649,11 +621,11 @@ int main(void)
 			{
 				printf("encryptedNonVolatileWrite() failed\n");
 				printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
-				failed++;
+				reportFailure();
 			}
 			else
 			{
-				succeeded++;
+				reportSuccess();
 			}
 		}
 		else
@@ -663,7 +635,7 @@ int main(void)
 			{
 				printf("encryptedNonVolatileRead() failed\n");
 				printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
-				failed++;
+				reportFailure();
 			}
 			else
 			{
@@ -671,18 +643,18 @@ int main(void)
 				{
 					printf("Storage mismatch in encryptedNonVolatileRead()\n");
 					printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
-					failed++;
+					reportFailure();
 				}
 				else
 				{
-					succeeded++;
+					reportSuccess();
 				}
 			}
 		}
 	}
 
 	// Now change the encryption keys and try to obtain the contents of the
-	// nonvolatile storage. The result should be mismatches everywhere.
+	// non-volatile storage. The result should be mismatches everywhere.
 
 	// Change only tweak key.
 	memset(one_key, 0, 32);
@@ -693,13 +665,13 @@ int main(void)
 		encryptedNonVolatileRead(buffer, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("Storage match in encryptedNonVolatileRead() when using different tweak key\n");
 			printf("Final run, address = 0x%08x, length = 128\n", i);
-			failed++;
+			reportFailure();
 		}
 	}
 
@@ -712,13 +684,13 @@ int main(void)
 		encryptedNonVolatileRead(buffer, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("Storage match in encryptedNonVolatileRead() when using different primary encryption key\n");
 			printf("Final run, address = 0x%08x, length = 128\n", i);
-			failed++;
+			reportFailure();
 		}
 	}
 
@@ -731,17 +703,16 @@ int main(void)
 		{
 			printf("Storage mismatch in encryptedNonVolatileRead() when keys are okay\n");
 			printf("Final run, address = 0x%08x, length = 128\n", i);
-			failed++;
+			reportFailure();
 		}
 		else
 		{
-			succeeded++;
+			reportSuccess();
 		}
 	}
 
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_XEX

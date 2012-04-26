@@ -15,11 +15,16 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-// Defining this will provide useless stubs for interface functions, to stop
-// linker errors from occuring
-//#define INTERFACE_STUBS
+#ifdef TEST
+#include <stdlib.h>
+#include <stdio.h>
+#include <assert.h>
+#endif // #ifdef TEST
+
+#ifdef TEST_STREAM_COMM
+#include <string.h>
+#include "test_helpers.h"
+#endif // #ifdef TEST_STREAM_COMM
 
 #include "common.h"
 #include "endian.h"
@@ -30,13 +35,6 @@
 #include "prandom.h"
 #include "xex.h"
 #include "ecdsa.h"
-
-#ifdef TEST
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
-#include <assert.h>
-#endif // #ifdef TEST
 
 /** Because stdlib.h might not be included, NULL might be undefined. NULL
   * is only used as a placeholder pointer for translateWalletError() if
@@ -321,8 +319,8 @@ static NOINLINE void getAndSendAddressAndPublicKey(uint8_t generate_new)
 		writeBytesToStream(address, 20);
 		// The format of public keys sent is compatible with
 		// "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
-        // 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
-        // section 2.3 ("Data Types and Conversions"). The document basically
+		// 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
+		// section 2.3 ("Data Types and Conversions"). The document basically
 		// says that integers should be represented big-endian and that a 0x04
 		// should be prepended to indicate that the public key is
 		// uncompressed.
@@ -604,69 +602,28 @@ void processPacket(void)
 
 	}
 
-#ifdef TEST
+#ifdef TEST_STREAM_COMM
 	assert(payload_length == 0);
 #endif
 
 }
 
-#ifdef INTERFACE_STUBS
-
-uint8_t streamGetOneByte(void)
-{
-	return 0;
-}
-
-void streamPutOneByte(uint8_t one_byte)
-{
-	// Reference one_byte to make certain compilers happy
-	if (one_byte > 1000)
-	{
-		exit(1); // will never happen anyway
-	}
-}
-
-uint16_t getStringLength(StringSet set, uint8_t spec)
-{
-	// Reference set and spec to make certain compilers happy
-	if (set == spec)
-	{
-		return 1;
-	}
-	return 0;
-}
-
-char getString(StringSet set, uint8_t spec, uint16_t pos)
-{
-	// Reference set, spec and pos to make certain compilers happy
-	if ((pos == set) && (set == spec))
-	{
-		return 32;
-	}
-	return 0;
-}
-
-uint8_t askUser(AskUserCommand command)
-{
-	// Reference command to make certain compilers happy
-	if (command == 99)
-	{
-		return 1;
-	}
-	return 0;
-}
-
-#endif // #ifdef INTERFACE_STUBS
-
 #ifdef TEST
 
+/** Contents of a test stream (to read from). */
 static uint8_t *stream;
+/** 0-based index into #stream specifying which byte will be read next. */
 static int stream_ptr;
+/** Length of the test stream, in number of bytes. */
 static int stream_length;
 
-// Sets input stream (what will be read by streamGetOneByte()) to the
-// contents of a buffer.
-static void setInputStream(const uint8_t *buffer, int length)
+/** Sets input stream (what will be read by streamGetOneByte()) to the
+  * contents of a buffer.
+  * \param buffer The test stream data. Each call to streamGetOneByte() will
+  *               return successive bytes from this buffer.
+  * \param length The length of the buffer, in number of bytes.
+  */
+void setTestInputStream(const uint8_t *buffer, int length)
 {
 	if (stream != NULL)
 	{
@@ -678,9 +635,16 @@ static void setInputStream(const uint8_t *buffer, int length)
 	stream_ptr = 0;
 }
 
-// Get one byte from the contents of the buffer set by setInputStream().
+/** Get one byte from the contents of the buffer set by setTestInputStream().
+  * \return The next byte from the test stream buffer.
+  */
 uint8_t streamGetOneByte(void)
 {
+	if (stream == NULL)
+	{
+		printf("ERROR: Tried to read a stream whose contents weren't set.\n");
+		exit(1);
+	}
 	if (stream_ptr >= stream_length)
 	{
 		printf("ERROR: Tried to read past end of stream\n");
@@ -689,11 +653,19 @@ uint8_t streamGetOneByte(void)
 	return stream[stream_ptr++];
 }
 
+/** Simulate the sending of a byte by displaying its value.
+  * \param one_byte The byte to send.
+  */
 void streamPutOneByte(uint8_t one_byte)
 {
 	printf(" %02x", (int)one_byte);
 }
 
+/** Helper for getString().
+  * \param set See getString().
+  * \param spec See getString().
+  * \return A pointer to the actual string.
+  */
 static const char *getStringInternal(StringSet set, uint8_t spec)
 {
 	if (set == STRINGSET_MISC)
@@ -778,17 +750,39 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 	}
 }
 
+/** Get the length of one of the device's strings.
+  * \param set Specifies which set of strings to use; should be
+  *            one of #StringSetEnum.
+  * \param spec Specifies which string to get the character from. The
+  *             interpretation of this depends on the value of set;
+  *             see #StringSetEnum for clarification.
+  * \return The length of the string, in number of characters.
+  */
 uint16_t getStringLength(StringSet set, uint8_t spec)
 {
 	return (uint16_t)strlen(getStringInternal(set, spec));
 }
 
+/** Obtain one character from one of the device's strings.
+  * \param set Specifies which set of strings to use; should be
+  *            one of #StringSetEnum.
+  * \param spec Specifies which string to get the character from. The
+  *             interpretation of this depends on the value of set;
+  *             see #StringSetEnum for clarification.
+  * \param pos The position of the character within the string; 0 means first,
+  *            1 means second etc.
+  * \return The character from the specified string.
+  */
 char getString(StringSet set, uint8_t spec, uint16_t pos)
 {
 	assert(pos < getStringLength(set, spec));
 	return getStringInternal(set, spec)[pos];
 }
 
+/** Ask user if they want to allow some action.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \return 0 if the user accepted, non-zero if the user denied.
+  */
 uint8_t askUser(AskUserCommand command)
 {
 	int c;
@@ -829,7 +823,11 @@ uint8_t askUser(AskUserCommand command)
 	}
 }
 
-// Create new wallet
+#endif // #ifdef TEST
+
+#ifdef TEST_STREAM_COMM
+
+/** Test stream data for: create new wallet. */
 static const uint8_t test_stream_new_wallet[] = {
 0x04, 0x48, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -842,25 +840,26 @@ static const uint8_t test_stream_new_wallet[] = {
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
-// Create new address
+/** Test stream data for: create new address. */
 static const uint8_t test_stream_new_address[] = {
 0x05, 0x00, 0x00, 0x00, 0x00};
 
-// Get number of addresses
+/** Test stream data for: get number of addresses. */
 static const uint8_t test_stream_get_num_addresses[] = {
 0x06, 0x00, 0x00, 0x00, 0x00};
 
-// Get address 1
+/** Test stream data for: get address 1. */
 static const uint8_t test_stream_get_address1[] = {
 0x09, 0x04, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00, 0x00};
 
-// Get address 0 (which is an invalid address handle)
+/** Test stream data for: get address 0 (which is an invalid address
+  * handle). */
 static const uint8_t test_stream_get_address0[] = {
 0x09, 0x04, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// Sign something
+/** Test stream data for: sign something. */
 static uint8_t test_stream_sign_tx[] = {
 0x0a, 0x98, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00,
@@ -906,11 +905,11 @@ static uint8_t test_stream_sign_tx[] = {
 0x01, 0x00, 0x00, 0x00 // hashtype
 };
 
-// Format storage
+/** Test stream data for: format storage. */
 static const uint8_t test_stream_format[] = {
 0x0d, 0x00, 0x00, 0x00, 0x00};
 
-// Load wallet using correct key
+/** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
 0x0b, 0x20, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -918,7 +917,7 @@ static const uint8_t test_stream_load_correct[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// Load wallet using incorrect key
+/** Test stream data for: load wallet using incorrect key. */
 static const uint8_t test_stream_load_incorrect[] = {
 0x0b, 0x20, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -926,11 +925,11 @@ static const uint8_t test_stream_load_incorrect[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// Unload wallet
+/** Test stream data for: unload wallet. */
 static const uint8_t test_stream_unload[] = {
 0x0c, 0x00, 0x00, 0x00, 0x00};
 
-// Change encryption key
+/** Test stream data for: change encryption key. */
 static const uint8_t test_stream_change_key[] = {
 0x0e, 0x20, 0x00, 0x00, 0x00,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -938,7 +937,7 @@ static const uint8_t test_stream_change_key[] = {
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// Load with new encryption key
+/** Test stream data for: load with new encryption key. */
 static const uint8_t test_stream_load_with_changed_key[] = {
 0x0b, 0x20, 0x00, 0x00, 0x00,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -946,11 +945,11 @@ static const uint8_t test_stream_load_with_changed_key[] = {
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-// List wallets
+/** Test stream data for: list wallets. */
 static const uint8_t test_stream_list_wallets[] = {
 0x10, 0x00, 0x00, 0x00, 0x00};
 
-// Change wallet name
+/** Test stream data for: change wallet name. */
 static const uint8_t test_stream_change_name[] = {
 0x0f, 0x28, 0x00, 0x00, 0x00,
 0x71, 0x71, 0x71, 0x72, 0x70, 0x74, 0x20, 0x20,
@@ -959,60 +958,71 @@ static const uint8_t test_stream_change_name[] = {
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
+/** Test response of processPacket() for a given test stream.
+  * \param test_stream The test stream data to use.
+  * \param size The length of the test stream, in bytes.
+  */
 static void sendOneTestStream(const uint8_t *test_stream, int size)
 {
-	setInputStream(test_stream, size);
+	setTestInputStream(test_stream, size);
 	processPacket();
 	printf("\n");
 }
+
+/** Wrapper around sendOneTestStream() that covers its most common use
+  * case (use of a constant byte array). */
+#define SEND_ONE_TEST_STREAM(x)	sendOneTestStream(x, sizeof(x));
 
 int main(void)
 {
 	int i;
 
+	initTests(__FILE__);
+
 	initWalletTest();
 	initWallet();
 
 	printf("Listing wallets...\n");
-	sendOneTestStream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
+	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 	printf("Creating new wallet...\n");
-	sendOneTestStream(test_stream_new_wallet, sizeof(test_stream_new_wallet));
+	SEND_ONE_TEST_STREAM(test_stream_new_wallet);
 	printf("Listing wallets...\n");
-	sendOneTestStream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
+	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 	for(i = 0; i < 4; i++)
 	{
 		printf("Creating new address...\n");
-		sendOneTestStream(test_stream_new_address, sizeof(test_stream_new_address));
+		SEND_ONE_TEST_STREAM(test_stream_new_address);
 	}
 	printf("Getting number of addresses...\n");
-	sendOneTestStream(test_stream_get_num_addresses, sizeof(test_stream_get_num_addresses));
+	SEND_ONE_TEST_STREAM(test_stream_get_num_addresses);
 	printf("Getting address 1...\n");
-	sendOneTestStream(test_stream_get_address1, sizeof(test_stream_get_address1));
+	SEND_ONE_TEST_STREAM(test_stream_get_address1);
 	printf("Getting address 0...\n");
-	sendOneTestStream(test_stream_get_address0, sizeof(test_stream_get_address0));
+	SEND_ONE_TEST_STREAM(test_stream_get_address0);
 	printf("Signing transaction...\n");
-	sendOneTestStream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
+	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
 	printf("Signing transaction again...\n");
-	sendOneTestStream(test_stream_sign_tx, sizeof(test_stream_sign_tx));
+	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
 	//printf("Formatting...\n");
-	//sendOneTestStream(test_stream_format, sizeof(test_stream_format));
+	//SEND_ONE_TEST_STREAM(test_stream_format);
 	printf("Loading wallet using incorrect key...\n");
-	sendOneTestStream(test_stream_load_incorrect, sizeof(test_stream_load_incorrect));
+	SEND_ONE_TEST_STREAM(test_stream_load_incorrect);
 	printf("Loading wallet using correct key...\n");
-	sendOneTestStream(test_stream_load_correct, sizeof(test_stream_load_correct));
+	SEND_ONE_TEST_STREAM(test_stream_load_correct);
 	printf("Changing wallet key...\n");
-	sendOneTestStream(test_stream_change_key, sizeof(test_stream_change_key));
+	SEND_ONE_TEST_STREAM(test_stream_change_key);
 	printf("Unloading wallet...\n");
-	sendOneTestStream(test_stream_unload, sizeof(test_stream_unload));
+	SEND_ONE_TEST_STREAM(test_stream_unload);
 	printf("Loading wallet using changed key...\n");
-	sendOneTestStream(test_stream_load_with_changed_key, sizeof(test_stream_load_with_changed_key));
+	SEND_ONE_TEST_STREAM(test_stream_load_with_changed_key);
 	printf("Changing name...\n");
-	sendOneTestStream(test_stream_change_name, sizeof(test_stream_change_name));
+	SEND_ONE_TEST_STREAM(test_stream_change_name);
 	printf("Listing wallets...\n");
-	sendOneTestStream(test_stream_list_wallets, sizeof(test_stream_list_wallets));
+	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 
+	finishTests();
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_STREAM_COMM
 

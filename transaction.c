@@ -15,21 +15,15 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-// Defining this will provide useless stubs for interface functions, to stop
-// linker errors from occuring
-//#define INTERFACE_STUBS
-
-/** The maximum size of a transaction (in bytes) which parseTransaction()
-  * is prepared to handle. */
-#define MAX_TRANSACTION_SIZE	200000
-
-#if defined(TEST) || defined(INTERFACE_STUBS)
+#ifdef TEST
 #include <stdlib.h>
 #include <stdio.h>
-#include <memory.h>
-#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
+#endif // #ifdef TEST
+
+#ifdef TEST_TRANSACTION
+#include "test_helpers.h"
+#include "stream_comm.h"
+#endif // #ifdef TEST_TRANSACTION
 
 #include "common.h"
 #include "endian.h"
@@ -40,6 +34,10 @@
 #include "prandom.h"
 #include "hwinterface.h"
 #include "transaction.h"
+
+/** The maximum size of a transaction (in bytes) which parseTransaction()
+  * is prepared to handle. */
+#define MAX_TRANSACTION_SIZE	200000
 
 /** Where the transaction parser is within a transaction. 0 = first byte,
   * 1 = second byte etc. */
@@ -558,7 +556,7 @@ uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 privat
 	return (uint8_t)(sequence_length + 3);
 }
 
-#if defined(TEST) || defined(INTERFACE_STUBS)
+#ifdef TEST
 
 uint8_t newOutputSeen(char *text_amount, char *text_address)
 {
@@ -571,10 +569,11 @@ void clearOutputsSeen(void)
 {
 }
 
-#endif // #if defined(TEST) || defined(INTERFACE_STUBS)
+#endif // #ifdef TEST
 
-#ifdef TEST
+#ifdef TEST_TRANSACTION
 
+/** A test transaction. */
 static const uint8_t test_tx1[] = {
 0x01, 0x00, 0x00, 0x00, // version
 0x01, // number of inputs
@@ -617,18 +616,12 @@ static const uint8_t test_tx1[] = {
 0x01, 0x00, 0x00, 0x00 // hashtype
 };
 
+/** Private key to sign test transaction with. */
 static const uint8_t private_key[] = {
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
 0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee};
-
-static uint8_t *transaction_data;
-
-uint8_t streamGetOneByte(void)
-{
-	return transaction_data[transaction_data_index];
-}
 
 int main(void)
 {
@@ -636,33 +629,25 @@ int main(void)
 	uint8_t sig_hash[32];
 	uint8_t transaction_hash[32];
 	uint8_t signature[MAX_SIGNATURE_LENGTH];
-	int i;
 
-	srand(42);
+	initTests(__FILE__);
 
 	length = sizeof(test_tx1);
-	transaction_data = malloc(length);
-	memcpy(transaction_data, test_tx1, length);
-	printf("parseTransaction() returned: %d\n", (int)parseTransaction(sig_hash, transaction_hash, length));
+	setTestInputStream(test_tx1, (int)length);
+	printf("parseTransaction() returned: %d\n", (int)parseTransaction(sig_hash, transaction_hash, (uint32_t)length));
 	printf("Signature hash: ");
-	for (i = 0; i < 32; i++)
-	{
-		printf("%02x", (int)sig_hash[i]);
-	}
+	printLittleEndian32(sig_hash);
 	printf("\n");
 	printf("Transaction hash: ");
-	for (i = 0; i < 32; i++)
-	{
-		printf("%02x", (int)transaction_hash[i]);
-	}
+	printLittleEndian32(transaction_hash);
 	printf("\n");
 	printf("signTransaction() returned: %d\n", (int)signTransaction(signature, sig_hash, (BigNum256)private_key));
-	for (i = 0; i < MAX_SIGNATURE_LENGTH; i++)
-	{
-		printf("%02x", (int)signature[i]);
-	}
+	printf("Here's the signature: ");
+	bigPrintVariableSize(signature, MAX_SIGNATURE_LENGTH, 1);
+	printf("\n");
 
+	finishTests();
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_TRANSACTION

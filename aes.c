@@ -17,15 +17,12 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-
-#ifdef TEST
+#ifdef TEST_AES
 #include <stdlib.h>
 #include <stdio.h>
-#include <memory.h>
 #include <string.h>
-#endif // #ifdef TEST
+#include "test_helpers.h"
+#endif // #ifdef TEST_AES
 
 #include "common.h"
 #include "aes.h"
@@ -354,40 +351,14 @@ void aesDecrypt(uint8_t *out, uint8_t *in, uint8_t *expanded_key)
 	}
 }
 
-#ifdef TEST
+#ifdef TEST_AES
 
-static int succeeded;
-static int failed;
-
-static void skipWhiteSpace(FILE *f)
-{
-	int one_char;
-	do
-	{
-		one_char = fgetc(f);
-	} while ((one_char == ' ') || (one_char == '\t') || (one_char == '\n') || (one_char == '\r'));
-	ungetc(one_char, f);
-}
-
-static void skipLine(FILE *f)
-{
-	int one_char;
-	do
-	{
-		one_char = fgetc(f);
-	} while (one_char != '\n');
-}
-
-static void print16(uint8_t *buffer)
-{
-	int i;
-	for (i = 0; i < 16; i++)
-	{
-		printf("%02x", (int)buffer[i]);
-	}
-}
-
-static void scanTestVectors(char *filename)
+/** Run unit tests using test vectors from a file. The file is expected to be
+  * in the same format as the NIST "AES Known Answer Test (KAT) Vectors",
+  * which can be obtained from: http://csrc.nist.gov/groups/STM/cavp/#01
+  * \param filename The name of the file containing the test vectors.
+  */
+static void scanTestVectors(const char *filename)
 {
 	FILE *test_vector_file;
 	int test_number;
@@ -514,19 +485,19 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		}
 		if (!test_failed)
 		{
-			succeeded++;
+			reportSuccess();
 		}
 		else
 		{
 			printf("Test %d failed\n", test_number);
 			printf("Key: ");
-			print16(key);
+			printBigEndian16(key);
 			printf("\nPlaintext: ");
-			print16(plaintext);
+			printBigEndian16(plaintext);
 			printf("\nCiphertext: ");
-			print16(ciphertext);
+			printBigEndian16(ciphertext);
 			printf("\n");
-			failed++;
+			reportFailure();
 		}
 		test_number++;
 	}
@@ -535,16 +506,14 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 
 int main(void)
 {
-	succeeded = 0;
-	failed = 0;
+	initTests(__FILE__);
 	scanTestVectors("ECBVarTxt128.rsp");
 	scanTestVectors("ECBVarKey128.rsp");
 	scanTestVectors("ECBKeySbox128.rsp");
 	scanTestVectors("ECBGFSbox128.rsp");
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_AES
 

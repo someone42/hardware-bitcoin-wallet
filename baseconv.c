@@ -11,14 +11,12 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-// Defining this will facilitate testing
-//#define TEST
-
-#ifdef TEST
+#ifdef TEST_BASECONV
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#endif // #ifdef TEST
+#include "test_helpers.h"
+#endif // #ifdef TEST_BASECONV
 
 #include "common.h"
 #include "endian.h"
@@ -48,27 +46,6 @@ static const char base58_char_list[58] PROGMEM = {
 'X', 'Y', 'Z', 'a', 'b', 'c', 'd', 'e', 'f', 'g',
 'h', 'i', 'j', 'k', 'm', 'n', 'o', 'p', 'q', 'r',
 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'};
-
-#ifdef TEST
-static void bigPrintVariableSize(uint8_t *number, uint8_t size, uint8_t big_endian)
-{
-	uint8_t i;
-	if (big_endian)
-	{
-		for (i = 0; i < size; i++)
-		{
-			printf("%02x", number[i]);
-		}
-	}
-	else
-	{
-		for (i = (uint8_t)(size - 1); i < size; i--)
-		{
-			printf("%02x", number[i]);
-		}
-	}
-}
-#endif // #ifdef TEST
 
 /** Do a multi-precision division of op1 by an 8 bit unsigned integer n,
   * placing the quotient in r and the remainder in op1.
@@ -263,7 +240,7 @@ void hashToAddr(char *out, uint8_t *in)
 	}
 }
 
-#ifdef TEST
+#ifdef TEST_BASECONV
 
 /** Stores one test case for amountToText(). */
 struct Base10TestStruct
@@ -308,7 +285,7 @@ const struct Base10TestStruct base10_tests[] = {
 
 /** Some of these are real Bitcoin addresses, obtained from blockexplorer
   * and from forums.
-  * Others were generated using http://blockexplorer.com/q/hashtoaddress. */
+  * Others were generated using: http://blockexplorer.com/q/hashtoaddress */
 const struct Base58TestStruct base58_tests[] = {
 {{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
@@ -377,12 +354,8 @@ int main(void)
 	char addr[TEXT_ADDRESS_LENGTH];
 	int num_tests;
 	int i;
-	int succeeded;
-	int failed;
 
-	succeeded = 0;
-	failed = 0;
-
+	initTests(__FILE__);
 	num_tests = sizeof(base10_tests) / sizeof(struct Base10TestStruct);
 	for (i = 0; i < num_tests; i++)
 	{
@@ -395,11 +368,11 @@ int main(void)
 			printf("\n");
 			printf("Got: %s\n", amount);
 			printf("Expected: %s\n", base10_tests[i].text);
-			failed++;
+			reportFailure();
 		}
 		else
 		{
-			succeeded++;
+			reportSuccess();
 		}
 	}
 
@@ -415,19 +388,18 @@ int main(void)
 			printf("\n");
 			printf("Got:      %s\n", addr);
 			printf("Expected: %s\n", base58_tests[i].addr);
-			failed++;
+			reportFailure();
 		}
 		else
 		{
-			succeeded++;
+			reportSuccess();
 		}
 	}
 
-	printf("Tests which succeeded: %d\n", succeeded);
-	printf("Tests which failed: %d\n", failed);
+	finishTests();
 
 	exit(0);
 }
 
-#endif // #ifdef TEST
+#endif // #ifdef TEST_BASECONV
 
