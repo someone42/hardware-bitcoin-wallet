@@ -633,7 +633,7 @@ int main(void)
 	initTests(__FILE__);
 
 	length = sizeof(test_tx1);
-	setTestInputStream(test_tx1, (int)length);
+	setTestInputStream(test_tx1, length);
 	printf("parseTransaction() returned: %d\n", (int)parseTransaction(sig_hash, transaction_hash, (uint32_t)length));
 	printf("Signature hash: ");
 	printLittleEndian32(sig_hash);

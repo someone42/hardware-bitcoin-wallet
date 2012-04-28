@@ -179,7 +179,7 @@ int main(int argc, char **argv)
 	int i, j;
 	int num_samples;
 	int abort;
-	int bytes_written;
+	unsigned int bytes_written;
 	FILE *f;
 	uint8_t seed[64];
 	uint8_t keys[64][32];
@@ -282,7 +282,7 @@ int main(int argc, char **argv)
 	}
 	fclose(f);
 
-	printf("%d bytes written to random.dat\n", bytes_written);
+	printf("%u bytes written to random.dat\n", bytes_written);
 	finishTests();
 
 	exit(0);

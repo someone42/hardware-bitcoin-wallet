@@ -71,7 +71,7 @@ static uint8_t xTimes2InGF(uint8_t x)
 {
 	// ((unsigned int)(-(int)(x >> 7)) & 0x1b) is equivalent to
 	// (x & 0x80 ? 0x1b : 0) but is more timing attack resistant.
-	return (uint8_t)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (x + x));
+	return (uint8_t)(((unsigned int)(-(int)(x >> 7)) & 0x1b) ^ (unsigned int)(x + x));
 }
 
 /** Multiply x by 3 under the field GF(2 ^ 8) with the reducing polynomial

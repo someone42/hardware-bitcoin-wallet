@@ -613,9 +613,9 @@ void processPacket(void)
 /** Contents of a test stream (to read from). */
 static uint8_t *stream;
 /** 0-based index into #stream specifying which byte will be read next. */
-static int stream_ptr;
+static unsigned int stream_ptr;
 /** Length of the test stream, in number of bytes. */
-static int stream_length;
+static unsigned int stream_length;
 
 /** Sets input stream (what will be read by streamGetOneByte()) to the
   * contents of a buffer.
@@ -623,7 +623,7 @@ static int stream_length;
   *               return successive bytes from this buffer.
   * \param length The length of the buffer, in number of bytes.
   */
-void setTestInputStream(const uint8_t *buffer, int length)
+void setTestInputStream(const uint8_t *buffer, unsigned int length)
 {
 	if (stream != NULL)
 	{
@@ -683,7 +683,6 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		default:
 			assert(0);
-			return NULL;
 		}
 	}
 	else if (set == STRINGSET_WALLET)
@@ -716,7 +715,6 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		default:
 			assert(0);
-			return NULL;
 		}
 	}
 	else if (set == STRINGSET_TRANSACTION)
@@ -740,14 +738,18 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		default:
 			assert(0);
-			return NULL;
 		}
 	}
 	else
 	{
 		assert(0);
-		return NULL;
 	}
+
+	// GCC is smart enough to realise that the following line will never
+	// be executed.
+#ifndef __GNUC__
+	return NULL;
+#endif // #ifndef __GNUC__
 }
 
 /** Get the length of one of the device's strings.
@@ -806,7 +808,11 @@ uint8_t askUser(AskUserCommand command)
 		break;
 	default:
 		assert(0);
+		// GCC is smart enough to realise that the following line will never
+		// be executed.
+#ifndef __GNUC__
 		return 1;
+#endif // #ifndef __GNUC__
 	}
 	printf("y/[n]: ");
 	do
@@ -962,7 +968,7 @@ static const uint8_t test_stream_change_name[] = {
   * \param test_stream The test stream data to use.
   * \param size The length of the test stream, in bytes.
   */
-static void sendOneTestStream(const uint8_t *test_stream, int size)
+static void sendOneTestStream(const uint8_t *test_stream, unsigned int size)
 {
 	setTestInputStream(test_stream, size);
 	processPacket();

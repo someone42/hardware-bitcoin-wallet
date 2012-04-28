@@ -250,9 +250,9 @@ static void sha256(uint8_t *message, uint32_t length)
 static void scanTestVectors(char *filename)
 {
 	FILE *f;
-	int length;
-	int bytes_to_read;
-	int i;
+	unsigned int length;
+	unsigned int bytes_to_read;
+	unsigned int i;
 	int value;
 	int test_number;
 	uint32_t compare_h[8];
@@ -276,7 +276,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 	while (!feof(f))
 	{
 		// Get length of message.
-		if (!fscanf(f, "Len = %d", &length))
+		if (!fscanf(f, "Len = %u", &length))
 		{
 			printf("fscanf error when reading length\n");
 			exit(1);
@@ -326,7 +326,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#03", filename);
 		}
 		else
 		{
-			printf("Test number %d (Len = %d) failed\n", test_number, length << 3);
+			printf("Test number %d (Len = %u) failed\n", test_number, length << 3);
 			reportFailure();
 		}
 		test_number++;

@@ -319,9 +319,9 @@ static void scanTestVectors(char *filename, int is_data_unit_seq_number)
 {
 	FILE *f;
 	int test_number;
-	int data_unit_length;
+	unsigned int data_unit_length;
 	int is_encrypt;
-	int i;
+	unsigned int i;
 	int j;
 	int value;
 	int seen_count;
@@ -385,10 +385,10 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			printf("Parse error; expected \"DataUnitLen = \"\n");
 			exit(1);
 		}
-		fscanf(f, "%d", &data_unit_length);
+		fscanf(f, "%u", &data_unit_length);
 		if ((data_unit_length <= 0) || (data_unit_length > 10000000))
 		{
-			printf("Error: got absurd data unit length %d\n", data_unit_length);
+			printf("Error: got absurd data unit length %u\n", data_unit_length);
 			exit(1);
 		}
 		skipWhiteSpace(f);
@@ -563,7 +563,7 @@ int main(void)
 	uint8_t what_storage_should_be[MAX_ADDRESS];
 	uint8_t buffer[256];
 	uint8_t one_key[32];
-	int i;
+	unsigned int i;
 	int j;
 
 	initTests(__FILE__);
@@ -620,7 +620,7 @@ int main(void)
 			if (encryptedNonVolatileWrite(buffer, address, length) != NV_NO_ERROR)
 			{
 				printf("encryptedNonVolatileWrite() failed\n");
-				printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
+				printf("test number = %u, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
 				reportFailure();
 			}
 			else
@@ -634,7 +634,7 @@ int main(void)
 			if (encryptedNonVolatileRead(buffer, address, length) != NV_NO_ERROR)
 			{
 				printf("encryptedNonVolatileRead() failed\n");
-				printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
+				printf("test number = %u, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
 				reportFailure();
 			}
 			else
@@ -642,7 +642,7 @@ int main(void)
 				if (memcmp(&(what_storage_should_be[address]), buffer, length))
 				{
 					printf("Storage mismatch in encryptedNonVolatileRead()\n");
-					printf("test number = %d, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
+					printf("test number = %u, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
 					reportFailure();
 				}
 				else

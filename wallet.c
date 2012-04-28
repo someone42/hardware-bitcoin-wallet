@@ -170,16 +170,16 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 	NonVolatileReturn r;
 
 	sha256Begin(&hs);
-	for (i = 0; i < WALLET_RECORD_LENGTH; i += 4)
+	for (i = 0; i < WALLET_RECORD_LENGTH; i = (uint16_t)(i + 4))
 	{
 		// Skip number of addresses and checksum.
 		if (i == OFFSET_NUM_ADDRESSES)
 		{
-			i += 4;
+			i = (uint16_t)(i + 4);
 		}
 		if (i == OFFSET_CHECKSUM)
 		{
-			i += 32;
+			i = (uint16_t)(i + 32);
 		}
 		if (i < WALLET_RECORD_LENGTH)
 		{
@@ -823,7 +823,7 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 	}
 	printf("\n");
 #endif // #ifndef TEST_XEX
-	fseek(wallet_test_file, address, SEEK_SET);
+	fseek(wallet_test_file, (long)address, SEEK_SET);
 	fwrite(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
 }
@@ -841,7 +841,7 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 	{
 		return NV_INVALID_ADDRESS;
 	}
-	fseek(wallet_test_file, address, SEEK_SET);
+	fseek(wallet_test_file, (long)address, SEEK_SET);
 	fread(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
 }

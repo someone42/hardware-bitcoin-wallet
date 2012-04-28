@@ -53,7 +53,7 @@
 
 extern void processPacket(void);
 #ifdef TEST
-extern void setTestInputStream(const uint8_t *buffer, int length);
+extern void setTestInputStream(const uint8_t *buffer, unsigned int length);
 #endif // #ifdef TEST
 
 #endif // #ifndef STREAM_COMM_H_INCLUDED
