@@ -30,7 +30,7 @@
 #define ENTROPY_SAFETY_FACTOR	2
 
 /** Uses a hash function to accumulate entropy from a hardware random number
-  * generator (HWRNG)..
+  * generator (HWRNG) along with the state of a persistent pool.
   *
   * To justify why a cryptographic hash is an appropriate means of entropy
   * accumulation, see the paper "Yarrow-160: Notes on the Design and Analysis
@@ -42,26 +42,70 @@
   * Entropy is accumulated by hashing bytes obtained from the HWRNG until the
   * total entropy (as reported by the HWRNG) is at least
   * 256 * ENTROPY_SAFETY_FACTOR bits.
+  *
+  * If the HWRNG breaks, the secret pool of random bits ensures that the output
+  * will still be unpredictable.
   * \param n The final 256 bit random value will be written here.
   */
 void getRandom256(BigNum256 n)
 {
 	uint16_t total_entropy;
 	uint8_t random_bytes[32];
+	uint8_t random_bytes_pool_checksum;
 	HashState hs;
+	HashState output;
 	uint8_t i;
 
+	// Hash in HWRNG randomness until we've reached the entropy required.
+	//
+	// This needs to happen before hashing the pool itself due to the
+	// possibility of length extension attacks; see below.
 	total_entropy = 0;
 	sha256Begin(&hs);
 	while (total_entropy < (256 * ENTROPY_SAFETY_FACTOR))
 	{
-		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, 32));
-		for (i = 0; i < 32; i++)
+		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, sizeof(random_bytes)));
+		for (i = 0; i < sizeof(random_bytes); i++)
 		{
 			sha256WriteByte(&hs, random_bytes[i]);
 		}
 	}
+
+	// Now include the previous state of the pool.
+	encryptedNonVolatileRead(random_bytes,OFFSET_POOL,sizeof(random_bytes));
+	encryptedNonVolatileRead(&random_bytes_pool_checksum,OFFSET_POOL_CHECKSUM,sizeof(random_bytes_pool_checksum));
+
+	// FIXME: Validate checksum here somehow. Not sure what the checksum not
+	// validating should do, although if the HWRNG is still secure it won't
+	// cause a security breach.
+
+	for (i = 0; i < sizeof(random_bytes); i++)
+	{
+		sha256WriteByte(&hs,random_bytes[i]);
+	}
 	sha256Finish(&hs);
+	writeHashToByteArray(random_bytes, &hs, 1);
+
+	// Save the pool state to flash immediately as we don't want it to be
+	// possible to reuse the pool state.
+	encryptedNonVolatileWrite(random_bytes,OFFSET_POOL,sizeof(random_bytes));
+	// FIXME: Calculate checksum somehow...
+	encryptedNonVolatileWrite(&random_bytes_pool_checksum,OFFSET_POOL_CHECKSUM,sizeof(random_bytes_pool_checksum));
+
+	// Hash the pool twice pool to generate the random bytes to return.
+	//
+	// We can't output the pool state directly, or an attacker who knew that
+	// the HWRNG was broken, and how it was broken, could then predict the next
+	// output. Outputting H(pool) is another possibility, but that's kinda
+	// cutting it close though, as we're outputting H(pool) while the next
+	// output will be H(hwrng|pool) We've prevented a length extension attack
+	// as described above, but there may be other attacks.
+	sha256Begin(&hs);
+	for (i = 0; i < 32; i++)
+	{
+		sha256WriteByte(&hs,random_bytes[i]);
+	}
+	sha256FinishDouble(&hs);
 	writeHashToByteArray(n, &hs, 1);
 }
 
