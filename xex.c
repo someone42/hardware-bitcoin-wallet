@@ -71,16 +71,16 @@ static void doubleInGF(uint8_t *op1)
 }
 
 /** Combined XEX mode encrypt/decrypt, since they're almost the same.
-  * See xexEncrypt() and xexDecrypt() for a description of what this does
-  * and what each parameter is.
+  * See xexEncryptInternal() and xexDecryptInternal() for a description of
+  * what this does and what each parameter is.
   * \param out For encryption, this will be the resulting ciphertext. For
   *            decryption, this will be the resulting plaintext.
   * \param in For encryption, this will be the source plaintext. For
   *           decryption, this will be the source ciphertext.
-  * \param n See xexEncrypt().
-  * \param seq See xexEncrypt().
-  * \param tweak_key See xexEncrypt().
-  * \param encrypt_key See xexEncrypt().
+  * \param n See xexEncryptInternal().
+  * \param seq See xexEncryptInternal().
+  * \param tweak_key See xexEncryptInternal().
+  * \param encrypt_key See xexEncryptInternal().
   * \param is_decrypt To decrypt, use a non-zero value for this parameter. To
   *                   encrypt, use zero for this parameter.
   */
@@ -111,7 +111,8 @@ static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uin
 	xor16Bytes(out, delta);
 }
 
-/** Encrypt one 16 byte block using AES in XEX mode.
+/** Encrypt one 16 byte block using AES in XEX mode. This uses an arbitrary
+  * encryption key.
   * \param out The resulting ciphertext will be written to here. This must be
   *            a byte array with space for 16 bytes.
   * \param in The source plaintext. This must be a byte array containing the
@@ -119,8 +120,10 @@ static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uin
   * \param n A 128 bit number which specifies the number of the data
   *          unit (whatever a data unit is defined to be). This should be a
   *          byte array of 16 bytes, with the 128 bit number in unsigned,
-  *          little-endian multi-precision format.
-  * \param seq Specifies the block within the data unit.
+  *          little-endian multi-precision format. This is one of the
+  *          tweakable parameters.
+  * \param seq Specifies the block within the data unit. This is the other
+  *            tweakable parameter.
   * \param tweak_key A 128 bit AES key.
   * \param encrypt_key Another 128 bit AES key. This must be independent of
   *                    tweak_key.
@@ -129,24 +132,53 @@ static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uin
   *          the seq = 0 issue, see section 6 ("Security of XEX") of
   *          Rogaway's paper (reference at the top of this file).
   */
-static void xexEncrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
+static void xexEncryptInternal(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
 {
 	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 0);
 }
 
-/** Decrypt the 16 byte block using AES in XEX mode.
+/** Decrypt the 16 byte block using AES in XEX mode. This uses an arbitrary
+  * encryption key.
   * \param out The resulting plaintext will be written to here. This must be
   *            a byte array with space for 16 bytes.
   * \param in The source ciphertext. This must be a byte array containing the
   *           16 byte ciphertext.
-  * \param n See xexEncrypt().
-  * \param seq See xexEncrypt().
-  * \param tweak_key See xexEncrypt().
-  * \param encrypt_key See xexEncrypt().
+  * \param n See xexEncryptInternal().
+  * \param seq See xexEncryptInternal().
+  * \param tweak_key See xexEncryptInternal().
+  * \param encrypt_key See xexEncryptInternal().
   */
-static void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
+static void xexDecryptInternal(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
 {
 	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 1);
+}
+
+/** Encrypt one 16 byte block using AES in XEX mode. This uses the encryption
+  * key set by setEncryptionKey().
+  * \param out The resulting ciphertext will be written to here. This must be
+  *            a byte array with space for 16 bytes.
+  * \param in The source plaintext. This must be a byte array containing the
+  *           16 byte plaintext.
+  * \param n See xexEncryptInternal().
+  * \param seq See xexEncryptInternal().
+  */
+void xexEncrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq)
+{
+	xexEncryptInternal(out, in, n, seq, nv_storage_tweak_key, nv_storage_encrypt_key);
+}
+
+/** Decrypt the 16 byte block using AES in XEX mode. This uses the encryption
+  * key set by setEncryptionKey().
+  * \param out The resulting plaintext will be written to here. This must be
+  *            a byte array with space for 16 bytes.
+  * \param in The source ciphertext. This must be a byte array containing the
+  *           16 byte ciphertext.
+  * \param n See xexEncryptInternal().
+  * \param seq See xexEncryptInternal().
+  */
+void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq)
+{
+	xexDecryptInternal(out, in, n, seq, nv_storage_tweak_key, nv_storage_encrypt_key);
 }
 
 /** Set the combined encryption key.
@@ -240,14 +272,14 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
 			return r;
 		}
 		writeU32LittleEndian(n, block_start);
-		xexDecrypt(plaintext, ciphertext, n, 1, nv_storage_tweak_key, nv_storage_encrypt_key);
+		xexDecrypt(plaintext, ciphertext, n, 1);
 		while (length && block_offset < 16)
 		{
 			plaintext[block_offset++] = *data++;
 			length--;
 		}
 		block_offset = 0;
-		xexEncrypt(ciphertext, plaintext, n, 1, nv_storage_tweak_key, nv_storage_encrypt_key);
+		xexEncrypt(ciphertext, plaintext, n, 1);
 		r = nonVolatileWrite(ciphertext, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
@@ -291,7 +323,7 @@ NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint
 			return r;
 		}
 		writeU32LittleEndian(n, block_start);
-		xexDecrypt(plaintext, ciphertext, n, 1, nv_storage_tweak_key, nv_storage_encrypt_key);
+		xexDecrypt(plaintext, ciphertext, n, 1);
 		while (length && block_offset < 16)
 		{
 			*data++ = plaintext[block_offset++];
@@ -506,7 +538,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			{
 				for (i = 0; i < data_unit_length; i += 16)
 				{
-					xexEncrypt(&(compare[i]), &(plaintext[i]), tweak_value, (uint8_t)(i >> 4), tweak_key, encrypt_key);
+					xexEncryptInternal(&(compare[i]), &(plaintext[i]), tweak_value, (uint8_t)(i >> 4), tweak_key, encrypt_key);
 					if (memcmp(&(compare[i]), &(ciphertext[i]), 16))
 					{
 						test_failed = 1;
@@ -518,7 +550,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			{
 				for (i = 0; i < data_unit_length; i += 16)
 				{
-					xexDecrypt(&(compare[i]), &(ciphertext[i]), tweak_value, (uint8_t)(i >> 4), tweak_key, encrypt_key);
+					xexDecryptInternal(&(compare[i]), &(ciphertext[i]), tweak_value, (uint8_t)(i >> 4), tweak_key, encrypt_key);
 					if (memcmp(&(compare[i]), &(plaintext[i]), 16))
 					{
 						test_failed = 1;

@@ -40,7 +40,11 @@ typedef enum AskUserCommandEnum
 	/** Do you want to delete everything? */
 	ASKUSER_FORMAT				=	4,
 	/** Do you want to change the name of a wallet? */
-	ASKUSER_CHANGE_NAME			=	5
+	ASKUSER_CHANGE_NAME			=	5,
+	/** Do wallet backup? */
+	ASKUSER_BACKUP_WALLET		=	6,
+	/** Restore wallet from backup? */
+	ASKUSER_RESTORE_WALLET		=	7
 } AskUserCommand;
 
 /** Values for getString() function which specify which set of strings
@@ -187,5 +191,19 @@ extern void nonVolatileFlush(void);
   * considered sensitive and should be overwritten.
   */
 extern void sanitiseRam(void);
+
+/** Write backup seed to some output device. The choice of output device and
+  * seed representation is up to the platform-dependent code. But a typical
+  * example would be displaying the seed as a hexadecimal string on a LCD.
+  * \param seed A byte array of length #SEED_LENGTH bytes which contains the
+  *             backup seed.
+  * \param is_encrypted Specifies whether the seed has been encrypted
+  *                     (non-zero) or not (zero).
+  * \param destination_device Specifies which (platform-dependent) device the
+  *                           backup seed should be sent to.
+  * \return 0 on success, or non-zero if the backup seed could not be written
+  *         to the destination device.
+  */
+extern uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination_device);
 
 #endif // #ifndef HWINTERFACE_H_INCLUDED

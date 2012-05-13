@@ -26,6 +26,7 @@
 #ifdef TEST
 #include <stdlib.h>
 #include <stdio.h>
+#include <assert.h>
 #endif // #ifdef TEST
 
 #ifdef TEST_WALLET
@@ -33,6 +34,7 @@
 #endif // #ifdef TEST_WALLET
 
 #include "common.h"
+#include "aes.h"
 #include "endian.h"
 #include "wallet.h"
 #include "prandom.h"
@@ -392,12 +394,19 @@ static WalletErrors writeWalletChecksum(void)
   * have a unique, unpredictable deterministic private key generation seed.
   * \param name Should point to #NAME_LENGTH bytes (padded with spaces if
   *             necessary) containing the desired name of the wallet.
+  * \param use_seed If this is non-zero, then the contents of seed will be
+  *                 used as the deterministic private key generation seed.
+  *                 If this is zero, then the contents of seed will be
+  *                 ignored.
+  * \param seed The deterministic private key generation seed to use in the
+  *             new wallet. This should be a byte array of length #SEED_LENGTH
+  *             bytes. This parameter will be ignored if use_seed is zero.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred. If this returns #WALLET_NO_ERROR, then the
   *         wallet will also be loaded.
   * \warning This will erase the current one.
   */
-WalletErrors newWallet(uint8_t *name)
+WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 {
 	uint8_t buffer[32];
 	WalletErrors r;
@@ -451,17 +460,28 @@ WalletErrors newWallet(uint8_t *name)
 		return last_error;
 	}
 	// Write seed for deterministic address generator.
-	getRandom256(buffer);
-	if (encryptedNonVolatileWrite(buffer, OFFSET_SEED, 32) != NV_NO_ERROR)
+	if (use_seed)
 	{
-		last_error = WALLET_WRITE_ERROR;
-		return last_error;
+		if (encryptedNonVolatileWrite(seed, OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
+		{
+			last_error = WALLET_WRITE_ERROR;
+			return last_error;
+		}
 	}
-	getRandom256(buffer);
-	if (encryptedNonVolatileWrite(buffer, OFFSET_SEED + 32, 32) != NV_NO_ERROR)
+	else
 	{
-		last_error = WALLET_WRITE_ERROR;
-		return last_error;
+		getRandom256(buffer);
+		if (encryptedNonVolatileWrite(buffer, OFFSET_SEED, 32) != NV_NO_ERROR)
+		{
+			last_error = WALLET_WRITE_ERROR;
+			return last_error;
+		}
+		getRandom256(buffer);
+		if (encryptedNonVolatileWrite(buffer, OFFSET_SEED + 32, 32) != NV_NO_ERROR)
+		{
+			last_error = WALLET_WRITE_ERROR;
+			return last_error;
+		}
 	}
 	nonVolatileFlush();
 
@@ -631,7 +651,7 @@ uint32_t getNumAddresses(void)
   */
 WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 {
-	uint8_t seed[64];
+	uint8_t seed[SEED_LENGTH];
 
 	if (!wallet_loaded)
 	{
@@ -648,7 +668,7 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 		last_error = WALLET_INVALID_HANDLE;
 		return last_error;
 	}
-	if (encryptedNonVolatileRead(seed, OFFSET_SEED, 64) != NV_NO_ERROR)
+	if (encryptedNonVolatileRead(seed, OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -788,6 +808,62 @@ WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
 	return last_error;
 }
 
+/** Initiate a wallet backup of the currently loaded wallet.
+  * \param do_encrypt If this is non-zero, the wallet backup will be written
+  *                   in encrypted form. If this is zero, the wallet backup
+  *                   will be written in unencrypted form.
+  * \param destination_device See writeBackupSeed().
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
+WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device)
+{
+	uint8_t seed[SEED_LENGTH];
+	uint8_t encrypted_seed[SEED_LENGTH];
+	uint8_t n[16];
+	uint8_t r;
+	uint8_t i;
+
+	if (!wallet_loaded)
+	{
+		last_error = WALLET_NOT_THERE;
+		return last_error;
+	}
+
+	if (encryptedNonVolatileRead(seed, OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
+	{
+		last_error = WALLET_READ_ERROR;
+		return last_error;
+	}
+	if (do_encrypt)
+	{
+#ifdef TEST
+		assert(SEED_LENGTH % 16 == 0);
+#endif
+		memset(n, 0, 16);
+		for (i = 0; i < SEED_LENGTH; i = (uint8_t)(i + 16))
+		{
+			writeU32LittleEndian(n, i);
+			xexEncrypt(&(encrypted_seed[i]), &(seed[i]), n, 1);
+		}
+		r = writeBackupSeed(encrypted_seed, do_encrypt, destination_device);
+	}
+	else
+	{
+		r = writeBackupSeed(seed, do_encrypt, destination_device);
+	}
+	if (r)
+	{
+		last_error = WALLET_BACKUP_ERROR;
+		return last_error;
+	}
+	else
+	{
+		last_error = WALLET_NO_ERROR;
+		return last_error;
+	}
+}
+
 #ifdef TEST
 
 /** Size of storage area, in bytes. */
@@ -857,6 +933,50 @@ void nonVolatileFlush(void)
 void sanitiseRam(void)
 {
 	// do nothing
+}
+
+/** Where test wallet backups will be written to, for comparison. */
+static uint8_t test_wallet_backup[SEED_LENGTH];
+
+/** Write backup seed to some output device. The choice of output device and
+  * seed representation is up to the platform-dependent code. But a typical
+  * example would be displaying the seed as a hexadecimal string on a LCD.
+  * \param seed A byte array of length #SEED_LENGTH bytes which contains the
+  *             backup seed.
+  * \param is_encrypted Specifies whether the seed has been encrypted
+  *                     (non-zero) or not (zero).
+  * \param destination_device Specifies which (platform-dependent) device the
+  *                           backup seed should be sent to.
+  * \return 0 on success, or non-zero if the backup seed could not be written
+  *         to the destination device.
+  */
+uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination_device)
+{
+	int i;
+
+	if (destination_device > 0)
+	{
+		return 1;
+	}
+	else
+	{
+		printf("Test wallet seed written:");
+		for (i = 0; i < SEED_LENGTH; i++)
+		{
+			printf(" %02x", seed[i]);
+		}
+		printf("\n");
+		if (is_encrypted)
+		{
+			printf("Seed is encrypted\n");
+		}
+		else
+		{
+			printf("Seed is unencrypted\n");
+		}
+		memcpy(test_wallet_backup, seed, SEED_LENGTH);
+		return 0;
+	}
 }
 
 #endif // #ifdef TEST
@@ -930,6 +1050,15 @@ static void checkFunctionsReturnWalletNotThere(void)
 		printf("changeWalletName() doesn't recognise when wallet isn't there\n");
 		reportFailure();
 	}
+	if (backupWallet(0, 0) == WALLET_NOT_THERE)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("backupWallet() doesn't recognise when wallet isn't there\n");
+		reportFailure();
+	}
 }
 
 int main(void)
@@ -941,6 +1070,9 @@ int main(void)
 	uint8_t encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t new_encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t version[4];
+	uint8_t seed1[SEED_LENGTH];
+	uint8_t seed2[SEED_LENGTH];
+	uint8_t encrypted_seed[SEED_LENGTH];
 	uint8_t *address_buffer;
 	uint8_t one_byte;
 	AddressHandle *handles_buffer;
@@ -1015,7 +1147,7 @@ int main(void)
 
 	// Try creating a wallet and testing initWallet() on it.
 	memcpy(name, "123456789012345678901234567890abcdefghij", NAME_LENGTH);
-	if (newWallet(name) == WALLET_NO_ERROR)
+	if (newWallet(name, 0, NULL) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1086,7 +1218,7 @@ int main(void)
 	// Make some new addresses, then create a new wallet and make sure the
 	// new wallet is empty (i.e. check that newWallet() deletes existing
 	// wallet).
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	if (makeNewAddress(temp, &public_key) != BAD_ADDRESS_HANDLE)
 	{
 		reportSuccess();
@@ -1096,7 +1228,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		reportFailure();
 	}
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	if ((getNumAddresses() == 0) && (walletGetLastError() == WALLET_EMPTY))
 	{
 		reportSuccess();
@@ -1179,7 +1311,7 @@ int main(void)
 	}
 
 	// Create 2 new wallets and check that their addresses aren't the same
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	if (makeNewAddress(address1, &public_key) != BAD_ADDRESS_HANDLE)
 	{
 		reportSuccess();
@@ -1189,7 +1321,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		reportFailure();
 	}
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	memset(address2, 0, 20);
 	memset(&public_key, 0, sizeof(PointAffine));
 	if (makeNewAddress(address2, &public_key) != BAD_ADDRESS_HANDLE)
@@ -1242,7 +1374,7 @@ int main(void)
 
 	// Make some new addresses, up to a limit.
 	// Also check that addresses are unique.
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	abort = 0;
 	address_buffer = malloc(MAX_TESTING_ADDRESSES * 20);
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
@@ -1298,7 +1430,7 @@ int main(void)
 	}
 
 	// Check that getNumAddresses() fails when the wallet is empty.
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	if (getNumAddresses() == 0)
 	{
 		if (walletGetLastError() == WALLET_EMPTY)
@@ -1665,7 +1797,7 @@ int main(void)
 
 	// Test the getAddressAndPublicKey() and getPrivateKey() functions on an
 	// empty wallet.
-	newWallet(name);
+	newWallet(name, 0, NULL);
 	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_EMPTY)
 	{
 		reportSuccess();
@@ -1682,6 +1814,97 @@ int main(void)
 	else
 	{
 		printf("getPrivateKey() doesn't deal with empty wallets correctly\n");
+		reportFailure();
+	}
+
+	// Test wallet backup to valid device.
+	newWallet(name, 0, NULL);
+	if (backupWallet(0, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Unencrypted backupWallet() doesn't work\n");
+		reportFailure();
+	}
+	memcpy(seed1, test_wallet_backup, SEED_LENGTH);
+	makeNewAddress(address1, &public_key); // save this for later
+
+	// Test wallet backup to invalid device.
+	if (backupWallet(0, 1) == WALLET_BACKUP_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("backupWallet() doesn't deal with invalid device correctly\n");
+		reportFailure();
+	}
+
+	// Delete wallet and check that seed of a new wallet is different.
+	newWallet(name, 0, NULL);
+	backupWallet(0, 0);
+	memcpy(seed2, test_wallet_backup, SEED_LENGTH);
+	if (memcmp(seed1, seed2, SEED_LENGTH))
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Seed of new wallet matches older one.\n");
+		reportFailure();
+	}
+
+	// Try to restore a wallet backup.
+	if (newWallet(name, 1, seed1) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Could not restore wallet\n");
+		reportFailure();
+	}
+
+	// Does the first address of the restored wallet match the old wallet?
+	makeNewAddress(address2, &public_key);
+	if (!memcmp(address1, address2, 20))
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Restored wallet doesn't generate the same address\n");
+		reportFailure();
+	}
+
+	// Test wallet backup with encryption.
+	if (backupWallet(1, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Encrypted backupWallet() doesn't work\n");
+		reportFailure();
+	}
+	memcpy(encrypted_seed, test_wallet_backup, SEED_LENGTH);
+
+	// Decrypt the encrypted seed and check it matches the unencrypted one.
+	memset(temp, 0, 16);
+	for (i = 0; i < SEED_LENGTH; i += 16)
+	{
+		writeU32LittleEndian(temp, (uint32_t)i);
+		xexDecrypt(&(seed2[i]), &(encrypted_seed[i]), temp, 1);
+	}
+	if (!memcmp(seed1, seed2, SEED_LENGTH))
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Decrypted seed does not match encrypted one.\n");
 		reportFailure();
 	}
 

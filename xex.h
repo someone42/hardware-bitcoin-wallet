@@ -21,6 +21,8 @@
   * getEncryptionKey() deal with. */
 #define WALLET_ENCRYPTION_KEY_LENGTH		32
 
+extern void xexEncrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq);
+extern void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq);
 extern void setEncryptionKey(uint8_t *in);
 extern void getEncryptionKey(uint8_t *out);
 extern uint8_t isEncryptionKeyNonZero(void);

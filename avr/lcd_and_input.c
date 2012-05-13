@@ -27,6 +27,7 @@
 #include "../common.h"
 #include "../hwinterface.h"
 #include "../baseconv.h"
+#include "../prandom.h"
 
 /** Maximum number of address/amount pairs that can be stored in RAM waiting
   * for approval from the user. This incidentally sets the maximum
@@ -508,6 +509,14 @@ static char str_format_line1[] PROGMEM = "delete everything?";
 static char str_change_line0[] PROGMEM = "Change the name";
 /** Second line of #ASKUSER_CHANGE_NAME prompt. */
 static char str_change_line1[] PROGMEM = "of your wallet?";
+/** First line of #ASKUSER_BACKUP_WALLET prompt. */
+static char str_backup_line0[] PROGMEM = "Do you want to do";
+/** Second line of #ASKUSER_BACKUP_WALLET prompt. */
+static char str_backup_line1[] PROGMEM = "a wallet backup?";
+/** First line of #ASKUSER_RESTORE_WALLET prompt. */
+static char str_restore_line0[] PROGMEM = "Restore wallet";
+/** Second line of #ASKUSER_RESTORE_WALLET prompt. */
+static char str_restore_line1[] PROGMEM = "from backup?";
 /** First line of unknown prompt. */
 static char str_unknown_line0[] PROGMEM = "Unknown command in askUser()";
 /** Second line of unknown prompt. */
@@ -585,6 +594,24 @@ uint8_t askUser(AskUserCommand command)
 		writeString(str_change_line1, 1);
 		r = waitForButtonPress();
 	}
+	else if (command == ASKUSER_BACKUP_WALLET)
+	{
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_backup_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_backup_line1, 1);
+		r = waitForButtonPress();
+	}
+	else if (command == ASKUSER_RESTORE_WALLET)
+	{
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_restore_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_restore_line1, 1);
+		r = waitForButtonPress();
+	}
 	else
 	{
 		waitForNoButtonPress();
@@ -599,6 +626,135 @@ uint8_t askUser(AskUserCommand command)
 	clearLcd();
 	return r;
 }
+
+/** Convert 4 bit number into corresponding hexadecimal character. For
+  * example, 0 is converted into '0' and 15 is converted into 'f'.
+  * \param nibble The 4 bit number to look at. Only the least significant
+  *               4 bits are considered.
+  * \return The hexadecimal character.
+  */
+static char nibbleToHex(uint8_t nibble)
+{
+	uint8_t temp;
+	temp = (uint8_t)(nibble & 0xf);
+	if (temp < 10)
+	{
+		return (char)('0' + temp);
+	}
+	else
+	{
+		return (char)('a' + (temp - 10));
+	}
+}
+
+/** First line of string which tells the user whether backup is encrypted
+  * or not. */
+static char str_seed_encrypted_or_not_line0[] PROGMEM = "Backup is";
+/** Second line of string which tells the user that the backup is
+  * encrypted. */
+static char str_seed_encrypted_line1[] PROGMEM = "encrypted";
+/** Second line of string which tells the user that the backup is not
+  * encrypted. */
+static char str_seed_not_encrypted_line1[] PROGMEM = "not encrypted";
+
+/** Write backup seed to some output device. The choice of output device and
+  * seed representation is up to the platform-dependent code. But a typical
+  * example would be displaying the seed as a hexadecimal string on a LCD.
+  * \param seed A byte array of length #SEED_LENGTH bytes which contains the
+  *             backup seed.
+  * \param is_encrypted Specifies whether the seed has been encrypted
+  *                     (non-zero) or not (zero).
+  * \param destination_device Specifies which (platform-dependent) device the
+  *                           backup seed should be sent to.
+  * \return 0 on success, or non-zero if the backup seed could not be written
+  *         to the destination device.
+  */
+uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination_device)
+{
+	uint8_t i;
+	uint8_t one_byte; // current byte of seed
+	uint8_t byte_counter; // current byte on screen, 0 = first, 1 = second etc.
+	char str[4];
+
+	if (destination_device != 0)
+	{
+		return 1;
+	}
+
+	// Tell user whether seed is encrypted or not.
+	clearLcd();
+	waitForNoButtonPress();
+	gotoStartOfLine(0);
+	writeString(str_seed_encrypted_or_not_line0, 1);
+	gotoStartOfLine(1);
+	if (is_encrypted)
+	{
+		writeString(str_seed_encrypted_line1, 1);
+	}
+	else
+	{
+		writeString(str_seed_not_encrypted_line1, 1);
+	}
+	if (waitForButtonPress())
+	{
+		clearLcd();
+		return 2;
+	}
+	waitForNoButtonPress();
+
+	// Output seed to LCD.
+	// str is " xx", where xx are hexadecimal digits.
+	str[0] = ' ';
+	str[3] = '\0';
+	byte_counter = 0;
+	for (i = 0; i < SEED_LENGTH; i++)
+	{
+		one_byte = seed[i];
+		str[1] = nibbleToHex((uint8_t)(one_byte >> 4));
+		str[2] = nibbleToHex(one_byte);
+		if (byte_counter == 12)
+		{
+			waitForNoButtonPress();
+			if (waitForButtonPress())
+			{
+				clearLcd();
+				return 2;
+			}
+			clearLcd();
+			byte_counter = 0;
+		}
+		// The following code will output the seed in the format:
+		// " xxxx xxxx xxxx"
+		// " xxxx xxxx xxxx"
+		if (byte_counter == 0)
+		{
+			gotoStartOfLine(0);
+		}
+		else if (byte_counter == 6)
+		{
+			gotoStartOfLine(1);
+		}
+		if ((byte_counter & 1) == 0)
+		{
+			writeString(str, 0);
+		}
+		else
+		{
+			// Don't include space.
+			writeString(&(str[1]), 0);
+		}
+		byte_counter++;
+	}
+	waitForNoButtonPress();
+	if (waitForButtonPress())
+	{
+		clearLcd();
+		return 2;
+	}
+	clearLcd();
+	return 0;
+}
+
 
 /** Notify user of stream error via. LCD. */
 void streamError(void)

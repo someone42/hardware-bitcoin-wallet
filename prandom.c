@@ -135,8 +135,8 @@ static NOINLINE void generateDeterministic256Part2(BigNum256 out, uint8_t *hash,
   * goes into the least-significant 128 bits while the second encrypted
   * half goes into the most-significant 128 bits.
   * \param out The generated 256 bit number will be written here.
-  * \param seed Should point to a 64 byte array containing the seed for the
-  *             pseudo-random number generator.
+  * \param seed Should point to a byte array of length #SEED_LENGTH containing
+  *             the seed for the pseudo-random number generator.
   * \param num A counter which determines which number the pseudo-random
   *            number generator will output.
   */
@@ -181,8 +181,8 @@ int main(int argc, char **argv)
 	int abort;
 	unsigned int bytes_written;
 	FILE *f;
-	uint8_t seed[64];
-	uint8_t keys[64][32];
+	uint8_t seed[SEED_LENGTH];
+	uint8_t keys[SEED_LENGTH][32];
 	uint8_t key2[32];
 
 	initTests(__FILE__);
@@ -191,9 +191,9 @@ int main(int argc, char **argv)
 	// generateDeterministic256() actually has different outputs when
 	// each byte of the seed is changed.
 	abort = 0;
-	for (i = 0; i < 64; i++)
+	for (i = 0; i < SEED_LENGTH; i++)
 	{
-		memset(seed, 0, 64);
+		memset(seed, 0, SEED_LENGTH);
 		seed[i] = 1;
 		generateDeterministic256(keys[i], seed, 0);
 		for (j = 0; j < i; j++)
@@ -220,11 +220,11 @@ int main(int argc, char **argv)
 	}
 
 	// Check that generateDeterministic256() isn't ignoring num.
-	memset(seed, 0, 64);
+	memset(seed, 0, SEED_LENGTH);
 	seed[0] = 1;
 	generateDeterministic256(key2, seed, 1);
 	abort = 0;
-	for (j = 0; j < 64; j++)
+	for (j = 0; j < SEED_LENGTH; j++)
 	{
 		if (bigCompare(key2, keys[j]) == BIGCMP_EQUAL)
 		{

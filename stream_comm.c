@@ -360,6 +360,28 @@ static NOINLINE void listWallets(void)
 	}
 }
 
+/** Read name and seed from input stream and restore a wallet using those
+  * values. This also prompts the user for approval of the action.
+  */
+static NOINLINE void restoreWallet(void)
+{
+	WalletErrors wallet_return;
+	uint8_t name[NAME_LENGTH];
+	uint8_t seed[SEED_LENGTH];
+
+	getBytesFromStream(name, NAME_LENGTH);
+	getBytesFromStream(seed, SEED_LENGTH);
+	if (askUser(ASKUSER_RESTORE_WALLET))
+	{
+		writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
+	}
+	else
+	{
+		wallet_return = newWallet(name, 1, seed);
+		translateWalletError(wallet_return, 0, NULL);
+	}
+}
+
 /** Read but ignore #payload_length bytes from input stream. This will also
   * set #payload_length to 0 (if everything goes well). This function is
   * useful for ensuring that the entire payload of a packet is read from the
@@ -460,7 +482,7 @@ void processPacket(void)
 			}
 			else
 			{
-				wallet_return = newWallet(buffer);
+				wallet_return = newWallet(buffer, 0, NULL);
 				translateWalletError(wallet_return, 0, NULL);
 			}
 		}
@@ -594,6 +616,33 @@ void processPacket(void)
 		}
 		break;
 
+	case PACKET_TYPE_BACKUP_WALLET:
+		// Backup wallet.
+		if (!expectLength(2))
+		{
+			getBytesFromStream(buffer, 2);
+			if (askUser(ASKUSER_BACKUP_WALLET))
+			{
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
+			}
+			else
+			{
+				wallet_return = backupWallet(buffer[0], buffer[1]);
+				translateWalletError(wallet_return, 0, NULL);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_RESTORE_WALLET:
+		// Restore wallet.
+		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH + SEED_LENGTH))
+		{
+			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
+			setEncryptionKey(buffer);
+			restoreWallet();
+		}
+		break;
+
 	default:
 		// Unknown command.
 		readAndIgnoreInput();
@@ -713,6 +762,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 		case WALLET_INVALID_HANDLE:
 			return "Invalid address handle";
 			break;
+		case WALLET_BACKUP_ERROR:
+			return "Seed could not be written to specified device";
+			break;
 		default:
 			assert(0);
 		}
@@ -805,6 +857,12 @@ uint8_t askUser(AskUserCommand command)
 		break;
 	case ASKUSER_CHANGE_NAME:
 		printf("Change wallet name? ");
+		break;
+	case ASKUSER_BACKUP_WALLET:
+		printf("Do a wallet backup? ");
+		break;
+	case ASKUSER_RESTORE_WALLET:
+		printf("Restore wallet from backup? ");
 		break;
 	default:
 		assert(0);
@@ -964,6 +1022,31 @@ static const uint8_t test_stream_change_name[] = {
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
 
+/** Test stream data for: backup wallet. */
+static const uint8_t test_stream_backup_wallet[] = {
+0x11, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+/** Test stream data for: restore wallet. */
+static const uint8_t test_stream_restore_wallet[] = {
+0x12, 0x88, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20,
+0x66, 0x66, 0x20, 0x20, 0x20, 0x6F, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+0x12, 0x34, 0x56, 0x00, 0x9a, 0xbc, 0xde, 0xf0,
+0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+0xea, 0x11, 0x44, 0xf0, 0x0f, 0xb0, 0x0b, 0x50,
+0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+0x12, 0x34, 0xde, 0xad, 0xfe, 0xed, 0xde, 0xf0};
+
 /** Test response of processPacket() for a given test stream.
   * \param test_stream The test stream data to use.
   * \param size The length of the test stream, in bytes.
@@ -1025,6 +1108,10 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_change_name);
 	printf("Listing wallets...\n");
 	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
+	printf("Backing up a wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_backup_wallet);
+	printf("Restoring a wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_restore_wallet);
 
 	finishTests();
 	exit(0);

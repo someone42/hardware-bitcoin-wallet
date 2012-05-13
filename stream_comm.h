@@ -49,6 +49,10 @@
 #define PACKET_TYPE_CHANGE_NAME			0x0F
 /** List all wallets. */
 #define PACKET_TYPE_LIST_WALLETS		0x10
+/** Backup a wallet. */
+#define PACKET_TYPE_BACKUP_WALLET		0x11
+/** Restore wallet from a backup. */
+#define PACKET_TYPE_RESTORE_WALLET		0x12
 /**@}*/
 
 extern void processPacket(void);

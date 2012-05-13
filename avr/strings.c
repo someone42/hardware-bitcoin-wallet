@@ -42,6 +42,8 @@ static const char str_WALLET_NOT_THERE[] PROGMEM = "Wallet doesn't exist";
 static const char str_WALLET_END_OF_LIST[] PROGMEM = "End of address list";
 /** String for #WALLET_INVALID_HANDLE wallet error. */
 static const char str_WALLET_INVALID_HANDLE[] PROGMEM = "Invalid address handle";
+/** String for #WALLET_BACKUP_ERROR wallet error. */
+static const char str_WALLET_BACKUP_ERROR[] PROGMEM = "Seed could not be written to specified device";
 /** String for #TRANSACTION_INVALID_FORMAT transaction parser error. */
 static const char str_TRANSACTION_INVALID_FORMAT[] PROGMEM = "Format of transaction is unknown or invalid";
 /** String for #TRANSACTION_TOO_MANY_INPUTS transaction parser error. */
@@ -120,6 +122,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case WALLET_INVALID_HANDLE:
 			return (char)pgm_read_byte(&(str_WALLET_INVALID_HANDLE[pos]));
+			break;
+		case WALLET_BACKUP_ERROR:
+			return (char)pgm_read_byte(&(str_WALLET_BACKUP_ERROR[pos]));
 			break;
 		default:
 			return (char)pgm_read_byte(&(str_UNKNOWN[pos]));
@@ -214,6 +219,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case WALLET_INVALID_HANDLE:
 			return (uint16_t)(sizeof(str_WALLET_INVALID_HANDLE) - 1);
+			break;
+		case WALLET_BACKUP_ERROR:
+			return (uint16_t)(sizeof(str_WALLET_BACKUP_ERROR) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

@@ -27,7 +27,7 @@ value is an error message
 
 0x04: create new wallet
 length is 72
-next 32 bytes of value are the encryption key (use all 00s if there isn't any)
+first 32 bytes of value are the encryption key (use all 00s if there isn't any)
 last 40 bytes of value are the wallet name (pad with spaces)
 Response: 02 (length 0) or 03
 
@@ -75,6 +75,19 @@ Response: 02 (length 0) or 03
 0x10: list wallets
 length is 0
 Response: 02 (with list of: 4 byte version followed by 40 byte name) or 03
+
+0x11: backup wallet
+length is 2
+first byte specifies whether encryption is to be done (non-zero = yes, zero = no)
+second byte specifies the platform-specific device to send backup seed to
+Response: 02 (length 0) or 03
+
+0x12: restore wallet
+length is 136
+first 32 bytes of value are the encryption key (use all 00s if there isn't any)
+next 40 bytes of value are the wallet name (pad with spaces)
+last 64 bytes of value are the (unencrypted) deterministic address generator seed
+Response: 02 (length 0) or 03
 
 Flow control (for AVR only):
 
