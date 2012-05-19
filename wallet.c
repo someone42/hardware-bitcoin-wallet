@@ -34,7 +34,6 @@
 #endif // #ifdef TEST_WALLET
 
 #include "common.h"
-#include "aes.h"
 #include "endian.h"
 #include "wallet.h"
 #include "prandom.h"
@@ -44,6 +43,7 @@
 #include "hwinterface.h"
 #include "xex.h"
 #include "bignum256.h"
+#include "storage_common.h"
 
 /** The most recent error to occur in a function in this file,
   * or #WALLET_NO_ERROR if no error occurred in the most recent function
@@ -55,6 +55,9 @@ static uint8_t wallet_loaded;
 /** This will only be valid if a wallet is loaded. It contains a cache of the
   * number of addresses in the currently loaded wallet. */
 static uint32_t num_addresses;
+/** The address in non-volatile memory where the currently loaded wallet
+  * record is. All "offsets" use this as the base address. */
+static uint32_t base_nv_address;
 
 #ifdef TEST
 /** The file to perform test non-volatile I/O on. */
@@ -93,14 +96,15 @@ void initWalletTest(void)
 #endif // #ifdef TEST_WALLET
 
 /**
- * \defgroup WalletStorageFormat Wallet storage format
+ * \defgroup WalletStorageFormat Format of one wallet record
  *
  * Wallets are stored as sequential records in non-volatile
- * storage. Each record is 160 bytes. If the wallet is encrypted, the
- * first 48 bytes are unencrypted and the last 112 bytes are encrypted.
+ * storage. Each record is #WALLET_RECORD_LENGTH bytes. If the wallet is
+ * encrypted, the first 48 bytes are unencrypted and the last 112 bytes
+ * are encrypted.
  * The contents of each record:
  * - 4 bytes: little endian version
- *  - 0x00000000: nothing here
+ *  - 0x00000000: nothing here (or hidden wallet)
  *  - 0x00000001: v0.1 wallet format (not supported)
  *  - 0x00000002: unencrypted wallet
  *  - 0x00000003: encrypted wallet, host provides key
@@ -113,20 +117,13 @@ void initWalletTest(void)
  * - 32 bytes: SHA-256 of everything except number of addresses and this
  * @{
  */
-/** Length of a record.
-  * \warning This must be a multiple of 32 in order for newWallet() to
-  *          work properly.
-  * \warning This must also be a multiple of 16, since the block size of
-  *          AES is 128 bits.
-  */
-#define WALLET_RECORD_LENGTH	160
 /** The offset where encryption starts. The contents of a record before this
   * offset are not encrypted, while the contents of a record at and after this
   * offset are encrypted.
   * \warning This must also be a multiple of 16, since the block size of
   *          AES is 128 bits.
   */
-#define ENCRYPT_START			48
+#define OFFSET_ENCRYPT_START	48
 /** Offset within a record where version is. */
 #define OFFSET_VERSION			0
 /** Offset within a record where first reserved area is. */
@@ -187,13 +184,13 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 		{
 			// "The first 48 bytes are unencrypted, the last 112 bytes are
 			// encrypted."
-			if (i < ENCRYPT_START)
+			if (i < OFFSET_ENCRYPT_START)
 			{
-				r = nonVolatileRead(buffer, i, 4);
+				r = nonVolatileRead(buffer, base_nv_address + i, 4);
 			}
 			else
 			{
-				r = encryptedNonVolatileRead(buffer, i, 4);
+				r = encryptedNonVolatileRead(buffer, base_nv_address + i, 4);
 			}
 			if (r != NV_NO_ERROR)
 			{
@@ -221,9 +218,10 @@ WalletErrors initWallet(void)
 	uint32_t version;
 
 	wallet_loaded = 0;
+	base_nv_address = ADDRESS_WALLET_START;
 
 	// Read version.
-	if (nonVolatileRead(buffer, OFFSET_VERSION, 4) != NV_NO_ERROR)
+	if (nonVolatileRead(buffer, base_nv_address + OFFSET_VERSION, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -241,7 +239,7 @@ WalletErrors initWallet(void)
 		last_error = WALLET_READ_ERROR;
 		return last_error;
 	}
-	if (encryptedNonVolatileRead(buffer, OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
+	if (encryptedNonVolatileRead(buffer, base_nv_address + OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -253,7 +251,7 @@ WalletErrors initWallet(void)
 	}
 
 	// Read number of addresses.
-	if (encryptedNonVolatileRead(buffer, OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
+	if (encryptedNonVolatileRead(buffer, base_nv_address + OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -272,10 +270,15 @@ WalletErrors initWallet(void)
 WalletErrors uninitWallet(void)
 {
 	wallet_loaded = 0;
+	base_nv_address = 0;
 	num_addresses = 0;
 	last_error = WALLET_NO_ERROR;
 	return last_error;
 }
+
+#ifdef TEST_WALLET
+void logVersionFieldWrite(uint32_t address);
+#endif // #ifdef TEST_WALLET
 
 /** Sanitise (clear) a selected area of non-volatile storage. This will clear
   * the area between start (inclusive) and end (exclusive).
@@ -286,17 +289,19 @@ WalletErrors uninitWallet(void)
   *         end is an address beyond the end of the non-volatile storage area.
   *         This is done so that using start = 0 and end = 0xffffffff will
   *         clear the entire non-volatile storage area.
-  * \warning start and end must be a multiple of 32 (unless start is 0 and
-  *          end is 0xffffffff).
   */
 WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 {
 	uint8_t buffer[32];
 	uint32_t address;
+	uint32_t remaining;
 	NonVolatileReturn r;
 	uint8_t pass;
 
 	r = NV_NO_ERROR;
+	// 4 pass format: all 0s, all 1s, random, random. This ensures that
+	// every bit is cleared at least once, set at least once and ends up
+	// in an unpredictable state.
 	for (pass = 0; pass < 4; pass++)
 	{
 		address = start;
@@ -315,9 +320,25 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			{
 				getRandom256(buffer);
 			}
-			r = nonVolatileWrite(buffer, address, 32);
-			nonVolatileFlush();
-			address += 32;
+			remaining = end - address;
+			if (remaining > 32)
+			{
+				remaining = 32;
+			}
+			if (remaining > 0)
+			{
+				r = nonVolatileWrite(buffer, address, (uint8_t)remaining);
+				nonVolatileFlush();
+			}
+			if (address <= (0xffffffff - 32))
+			{
+				address += 32;
+			}
+			else
+			{
+				// Overflow in address will occur.
+				break;
+			}
 		}
 
 		if ((r != NV_INVALID_ADDRESS) && (r != NV_NO_ERROR))
@@ -333,9 +354,54 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 		// version field. This ensures that a wallet won't accidentally
 		// (1 in 2 ^ 31 chance) be recognised as a valid wallet by
 		// getWalletInfo().
+		if (start < ADDRESS_WALLET_START)
+		{
+			address = 0;
+		}
+		else
+		{
+			address = start - ADDRESS_WALLET_START;
+		}
+		address /= WALLET_RECORD_LENGTH;
+		address *= WALLET_RECORD_LENGTH;
+		address += (ADDRESS_WALLET_START + OFFSET_VERSION);
+		// address is now rounded down to the first possible address where
+		// the version field of a wallet could be stored.
+		r = NV_NO_ERROR;
 		writeU32LittleEndian(buffer, VERSION_NOTHING_THERE);
-		r = nonVolatileWrite(buffer, OFFSET_VERSION, 4);
-		if (r == NV_NO_ERROR)
+		// The "address <= (0xffffffff - 4)" is there to ensure that
+		// (address + 4) cannot overflow.
+		while ((r == NV_NO_ERROR) && (address <= (0xffffffff - 4)) && ((address + 4) <= end))
+		{
+			// An additional range check against start is needed because the
+			// initial value of address is rounded down; thus it could be
+			// rounded down below start.
+			if (address >= start)
+			{
+				r = nonVolatileWrite(buffer, address, 4);
+				if ((r != NV_INVALID_ADDRESS) && (r != NV_NO_ERROR))
+				{
+					// Uh oh, probably an I/O error.
+					break;
+				}
+				if (r == NV_NO_ERROR)
+				{
+#ifdef TEST_WALLET
+					logVersionFieldWrite(address);
+#endif // #ifdef TEST_WALLET
+				}
+			}
+			if (address <= (0xffffffff - WALLET_RECORD_LENGTH))
+			{
+				address += WALLET_RECORD_LENGTH;
+			}
+			else
+			{
+				// Overflow in address will occur.
+				break;
+			}
+		}
+		if ((r == NV_NO_ERROR) || (r == NV_INVALID_ADDRESS))
 		{
 			last_error = WALLET_NO_ERROR;
 		}
@@ -367,7 +433,7 @@ static NonVolatileReturn writeWalletVersion(void)
 	{
 		writeU32LittleEndian(buffer, VERSION_UNENCRYPTED);
 	}
-	return nonVolatileWrite(buffer, OFFSET_VERSION, 4);
+	return nonVolatileWrite(buffer, base_nv_address + OFFSET_VERSION, 4);
 }
 
 /** Writes wallet checksum. This is in its own function because
@@ -383,7 +449,7 @@ static WalletErrors writeWalletChecksum(void)
 	{
 		return WALLET_READ_ERROR;
 	}
-	if (encryptedNonVolatileWrite(hash, OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
+	if (encryptedNonVolatileWrite(hash, base_nv_address + OFFSET_CHECKSUM, 32) != NV_NO_ERROR)
 	{
 		return WALLET_WRITE_ERROR;
 	}
@@ -411,8 +477,10 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 	uint8_t buffer[32];
 	WalletErrors r;
 
+	base_nv_address = ADDRESS_WALLET_START;
+
 	// Erase all traces of the existing wallet.
-	r = sanitiseNonVolatileStorage(0, WALLET_RECORD_LENGTH);
+	r = sanitiseNonVolatileStorage(base_nv_address, base_nv_address + WALLET_RECORD_LENGTH);
 	if (r != WALLET_NO_ERROR)
 	{
 		last_error = r;
@@ -427,34 +495,34 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 	}
 	// Write reserved area 1.
 	writeU32LittleEndian(buffer, 0);
-	if (nonVolatileWrite(buffer, OFFSET_RESERVED1, 4) != NV_NO_ERROR)
+	if (nonVolatileWrite(buffer, base_nv_address + OFFSET_RESERVED1, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
 	}
 	// Write name of wallet.
-	if (nonVolatileWrite(name, OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileWrite(name, base_nv_address + OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
 	}
 	// Write number of addresses.
 	writeU32LittleEndian(buffer, 0);
-	if (encryptedNonVolatileWrite(buffer, OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
+	if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
 	}
 	// Write nonce 1.
 	getRandom256(buffer);
-	if (encryptedNonVolatileWrite(buffer, OFFSET_NONCE1, 8) != NV_NO_ERROR)
+	if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_NONCE1, 8) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
 	}
 	// Write reserved area 2.
 	writeU32LittleEndian(buffer, 0);
-	if (encryptedNonVolatileWrite(buffer, OFFSET_RESERVED2, 4) != NV_NO_ERROR)
+	if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_RESERVED2, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
@@ -462,7 +530,7 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 	// Write seed for deterministic address generator.
 	if (use_seed)
 	{
-		if (encryptedNonVolatileWrite(seed, OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
+		if (encryptedNonVolatileWrite(seed, base_nv_address + OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
 		{
 			last_error = WALLET_WRITE_ERROR;
 			return last_error;
@@ -471,13 +539,13 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 	else
 	{
 		getRandom256(buffer);
-		if (encryptedNonVolatileWrite(buffer, OFFSET_SEED, 32) != NV_NO_ERROR)
+		if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_SEED, 32) != NV_NO_ERROR)
 		{
 			last_error = WALLET_WRITE_ERROR;
 			return last_error;
 		}
 		getRandom256(buffer);
-		if (encryptedNonVolatileWrite(buffer, OFFSET_SEED + 32, 32) != NV_NO_ERROR)
+		if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_SEED + 32, 32) != NV_NO_ERROR)
 		{
 			last_error = WALLET_WRITE_ERROR;
 			return last_error;
@@ -528,7 +596,7 @@ AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 	}
 	num_addresses++;
 	writeU32LittleEndian(buffer, num_addresses);
-	if (encryptedNonVolatileWrite(buffer, OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
+	if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -668,7 +736,7 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 		last_error = WALLET_INVALID_HANDLE;
 		return last_error;
 	}
-	if (encryptedNonVolatileRead(seed, OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
+	if (encryptedNonVolatileRead(seed, base_nv_address + OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -702,8 +770,8 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 
 	getEncryptionKey(old_key);
 	r = NV_NO_ERROR;
-	address = ENCRYPT_START;
-	end = WALLET_RECORD_LENGTH;
+	address = base_nv_address + OFFSET_ENCRYPT_START;
+	end = base_nv_address + WALLET_RECORD_LENGTH;
 	while ((r == NV_NO_ERROR) && (address < end))
 	{
 		setEncryptionKey(old_key);
@@ -755,7 +823,7 @@ WalletErrors changeWalletName(uint8_t *new_name)
 	}
 
 	// Write wallet name.
-	if (nonVolatileWrite(new_name, OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileWrite(new_name, base_nv_address + OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return last_error;
@@ -793,12 +861,12 @@ WalletErrors changeWalletName(uint8_t *new_name)
   */
 WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
 {
-	if (nonVolatileRead(out_version, OFFSET_VERSION, 4) != NV_NO_ERROR)
+	if (nonVolatileRead(out_version, ADDRESS_WALLET_START + OFFSET_VERSION, 4) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
 	}
-	if (nonVolatileRead(out_name, OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileRead(out_name, ADDRESS_WALLET_START + OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -830,7 +898,7 @@ WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device)
 		return last_error;
 	}
 
-	if (encryptedNonVolatileRead(seed, OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
+	if (encryptedNonVolatileRead(seed, base_nv_address + OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -869,6 +937,17 @@ WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device)
 /** Size of storage area, in bytes. */
 #define TEST_FILE_SIZE 1024
 
+/** Set this to something non-zero to stop nonVolatileWrite() from logging
+  * all non-volatile writes to stdout. */
+static int suppress_write_debug_info;
+
+#ifdef TEST_WALLET
+/** Highest non-volatile address that nonVolatileWrite() has written to. */
+static uint32_t maximum_address_written;
+/** Lowest non-volatile address that nonVolatileWrite() has written to. */
+static uint32_t minimum_address_written;
+#endif // #ifdef TEST_WALLET
+
 /** Write to non-volatile storage.
   * \param data A pointer to the data to be written.
   * \param address Byte offset specifying where in non-volatile storage to
@@ -884,20 +963,36 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 	int i;
 #endif // #ifndef TEST_XEX
 
-	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
+	if ((address + length) > TEST_FILE_SIZE)
 	{
 		return NV_INVALID_ADDRESS;
 	}
+#ifdef TEST_WALLET
+	if (length > 0)
+	{
+		if (address < minimum_address_written)
+		{
+			minimum_address_written = address;
+		}
+		if ((address + length - 1) > maximum_address_written)
+		{
+			maximum_address_written = address + length - 1;
+		}
+	}
+#endif // #ifdef TEST_WALLET
 	// Don't output write debugging info when testing xex.c, otherwise the
 	// console will go crazy (since the unit tests in xex.c do a lot of
 	// writing).
 #ifndef TEST_XEX
-	printf("nv write, addr = 0x%08x, length = 0x%04x, data =", (int)address, (int)length);
-	for (i = 0; i < length; i++)
+	if (!suppress_write_debug_info)
 	{
-		printf(" %02x", data[i]);
+		printf("nv write, addr = 0x%08x, length = 0x%04x, data =", (int)address, (int)length);
+		for (i = 0; i < length; i++)
+		{
+			printf(" %02x", data[i]);
+		}
+		printf("\n");
 	}
-	printf("\n");
 #endif // #ifndef TEST_XEX
 	fseek(wallet_test_file, (long)address, SEEK_SET);
 	fwrite(data, (size_t)length, 1, wallet_test_file);
@@ -982,6 +1077,31 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 #endif // #ifdef TEST
 
 #ifdef TEST_WALLET
+
+/** List of non-volatile addresses that logVersionFieldWrite() received. */
+uint32_t version_field_writes[TEST_FILE_SIZE / WALLET_RECORD_LENGTH + 2];
+/** Index into #version_field_writes where next entry will be written. */
+int version_field_index;
+
+/** This will be called by sanitiseNonVolatileStorage() every time it
+  * clears the version field of a wallet. This is used to test whether
+  * sanitiseNonVolatileStorage() is clearing version fields properly.
+  * \param address The address (in non-volatile storage) where the cleared
+  *                version field is.
+  */
+void logVersionFieldWrite(uint32_t address)
+{
+	if (version_field_index < (sizeof(version_field_writes) / sizeof(uint32_t)))
+	{
+		version_field_writes[version_field_index++] = address;
+	}
+}
+
+/** Clear the list of version field writes. */
+void clearVersionFieldWriteLog(void)
+{
+	version_field_index = 0;
+}
 
 /** Call nearly all wallet functions and make sure they
   * return #WALLET_NOT_THERE somehow. This should only be called if a wallet
@@ -1075,6 +1195,9 @@ int main(void)
 	uint8_t encrypted_seed[SEED_LENGTH];
 	uint8_t *address_buffer;
 	uint8_t one_byte;
+	uint32_t start_address;
+	uint32_t end_address;
+	uint32_t version_field_address;
 	AddressHandle *handles_buffer;
 	AddressHandle ah;
 	PointAffine public_key;
@@ -1085,6 +1208,8 @@ int main(void)
 	int abort_error;
 	int i;
 	int j;
+	int version_field_counter;
+	int found;
 
 	initTests(__FILE__);
 
@@ -1272,7 +1397,7 @@ int main(void)
 		reportFailure();
 	}
 	abort = 0;
-	for (i = 0; i < WALLET_RECORD_LENGTH; i++)
+	for (i = ADDRESS_WALLET_START; i < (ADDRESS_WALLET_START + WALLET_RECORD_LENGTH); i++)
 	{
 		if (nonVolatileRead(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
@@ -1906,6 +2031,144 @@ int main(void)
 	{
 		printf("Decrypted seed does not match encrypted one.\n");
 		reportFailure();
+	}
+
+	// Test that sanitiseNonVolatileStorage() clears the correct area.
+	// Previously, sanitiseNonVolatileStorage() required the start and end
+	// parameters to be a multiple of 32 (because it uses a write buffer
+	// with that length). That restriction has since been relaxed. This test
+	// case checks that the code handles non-multiples of 32 properly.
+	suppress_write_debug_info = 1; // stop console from going crazy
+	abort = 0;
+	for (i = 0; i < 2000; i++)
+	{
+		minimum_address_written = 0xffffffff;
+		maximum_address_written = 0;
+		start_address = (uint32_t)(rand() % TEST_FILE_SIZE);
+		end_address = start_address + (uint32_t)(rand() % TEST_FILE_SIZE);
+		if (end_address > TEST_FILE_SIZE)
+		{
+			end_address = TEST_FILE_SIZE;
+		}
+		if (start_address != end_address)
+		{
+			sanitiseNonVolatileStorage(start_address, end_address);
+			if ((minimum_address_written != start_address)
+				|| (maximum_address_written != (end_address - 1)))
+			{
+				printf("sanitiseNonVolatileStorage() not clearing correct area\n");
+				printf("start = 0x%08x, end = 0x%08x\n", start_address, end_address);
+				abort = 1;
+				reportFailure();
+				break;
+			}
+		}
+	}
+	if (!abort)
+	{
+		reportSuccess();
+	}
+
+	// Also check that sanitiseNonVolatileStorage() does nothing if start
+	// and end are the same.
+	minimum_address_written = 0xffffffff;
+	maximum_address_written = 0;
+	// Use ADDRESS_WALLET_START + OFFSET_VERSION to try and trick the "clear
+	// version field" logic.
+	start_address = ADDRESS_WALLET_START + OFFSET_VERSION;
+	sanitiseNonVolatileStorage(start_address, start_address);
+	if ((minimum_address_written != 0xffffffff) || (maximum_address_written != 0))
+	{
+		printf("sanitiseNonVolatileStorage() clearing something when it's not supposed to\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// ..and check that sanitiseNonVolatileStorage() does nothing if start
+	// is > end.
+	minimum_address_written = 0xffffffff;
+	maximum_address_written = 0;
+	sanitiseNonVolatileStorage(start_address + 1, start_address);
+	if ((minimum_address_written != 0xffffffff) || (maximum_address_written != 0))
+	{
+		printf("sanitiseNonVolatileStorage() clearing something when it's not supposed to 2\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check that sanitiseNonVolatileStorage() is clearing the correct version
+	// fields of any wallets in range.
+	suppress_write_debug_info = 1; // stop console from going crazy
+	abort = 0;
+	for (i = 0; i < 5000; i++)
+	{
+		start_address = (uint32_t)(rand() % TEST_FILE_SIZE);
+		end_address = start_address + (uint32_t)(rand() % TEST_FILE_SIZE);
+		if (end_address > TEST_FILE_SIZE)
+		{
+			end_address = TEST_FILE_SIZE;
+		}
+		clearVersionFieldWriteLog();
+		sanitiseNonVolatileStorage(start_address, end_address);
+		// version_field_address is stepped through every possible address
+		// (ignoring start_address and end_address) that could hold a wallet's
+		// version field.
+		version_field_address = ADDRESS_WALLET_START + OFFSET_VERSION;
+		version_field_counter = 0;
+		while ((version_field_address + 4) <= TEST_FILE_SIZE)
+		{
+			if ((version_field_address >= start_address)
+				&& ((version_field_address + 4) <= end_address))
+			{
+				// version_field_address should be in the list somewhere.
+				found = 0;
+				for (j = 0; j < version_field_index; j++)
+				{
+					if (version_field_address == version_field_writes[j])
+					{
+						found = 1;
+						break;
+					}
+				}
+				if (!found)
+				{
+					printf("sanitiseNonVolatileStorage() did not clear version field at 0x%08x\n", version_field_address);
+					reportFailure();
+					abort = 1;
+				}
+				version_field_counter++;
+			}
+			if (abort)
+			{
+				break;
+			}
+			version_field_address += WALLET_RECORD_LENGTH;
+		} // end while ((version_field_address + 4) <= TEST_FILE_SIZE)
+		if (abort)
+		{
+			break;
+		}
+
+		// sanitiseNonVolatileStorage() should clear the version fields of any
+		// wallets in range, but it should also ignore all version fields not
+		// in range.
+		if (version_field_counter != version_field_index)
+		{
+			printf("sanitiseNonVolatileStorage() is clearing out of range version fields\n");
+			reportFailure();
+			abort = 1;
+			break;
+		}
+	} // end for (i = 0; i < 5000; i++)
+	if (!abort)
+	{
+		reportSuccess();
 	}
 
 	fclose(wallet_test_file);
