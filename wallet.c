@@ -93,6 +93,13 @@ void initWalletTest(void)
   * only. This should actually be the capacity of the wallet, since one
   * of the tests is to see what happens when the wallet is full. */
 #define MAX_TESTING_ADDRESSES	7
+
+/** Set this to a non-zero value to stop sanitiseNonVolatileStorage() from
+  * updating the persistent entropy pool. This is necessary for some test
+  * cases which check where sanitiseNonVolatileStorage() writes; updates
+  * of the entropy pool would appear as spurious writes to those test cases.
+  */
+static int suppress_set_entropy_pool;
 #endif // #ifdef TEST_WALLET
 
 /**
@@ -293,12 +300,19 @@ void logVersionFieldWrite(uint32_t address);
 WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 {
 	uint8_t buffer[32];
+	uint8_t pool_state[ENTROPY_POOL_LENGTH];
 	uint32_t address;
 	uint32_t remaining;
 	NonVolatileReturn r;
 	uint8_t pass;
 
 	r = NV_NO_ERROR;
+	if (getEntropyPool(pool_state))
+	{
+		last_error = WALLET_RNG_FAILURE;
+		return last_error;
+	}
+
 	// 4 pass format: all 0s, all 1s, random, random. This ensures that
 	// every bit is cleared at least once, set at least once and ends up
 	// in an unpredictable state.
@@ -318,7 +332,22 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			}
 			else
 			{
-				getRandom256(buffer);
+				if (getRandom256TemporaryPool(buffer, pool_state))
+				{
+					// Before returning, attempt to write the persistent
+					// entropy pool state back into non-volatile memory.
+					// The return value of setEntropyPool() is ignored because
+					// if a failure occurs, then WALLET_RNG_FAILURE is a
+					// suitable return value anyway.
+#ifdef TEST_WALLET
+					if (!suppress_set_entropy_pool)
+#endif // #ifdef TEST_WALLET
+					{
+						setEntropyPool(pool_state);
+					}
+					last_error = WALLET_RNG_FAILURE;
+					return last_error;
+				}
 			}
 			remaining = end - address;
 			if (remaining > 32)
@@ -347,6 +376,18 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			break;
 		}
 	} // end for (pass = 0; pass < 4; pass++)
+
+#ifdef TEST_WALLET
+	if (!suppress_set_entropy_pool)
+#endif // #ifdef TEST_WALLET
+	{
+		// Write back persistent entropy pool state.
+		if (setEntropyPool(pool_state))
+		{
+			last_error = WALLET_RNG_FAILURE;
+			return last_error;
+		}
+	}
 
 	if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
 	{
@@ -400,7 +441,7 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 				// Overflow in address will occur.
 				break;
 			}
-		}
+		} // end while ((r == NV_NO_ERROR) && (address <= (0xffffffff - 4)) && ((address + 4) <= end))
 		if ((r == NV_NO_ERROR) || (r == NV_INVALID_ADDRESS))
 		{
 			last_error = WALLET_NO_ERROR;
@@ -413,7 +454,7 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 	else
 	{
 		last_error = WALLET_WRITE_ERROR;
-	}
+	} // end if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
 	return last_error;
 }
 
@@ -514,7 +555,11 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 		return last_error;
 	}
 	// Write nonce 1.
-	getRandom256(buffer);
+	if (getRandom256(buffer))
+	{
+		last_error = WALLET_RNG_FAILURE;
+		return last_error;
+	}
 	if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_NONCE1, 8) != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
@@ -538,13 +583,21 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 	}
 	else
 	{
-		getRandom256(buffer);
+		if (getRandom256(buffer))
+		{
+			last_error = WALLET_RNG_FAILURE;
+			return last_error;
+		}
 		if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_SEED, 32) != NV_NO_ERROR)
 		{
 			last_error = WALLET_WRITE_ERROR;
 			return last_error;
 		}
-		getRandom256(buffer);
+		if (getRandom256(buffer))
+		{
+			last_error = WALLET_RNG_FAILURE;
+			return last_error;
+		}
 		if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_SEED + 32, 32) != NV_NO_ERROR)
 		{
 			last_error = WALLET_WRITE_ERROR;
@@ -959,9 +1012,9 @@ static uint32_t minimum_address_written;
   */
 NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
 {
-#ifndef TEST_XEX
+#if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 	int i;
-#endif // #ifndef TEST_XEX
+#endif // #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 
 	if ((address + length) > TEST_FILE_SIZE)
 	{
@@ -980,10 +1033,9 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 		}
 	}
 #endif // #ifdef TEST_WALLET
-	// Don't output write debugging info when testing xex.c, otherwise the
-	// console will go crazy (since the unit tests in xex.c do a lot of
-	// writing).
-#ifndef TEST_XEX
+	// Don't output write debugging info when testing xex.c or prandom.c,
+	// otherwise the console will go crazy (since they do a lot of writing).
+#if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 	if (!suppress_write_debug_info)
 	{
 		printf("nv write, addr = 0x%08x, length = 0x%04x, data =", (int)address, (int)length);
@@ -993,7 +1045,7 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 		}
 		printf("\n");
 	}
-#endif // #ifndef TEST_XEX
+#endif // #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 	fseek(wallet_test_file, (long)address, SEEK_SET);
 	fwrite(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
@@ -1216,6 +1268,8 @@ int main(void)
 	initWalletTest();
 	memset(encryption_key, 0, WALLET_ENCRYPTION_KEY_LENGTH);
 	setEncryptionKey(encryption_key);
+	initialiseDefaultEntropyPool();
+	suppress_set_entropy_pool = 0;
 	// Blank out non-volatile storage area (set to all nulls).
 	temp[0] = 0;
 	for (i = 0; i < TEST_FILE_SIZE; i++)
@@ -2039,9 +2093,11 @@ int main(void)
 	// with that length). That restriction has since been relaxed. This test
 	// case checks that the code handles non-multiples of 32 properly.
 	suppress_write_debug_info = 1; // stop console from going crazy
+	suppress_set_entropy_pool = 1; // avoid spurious entropy pool update writes
 	abort = 0;
 	for (i = 0; i < 2000; i++)
 	{
+		initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 		minimum_address_written = 0xffffffff;
 		maximum_address_written = 0;
 		start_address = (uint32_t)(rand() % TEST_FILE_SIZE);
@@ -2071,6 +2127,7 @@ int main(void)
 
 	// Also check that sanitiseNonVolatileStorage() does nothing if start
 	// and end are the same.
+	initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 	minimum_address_written = 0xffffffff;
 	maximum_address_written = 0;
 	// Use ADDRESS_WALLET_START + OFFSET_VERSION to try and trick the "clear
@@ -2089,6 +2146,7 @@ int main(void)
 
 	// ..and check that sanitiseNonVolatileStorage() does nothing if start
 	// is > end.
+	initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 	minimum_address_written = 0xffffffff;
 	maximum_address_written = 0;
 	sanitiseNonVolatileStorage(start_address + 1, start_address);
@@ -2105,6 +2163,7 @@ int main(void)
 	// Check that sanitiseNonVolatileStorage() is clearing the correct version
 	// fields of any wallets in range.
 	suppress_write_debug_info = 1; // stop console from going crazy
+	suppress_set_entropy_pool = 0;
 	abort = 0;
 	for (i = 0; i < 5000; i++)
 	{
@@ -2114,6 +2173,7 @@ int main(void)
 		{
 			end_address = TEST_FILE_SIZE;
 		}
+		initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 		clearVersionFieldWriteLog();
 		sanitiseNonVolatileStorage(start_address, end_address);
 		// version_field_address is stepped through every possible address

@@ -50,7 +50,9 @@ typedef enum WalletErrorsEnum
 	/** Invalid address handle. */
 	WALLET_INVALID_HANDLE		=	8,
 	/** Backup seed could not be written to specified device. */
-	WALLET_BACKUP_ERROR			=	9
+	WALLET_BACKUP_ERROR			=	9,
+	/** Problem with random number generation system. */
+	WALLET_RNG_FAILURE			=	10
 } WalletErrors;
 
 extern WalletErrors walletGetLastError(void);

@@ -23,6 +23,7 @@
 #ifdef TEST_TRANSACTION
 #include "test_helpers.h"
 #include "stream_comm.h"
+#include "wallet.h"
 #endif // #ifdef TEST_TRANSACTION
 
 #include "common.h"
@@ -472,19 +473,23 @@ void swapEndian256(BigNum256 buffer)
   * \param signature The encapsulated signature will be written here. This
   *                  must be a byte array with space for
   *                  at least #MAX_SIGNATURE_LENGTH bytes.
+  * \param out_length The length of the signature, in number of bytes, will be
+  *                   written here (on success). This length includes the hash
+  *                   type byte.
   * \param sig_hash The signature hash of the transaction (see
   *                 parseTransaction()).
   * \param private_key The private key to sign the transaction with. This must
   *                    be a 32 byte little-endian multi-precision integer.
-  * \return The length of the signature (including the hash type byte). This
-  *         function cannot fail.
+  * \return Zero on success, or non-zero if an error occurred while trying to
+  *         obtain a random number.
   */
-uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 private_key)
+uint8_t signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key)
 {
 	uint8_t k[32];
 	uint8_t sequence_length;
 	uint8_t i;
 
+	*out_length = 0;
 	// Place an extra leading zero in front of r and s, just in case their
 	// most significant bit is 1.
 	// Integers in DER are always 2s-complement signed, but r and s are
@@ -497,7 +502,10 @@ uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 privat
 	signature[S_OFFSET] = 0x00;
 	do
 	{
-		getRandom256(k);
+		if (getRandom256(k))
+		{
+			return 1; // problem with RNG system
+		}
 	} while (ecdsaSign(
 		(BigNum256)(&(signature[R_OFFSET + 1])),
 		(BigNum256)(&(signature[S_OFFSET + 1])),
@@ -553,7 +561,8 @@ uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 privat
 	signature[0] = 0x30; // SEQUENCE
 	signature[1] = sequence_length; // length of SEQUENCE
 	// 3 extra bytes: SEQUENCE/length and hashtype
-	return (uint8_t)(sequence_length + 3);
+	*out_length = (uint8_t)(sequence_length + 3);
+	return 0; // success
 }
 
 #ifdef TEST
@@ -629,8 +638,12 @@ int main(void)
 	uint8_t sig_hash[32];
 	uint8_t transaction_hash[32];
 	uint8_t signature[MAX_SIGNATURE_LENGTH];
+	uint8_t signature_length;
 
 	initTests(__FILE__);
+
+	initWalletTest();
+	initialiseDefaultEntropyPool();
 
 	length = sizeof(test_tx1);
 	setTestInputStream(test_tx1, length);
@@ -641,7 +654,8 @@ int main(void)
 	printf("Transaction hash: ");
 	printLittleEndian32(transaction_hash);
 	printf("\n");
-	printf("signTransaction() returned: %d\n", (int)signTransaction(signature, sig_hash, (BigNum256)private_key));
+	printf("signTransaction() returned: %d\n", (int)signTransaction(signature, &signature_length, sig_hash, (BigNum256)private_key));
+	printf("Signature length: %d\n", (int)signature_length);
 	printf("Here's the signature: ");
 	bigPrintVariableSize(signature, MAX_SIGNATURE_LENGTH, 1);
 	printf("\n");

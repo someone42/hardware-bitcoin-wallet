@@ -59,7 +59,9 @@ length is 0
 Response: 02 (length 0) or 03
 
 0x0D: format storage
-length is 0
+length is 32
+value is the initial persistent entropy pool state - this should be truly
+  random with close to 256 bits of entropy
 Response: 02 (length 0) or 03
 
 0x0E: change wallet encryption key

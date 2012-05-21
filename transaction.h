@@ -36,7 +36,7 @@ typedef enum TransactionErrorsEnum
 
 extern uint16_t getTransactionNumInputs(void);
 extern TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length);
-extern uint8_t signTransaction(uint8_t *signature, BigNum256 sig_hash, BigNum256 private_key);
+extern uint8_t signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key);
 extern void swapEndian256(BigNum256 buffer);
 
 #endif // #ifndef TRANSACTION_H_INCLUDED

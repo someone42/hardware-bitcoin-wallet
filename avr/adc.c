@@ -4,19 +4,29 @@
   *
   * Contains functions which sample from one of the AVR's analog-to-digital
   * convertor inputs. Hopefully that input (see initAdc() for which input
-  * is selected) is connected to a hardware random number generator.
+  * is selected) is connected to a hardware noise source.
+  *
+  * A good choice for a hardware noise source is amplified zener/avalanche
+  * noise from the reverse biased B-E junction of a NPN transistor. But such
+  * a source requires a > 8 volt source, which is higher than the AVR's supply
+  * voltage. To help solve this issue, two complementary square waves are
+  * outputted from pins PB0 and PB1 (digital out pins 8 and 9 on Arduino).
+  * Those pins can be connected to a charge pump circuit to generate the
+  * required voltage.
   *
   * This file is licensed as described by the file LICENCE.
   */
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 #include "../common.h"
 #include "../hwinterface.h"
 #include "hwinit.h"
 
 /** Enable ADC with prescaler 128 (ADC clock 125 kHz), pointing at input ADC0.
-  * On Arduino, that's analog in, pin 0.
+  * On Arduino, that's analog in, pin 0. This also sets up the charge pump
+  * cycler.
   */
 void initAdc(void)
 {
@@ -24,6 +34,28 @@ void initAdc(void)
 	ADCSRA = _BV(ADEN) |  _BV(ADPS2) |  _BV(ADPS1) |  _BV(ADPS0);
 	ADCSRB = 0;
 	PRR = (uint8_t)(PRR & ~_BV(PRADC));
+	DDRB |= 3; // set PB0 and PB1 to output
+	PORTB = (uint8_t)(PORTB & ~(_BV(PORTB0) | _BV(PORTB1)));
+	PORTB |= _BV(PORTB0);
+	// Set timer 2 to interrupt periodically so that the square waves for the
+	// charge pump can be cycled. It's possible to do this without interrupts
+	// (using PWM), but then two timers will be occupied instead of just one.
+	cli();
+	TCCR2A = _BV(WGM21); // CTC mode
+	TCCR2B = _BV(CS21) | _BV(CS20); // prescaler 32
+	TCNT2 = 0;
+	OCR2A = 9; // frequency = (16000000 / 32) / (9 + 1) = 50 kHz
+	TIMSK2 = _BV(OCIE2A); // enable interrupt on compare match A
+	sei();
+}
+
+/** Toggle output pins which connect to charge pump. */
+ISR(TIMER2_COMPA_vect)
+{
+	uint8_t state;
+	state = PORTB;
+	PORTB = (uint8_t)(PORTB & ~(_BV(PORTB0) | _BV(PORTB1))); // break before make
+	PORTB = (uint8_t)(state ^ (_BV(PORTB0) | _BV(PORTB1)));
 }
 
 /** Get one 10 bit sample from the ADC. */

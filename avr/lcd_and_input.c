@@ -316,11 +316,11 @@ static void clearLcd(void)
 void initLcdAndInput(void)
 {
 	cli();
-	TCCR0A = _BV(WGM01);
-	TCCR0B = _BV(CS02) | _BV(CS00);
+	TCCR0A = _BV(WGM01); // CTC mode
+	TCCR0B = _BV(CS02) | _BV(CS00); // prescaler 1024
 	TCNT0 = 0;
-	OCR0A = 78; // (16000000 / 1024) * 0.005
-	TIMSK0 = _BV(OCIE0A);
+	OCR0A = 77; // frequency = (16000000 / 1024) / (77 + 1) = 200 Hz
+	TIMSK0 = _BV(OCIE0A); // enable interrupt on compare match A
 	scroll_counter = 1000; // make sure no attempt at scrolling is made yet
 	MCUCR = (uint8_t)(MCUCR & ~_BV(PUD));
 	setArduinoPinInput(ACCEPT_PIN);

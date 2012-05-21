@@ -1,7 +1,9 @@
 Hardware connections:
 
 The files here expect the following hardware:
-- A hardware random number generator (see adc.c for the pin to connect it to),
+- A hardware noise source (see adc.c for the pin to connect it to),
+- An optional charge pump, perhaps to drive the noise source (see
+- adc.c for the pins to connect it to),
 - A 2-line HD44780-based LCD (see lcd_and_input.c for the pins to connect it
   to) and
 - Two push buttons (see lcd_and_input.c for the pins to connect it to) which

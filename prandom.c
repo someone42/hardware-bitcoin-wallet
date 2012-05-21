@@ -5,6 +5,9 @@
   * At the moment this covers whitening of random inputs (getRandom256()) and
   * deterministic private key generation (generateDeterministic256()).
   *
+  * The suggestion to use a persistent entropy pool, and much of the code
+  * associated with the entropy pool, are attributed to Peter Todd (retep).
+  *
   * This file is licensed as described by the file LICENCE.
   */
 
@@ -15,14 +18,146 @@
 #ifdef TEST_PRANDOM
 #include <stdio.h>
 #include "test_helpers.h"
+#include "wallet.h"
 #endif // #ifdef TEST_PRANDOM
 
 #include "common.h"
-#include "sha256.h"
 #include "aes.h"
+#include "sha256.h"
+#include "ripemd160.h"
 #include "bignum256.h"
 #include "prandom.h"
 #include "hwinterface.h"
+#include "storage_common.h"
+
+/** Because stdlib.h might not be included, NULL might be undefined. NULL
+  * is only used as a placeholder pointer for getRandom256Internal() if
+  * there is no appropriate pointer. */
+#ifndef NULL
+#define NULL ((void *)0) 
+#endif // #ifndef NULL
+
+/** Calculate the entropy pool checksum of an entropy pool state.
+  * Without integrity checks, an attacker with access to the persistent
+  * entropy pool area (in non-volatile memory) could reduce the amount of
+  * entropy in the persistent pool. Even if the persistent entropy pool is
+  * encrypted, an attacker could reduce the amount of entropy in the pool down
+  * to the amount of entropy in the encryption key, which is probably much
+  * less than 256 bits.
+  * If the persistent entropy pool is unencrypted, then the checksum provides
+  * no additional security. In that case, the checksum is only used to check
+  * that non-volatile memory is working as expected.
+  * \param out The checksum will be written here. This must be a byte array
+  *            with space for #POOL_CHECKSUM_LENGTH bytes.
+  * \param pool_state The entropy pool state to calculate the checksum of.
+  *                   This must be a byte array of
+  *                   length #ENTROPY_POOL_LENGTH.
+  */
+static void calculateEntropyPoolChecksum(uint8_t *out, uint8_t *pool_state)
+{
+	HashState hs;
+	uint8_t hash[32];
+	uint8_t i;
+
+	// RIPEMD-160 is used instead of SHA-256 because SHA-256 is already used
+	// by getRandom256() to generate output values from the pool state.
+	ripemd160Begin(&hs);
+	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
+	{
+		ripemd160WriteByte(&hs, pool_state[i]);
+	}
+	ripemd160Finish(&hs);
+	writeHashToByteArray(hash, &hs, 1);
+#if POOL_CHECKSUM_LENGTH > 20
+#error POOL_CHECKSUM_LENGTH is bigger than RIPEMD-160 hash size
+#endif
+	memcpy(out, hash, POOL_CHECKSUM_LENGTH);
+}
+
+/** Set (overwrite) the persistent entropy pool.
+  * \param in_pool_state A byte array specifying the desired contents of the
+  *                      persistent entropy pool. This must have a length
+  *                      of #ENTROPY_POOL_LENGTH bytes.
+  * \return Zero on success, non-zero if an error (couldn't write to
+  *         non-volatile memory) occurred.
+  */
+uint8_t setEntropyPool(uint8_t *in_pool_state)
+{
+	uint8_t checksum[POOL_CHECKSUM_LENGTH];
+
+	if (nonVolatileWrite(in_pool_state, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
+	{
+		return 1; // non-volatile write error
+	}
+	calculateEntropyPoolChecksum(checksum, in_pool_state);
+	if (nonVolatileWrite(checksum, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
+	{
+		return 1; // non-volatile write error
+	}
+	return 0; // success
+}
+
+/** Obtain the contents of the persistent entropy pool.
+  * \param out_pool_state A byte array specifying where the contents of the
+  *                       persistent entropy pool should be placed. This must
+  *                       have space for #ENTROPY_POOL_LENGTH bytes.
+  * \return Zero on success, non-zero if an error (couldn't read from
+  *         non-volatile memory, or invalid checksum) occurred.
+  */
+uint8_t getEntropyPool(uint8_t *out_pool_state)
+{
+	uint8_t checksum_read[POOL_CHECKSUM_LENGTH];
+	uint8_t checksum_calculated[POOL_CHECKSUM_LENGTH];
+
+	if (nonVolatileRead(out_pool_state, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
+	{
+		return 1; // non-volatile read error
+	}
+	calculateEntropyPoolChecksum(checksum_calculated, out_pool_state);
+	if (nonVolatileRead(checksum_read, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
+	{
+		return 1; // non-volatile read error
+	}
+	if (memcmp(checksum_read, checksum_calculated, POOL_CHECKSUM_LENGTH))
+	{
+		return 1; // checksum doesn't match
+	}
+	return 0; // success
+}
+
+/** Initialise the persistent entropy pool to a specified state. If the
+  * current entropy pool is uncorrupted, then its state will be mixed in with
+  * the specified state.
+  * \param initial_pool_state The initial entropy pool state. This must be a
+  *                           byte array of length #ENTROPY_POOL_LENGTH bytes.
+  * \return Zero on success, non-zero if an error (couldn't write to
+  *         non-volatile memory) occurred.
+  */
+uint8_t initialiseEntropyPool(uint8_t *initial_pool_state)
+{
+	HashState hs;
+	uint8_t current_pool_state[ENTROPY_POOL_LENGTH];
+	uint8_t i;
+
+	if (getEntropyPool(current_pool_state))
+	{
+		// Current entropy pool is not valid; overwrite it.
+		return setEntropyPool(initial_pool_state);
+	}
+	else
+	{
+		// Current entropy pool is valid; mix it in with initial_pool_state.
+		sha256Begin(&hs);
+		for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
+		{
+			sha256WriteByte(&hs, current_pool_state[i]);
+			sha256WriteByte(&hs, initial_pool_state[i]);
+		}
+		sha256Finish(&hs);
+		writeHashToByteArray(current_pool_state, &hs, 1);
+		return setEntropyPool(current_pool_state);
+	}
+}
 
 /** Safety factor for entropy accumulation. The hardware random number
   * generator can (but should strive not to) overestimate its entropy. It can
@@ -30,7 +165,9 @@
 #define ENTROPY_SAFETY_FACTOR	2
 
 /** Uses a hash function to accumulate entropy from a hardware random number
-  * generator (HWRNG)..
+  * generator (HWRNG), along with the state of a persistent pool. The
+  * operations used are: pool = H(HWRNG | pool) and output = H(H(pool)), where
+  * "|" is concatenation and H(x) is the SHA-256 hash of x.
   *
   * To justify why a cryptographic hash is an appropriate means of entropy
   * accumulation, see the paper "Yarrow-160: Notes on the Design and Analysis
@@ -42,27 +179,118 @@
   * Entropy is accumulated by hashing bytes obtained from the HWRNG until the
   * total entropy (as reported by the HWRNG) is at least
   * 256 * ENTROPY_SAFETY_FACTOR bits.
+  * If the HWRNG breaks in a way that is undetected, the (maybe secret) pool
+  * of random bits ensures that outputs will still be unpredictable, albeit
+  * not strictly meeting their advertised amount of entropy.
   * \param n The final 256 bit random value will be written here.
+  * \param pool_state If use_pool_state is non-zero, then the the state of the
+  *                   persistent entropy pool will be read from and written to
+  *                   this byte array. The byte array must be of
+  *                   length #ENTROPY_POOL_LENGTH bytes. If use_pool_state is
+  *                   zero, this parameter will be ignored.
+  * \param use_pool_state Specifies whether to use RAM (non-zero) or
+  *                       non-volatile memory (zero) to access the persistent
+  *                       entropy pool. If this is non-zero, the persistent
+  *                       entropy pool will be read/written from/to the byte
+  *                       array specified by pool_state. If this is zero, the
+  *                       persistent entropy pool will be read/written from/to
+  *                       non-volatile memory. The option of using RAM is
+  *                       provided for cases where random numbers are needed
+  *                       but non-volatile memory is being cleared.
+  * \return Zero on success, non-zero if an error (couldn't access
+  *         non-volatile memory, or invalid entropy pool checksum) occurred.
   */
-void getRandom256(BigNum256 n)
+static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t use_pool_state)
 {
 	uint16_t total_entropy;
-	uint8_t random_bytes[32];
+	uint8_t random_bytes[MAX(32, ENTROPY_POOL_LENGTH)];
 	HashState hs;
 	uint8_t i;
 
+	// Hash in HWRNG randomness until we've reached the entropy required.
+	// This needs to happen before hashing the pool itself due to the
+	// possibility of length extension attacks; see below.
 	total_entropy = 0;
 	sha256Begin(&hs);
 	while (total_entropy < (256 * ENTROPY_SAFETY_FACTOR))
 	{
-		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, 32));
-		for (i = 0; i < 32; i++)
+		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, sizeof(random_bytes)));
+		for (i = 0; i < sizeof(random_bytes); i++)
 		{
 			sha256WriteByte(&hs, random_bytes[i]);
 		}
 	}
+
+	// Now include the previous state of the pool.
+	if (use_pool_state)
+	{
+		memcpy(random_bytes, pool_state, ENTROPY_POOL_LENGTH);
+	}
+	else
+	{
+		if (getEntropyPool(random_bytes))
+		{
+			return 1; // error reading from non-volatile memory, or invalid checksum
+		}
+	}
+	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
+	{
+		sha256WriteByte(&hs, random_bytes[i]);
+	}
 	sha256Finish(&hs);
+	writeHashToByteArray(random_bytes, &hs, 1);
+
+	// Save the pool state to non-volatile memory immediately as we don't want
+	// it to be possible to reuse the pool state.
+	if (use_pool_state)
+	{
+		memcpy(pool_state, random_bytes, ENTROPY_POOL_LENGTH);
+	}
+	else
+	{
+		if (setEntropyPool(random_bytes))
+		{
+			return 1; // error writing to non-volatile memory
+		}
+	}
+	// Hash the pool twice to generate the random bytes to return.
+	// We can't output the pool state directly, or an attacker who knew that
+	// the HWRNG was broken, and how it was broken, could then predict the
+	// next output. Outputting H(pool) is another possibility, but that's
+	// kinda cutting it close though, as we're outputting H(pool) while the
+	// next output will be H(HWRNG | pool). We've prevented a length extension
+	// attack as described above, but there may be other attacks.
+	sha256Begin(&hs);
+	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
+	{
+		sha256WriteByte(&hs, random_bytes[i]);
+	}
+	sha256FinishDouble(&hs);
 	writeHashToByteArray(n, &hs, 1);
+	return 0; // success
+}
+
+/** Version of getRandom256Internal() which uses non-volatile memory to store
+  * the persistent entropy pool. See getRandom256Internal() for more details.
+  * \param n See getRandom256Internal()
+  * \return See getRandom256Internal()
+  */
+uint8_t getRandom256(BigNum256 n)
+{
+	return getRandom256Internal(n, NULL, 0);
+}
+
+/** Version of getRandom256Internal() which uses RAM to store
+  * the persistent entropy pool. See getRandom256Internal() for more details.
+  * \param n See getRandom256Internal()
+  * \param pool_state A byte array of length #ENTROPY_POOL_LENGTH which
+  *                   contains the persistent entropy pool state. This will
+  *                   be both read from and written to.
+  * \return See getRandom256Internal()
+  */
+uint8_t getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state)
+{
+	return getRandom256Internal(n, pool_state, 1);
 }
 
 /** First part of deterministic 256 bit number generation.
@@ -150,18 +378,34 @@ void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num)
 
 #ifdef TEST
 
+/** Set the persistent entropy pool to something, so that calls to
+  * getRandom256() don't fail because the entropy pool is not valid. */
+void initialiseDefaultEntropyPool(void)
+{
+	uint8_t pool_state[ENTROPY_POOL_LENGTH];
+
+	memset(pool_state, 0, ENTROPY_POOL_LENGTH);
+	initialiseEntropyPool(pool_state);
+}
+
+/** Set this to a non-zero value to simulate the HWRNG breaking. */
+static int broken_hwrng;
+
 /** The purpose of this "random" byte source is to test the entropy
   * accumulation behaviour of getRandom256().
   * \param buffer The buffer to fill. This should have enough space for n
   *               bytes.
   * \param n The size of the buffer.
-  * \return An stupid estimate of the total number of bits (not bytes) of
+  * \return A stupid estimate of the total number of bits (not bytes) of
   *         entropy in the buffer.
   */
 uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 {
 	memset(buffer, 0, n);
-	buffer[0] = (uint8_t)rand();
+	if (!broken_hwrng)
+	{
+		buffer[0] = (uint8_t)rand();
+	}
 	return 8;
 }
 
@@ -179,13 +423,22 @@ int main(int argc, char **argv)
 	int i, j;
 	int num_samples;
 	int abort;
+	int is_broken;
 	unsigned int bytes_written;
 	FILE *f;
 	uint8_t seed[SEED_LENGTH];
 	uint8_t keys[SEED_LENGTH][32];
 	uint8_t key2[32];
+	uint8_t pool_state[ENTROPY_POOL_LENGTH];
+	uint8_t compare_pool_state[ENTROPY_POOL_LENGTH];
+	uint8_t one_byte;
+	uint8_t generated_using_nv[1024];
+	uint8_t generated_using_ram[1024];
 
 	initTests(__FILE__);
+
+	initWalletTest();
+	broken_hwrng = 0;
 
 	// Before outputting samples, do a sanity check that
 	// generateDeterministic256() actually has different outputs when
@@ -254,9 +507,167 @@ int main(int argc, char **argv)
 		reportSuccess();
 	}
 
-	if (argc != 2)
+	// Test if setEntropyPool() works.
+	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
 	{
-		printf("Usage: %s <n>, where <n> is number of 256 bit samples to take\n", argv[0]);
+		pool_state[i] = (uint8_t)(rand() & 0xff);
+	}
+	if (setEntropyPool(pool_state))
+	{
+		printf("setEntropyPool() doesn't work\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check that getEntropyPool() returns what was set using setEntropyPool().
+	if (getEntropyPool(compare_pool_state))
+	{
+		printf("getEntropyPool() doesn't work\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	if (memcmp(pool_state, compare_pool_state, ENTROPY_POOL_LENGTH))
+	{
+		printf("getEntropyPool() doesn't return what was set using setEntropyPool()\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check that the checksum actually detects modification of the entropy
+	// pool.
+	abort = 0;
+	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
+	{
+		nonVolatileRead(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1);
+		one_byte = (uint8_t)(one_byte ^ 0xde);
+		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1);
+		if (!getEntropyPool(pool_state))
+		{
+			printf("getEntropyPool() not detecting corruption at i = %d\n", i);
+			reportFailure();
+			abort = 1;
+			break;
+		}
+		one_byte = (uint8_t)(one_byte ^ 0xde);
+		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1);
+	}
+	if (!abort)
+	{
+		reportSuccess();
+	}
+
+	// Check that the checksum actually detects modification of the checksum
+	// itself.
+	abort = 0;
+	for (i = 0; i < POOL_CHECKSUM_LENGTH; i++)
+	{
+		nonVolatileRead(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1);
+		one_byte = (uint8_t)(one_byte ^ 0xde);
+		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1);
+		if (!getEntropyPool(pool_state))
+		{
+			printf("getEntropyPool() not detecting corruption at i = %d\n", i);
+			reportFailure();
+			abort = 1;
+			break;
+		}
+		one_byte = (uint8_t)(one_byte ^ 0xde);
+		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1);
+	}
+	if (!abort)
+	{
+		reportSuccess();
+	}
+
+	// With a known initial pool state and with a broken HWRNG, the random
+	// number generator should produce the same output whether the pool is
+	// stored in non-volatile memory or RAM.
+	broken_hwrng = 1;
+	memset(pool_state, 42, ENTROPY_POOL_LENGTH);
+	setEntropyPool(pool_state);
+	for (i = 0; i < sizeof(generated_using_nv); i += 32)
+	{
+		if (getRandom256(&(generated_using_nv[i])))
+		{
+			printf("Unexpected failure of getRandom256()\n");
+			exit(1);
+		}
+	}
+	memset(pool_state, 42, ENTROPY_POOL_LENGTH);
+	for (i = 0; i < sizeof(generated_using_ram); i += 32)
+	{
+		if (getRandom256TemporaryPool(&(generated_using_ram[i]), pool_state))
+		{
+			printf("Unexpected failure of getRandom256()\n");
+			exit(1);
+		}
+	}
+	if (memcmp(generated_using_nv, generated_using_ram, sizeof(generated_using_nv)))
+	{
+		printf("getRandom256() acts differently when using different places to store the entropy pool\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// initialiseEntropyPool() should directly set the entropy pool state if
+	// the current state is invalid.
+	nonVolatileRead(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	one_byte = (uint8_t)(one_byte ^ 0xde);
+	nonVolatileWrite(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	memset(pool_state, 43, ENTROPY_POOL_LENGTH);
+	if (initialiseEntropyPool(pool_state))
+	{
+		printf("initialiseEntropyPool() doesn't work\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	getEntropyPool(compare_pool_state);
+	if (memcmp(pool_state, compare_pool_state, ENTROPY_POOL_LENGTH))
+	{
+		printf("initialiseEntropyPool() not setting pool state when current one is invalid\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// initialiseEntropyPool() should mix in the specified entropy pool state
+	// if the current state is valid.
+	initialiseEntropyPool(pool_state);
+	getEntropyPool(compare_pool_state);
+	if (!memcmp(pool_state, compare_pool_state, ENTROPY_POOL_LENGTH))
+	{
+		printf("initialiseEntropyPool() not mixing pool state when current one is valid\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	if (argc != 3)
+	{
+		printf("Usage: %s <n> <is_broken>, where:\n", argv[0]);
+		printf("  <n> is number of 256 bit samples to take\n");
+		printf("  <is_broken> specifies whether (non-zero) or not (zero) to use a\n");
+		printf("              simulated broken HWRNG\n");
+		printf("\n");
 		printf("Samples will go into random.dat\n");
 		exit(1);
 	}
@@ -265,6 +676,15 @@ int main(int argc, char **argv)
 	{
 		printf("Invalid number of samples specified\n");
 		exit(1);
+	}
+	sscanf(argv[2], "%d", &is_broken);
+	if (is_broken)
+	{
+		broken_hwrng = 1;
+	}
+	else
+	{
+		broken_hwrng = 0;
 	}
 
 	f = fopen("random.dat", "wb");
@@ -277,7 +697,11 @@ int main(int argc, char **argv)
 	bytes_written = 0;
 	for (i = 0; i < num_samples; i++)
 	{
-		getRandom256(r);
+		if (getRandom256(r))
+		{
+			printf("Unexpected failure of getRandom256()\n");
+			exit(1);
+		}
 		bytes_written += fwrite(r, 1, 32, f);
 	}
 	fclose(f);

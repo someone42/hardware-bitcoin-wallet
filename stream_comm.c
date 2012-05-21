@@ -156,10 +156,19 @@ static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *s
 	signature_length = 0;
 	if (getPrivateKey(private_key, ah) == WALLET_NO_ERROR)
 	{
-		// Note: signTransaction() cannot fail.
-		signature_length = signTransaction(signature, sig_hash, private_key);
+		if (signTransaction(signature, &signature_length, sig_hash, private_key))
+		{
+			wallet_return = WALLET_RNG_FAILURE;
+		}
+		else
+		{
+			wallet_return = WALLET_NO_ERROR;
+		}
 	}
-	wallet_return = walletGetLastError();
+	else
+	{
+		wallet_return = walletGetLastError();
+	}
 	translateWalletError(wallet_return, signature_length, signature);
 }
 
@@ -438,7 +447,7 @@ void processPacket(void)
 	// in a couple of places to obtain 32 bit values. This is guaranteed by
 	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
 	// right mind would use encryption with smaller than 32 bit keys.
-	uint8_t buffer[MAX(NAME_LENGTH, WALLET_ENCRYPTION_KEY_LENGTH)];
+	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, ENTROPY_POOL_LENGTH))];
 	uint32_t num_addresses;
 	AddressHandle ah;
 	WalletErrors wallet_return;
@@ -566,17 +575,25 @@ void processPacket(void)
 
 	case PACKET_TYPE_FORMAT:
 		// Format storage.
-		if (!expectLength(0))
+		if (!expectLength(ENTROPY_POOL_LENGTH))
 		{
+			getBytesFromStream(buffer, ENTROPY_POOL_LENGTH);
 			if (askUser(ASKUSER_FORMAT))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
-				wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
-				translateWalletError(wallet_return, 0, NULL);
-				uninitWallet(); // force wallet to unload
+				if (initialiseEntropyPool(buffer))
+				{
+					translateWalletError(WALLET_WRITE_ERROR, 0, NULL);
+				}
+				else
+				{
+					wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
+					translateWalletError(wallet_return, 0, NULL);
+					uninitWallet(); // force wallet to unload
+				}
 			}
 		}
 		break;
@@ -764,6 +781,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case WALLET_BACKUP_ERROR:
 			return "Seed could not be written to specified device";
+			break;
+		case WALLET_RNG_FAILURE:
+			return "Failure in random number generation system";
 			break;
 		default:
 			assert(0);
@@ -971,7 +991,11 @@ static uint8_t test_stream_sign_tx[] = {
 
 /** Test stream data for: format storage. */
 static const uint8_t test_stream_format[] = {
-0x0d, 0x00, 0x00, 0x00, 0x00};
+0x0d, 0x20, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
@@ -1071,6 +1095,8 @@ int main(void)
 	initWalletTest();
 	initWallet();
 
+	printf("Formatting...\n");
+	SEND_ONE_TEST_STREAM(test_stream_format);
 	printf("Listing wallets...\n");
 	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 	printf("Creating new wallet...\n");
@@ -1092,8 +1118,6 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
 	printf("Signing transaction again...\n");
 	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
-	//printf("Formatting...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_format);
 	printf("Loading wallet using incorrect key...\n");
 	SEND_ONE_TEST_STREAM(test_stream_load_incorrect);
 	printf("Loading wallet using correct key...\n");
