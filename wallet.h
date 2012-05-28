@@ -45,29 +45,30 @@ typedef enum WalletErrorsEnum
 	WALLET_ADDRESS_NOT_FOUND	=	5,
 	/** Wallet doesn't exist (or, wrong encryption key used). */
 	WALLET_NOT_THERE			=	6,
-	/** End of list of addresses. */
-	WALLET_END_OF_LIST			=	7,
 	/** Invalid address handle. */
 	WALLET_INVALID_HANDLE		=	8,
 	/** Backup seed could not be written to specified device. */
 	WALLET_BACKUP_ERROR			=	9,
 	/** Problem with random number generation system. */
-	WALLET_RNG_FAILURE			=	10
+	WALLET_RNG_FAILURE			=	10,
+	/** Invalid wallet number specified. */
+	WALLET_INVALID_WALLET_NUM	=	11
 } WalletErrors;
 
 extern WalletErrors walletGetLastError(void);
-extern WalletErrors initWallet(void);
+extern WalletErrors initWallet(uint32_t wallet_spec);
 extern WalletErrors uninitWallet(void);
 extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
-extern WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed);
+extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, uint8_t *seed);
 extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);
 extern WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah);
 extern uint32_t getNumAddresses(void);
 extern WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah);
 extern WalletErrors changeEncryptionKey(uint8_t *new_key);
 extern WalletErrors changeWalletName(uint8_t *new_name);
-extern WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name);
+extern WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint32_t wallet_spec);
 extern WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device);
+extern uint32_t getNumberOfWallets(void);
 
 #ifdef TEST
 extern void initWalletTest(void);

@@ -352,9 +352,12 @@ static NOINLINE void listWallets(void)
 	uint8_t version[4];
 	uint8_t name[NAME_LENGTH];
 	uint8_t buffer[4];
+	uint32_t i;
+	uint32_t num_wallets;
 	WalletErrors wallet_return;
 
-	if (getWalletInfo(version, name) != WALLET_NO_ERROR)
+	num_wallets = getNumberOfWallets();
+	if (num_wallets == 0)
 	{
 		wallet_return = walletGetLastError();
 		translateWalletError(wallet_return, 0, NULL);
@@ -362,17 +365,28 @@ static NOINLINE void listWallets(void)
 	else
 	{
 		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
-		writeU32LittleEndian(buffer, 4 + NAME_LENGTH); // length
+		writeU32LittleEndian(buffer, (4 + NAME_LENGTH) * num_wallets); // length
 		writeBytesToStream(buffer, 4);
-		writeBytesToStream(version, 4);
-		writeBytesToStream(name, NAME_LENGTH);
-	}
+		for (i = 0; i < num_wallets; i++)
+		{
+			if (getWalletInfo(version, name, i) != WALLET_NO_ERROR)
+			{
+				// It's too late to return an error message, since the host
+				// now expects a full payload, so just send all 00s.
+				memset(version, 0, 4);
+				memset(name, 0, NAME_LENGTH);
+			}
+			writeBytesToStream(version, 4);
+			writeBytesToStream(name, NAME_LENGTH);
+		} // end for (i = 0; i < num_wallets; i++)
+	} // end if (num_wallets == 0)
 }
 
 /** Read name and seed from input stream and restore a wallet using those
   * values. This also prompts the user for approval of the action.
+  * \param wallet_spec The wallet number of wallet to restore.
   */
-static NOINLINE void restoreWallet(void)
+static NOINLINE void restoreWallet(uint32_t wallet_spec)
 {
 	WalletErrors wallet_return;
 	uint8_t name[NAME_LENGTH];
@@ -386,7 +400,7 @@ static NOINLINE void restoreWallet(void)
 	}
 	else
 	{
-		wallet_return = newWallet(name, 1, seed);
+		wallet_return = newWallet(wallet_spec, name, 1, seed);
 		translateWalletError(wallet_return, 0, NULL);
 	}
 }
@@ -400,7 +414,7 @@ static void readAndIgnoreInput(void)
 {
 	if (payload_length)
 	{
-		for (; payload_length--; )
+		for (; payload_length > 0; payload_length--)
 		{
 			streamGetOneByte();
 		}
@@ -448,6 +462,7 @@ void processPacket(void)
 	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
 	// right mind would use encryption with smaller than 32 bit keys.
 	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, ENTROPY_POOL_LENGTH))];
+	uint32_t wallet_spec;
 	uint32_t num_addresses;
 	AddressHandle ah;
 	WalletErrors wallet_return;
@@ -480,8 +495,10 @@ void processPacket(void)
 
 	case PACKET_TYPE_NEW_WALLET:
 		// Create new wallet.
-		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
+		if (!expectLength(4 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
 		{
+			getBytesFromStream(buffer, 4);
+			wallet_spec = readU32LittleEndian(buffer);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
 			getBytesFromStream(buffer, NAME_LENGTH);
@@ -491,7 +508,7 @@ void processPacket(void)
 			}
 			else
 			{
-				wallet_return = newWallet(buffer, 0, NULL);
+				wallet_return = newWallet(wallet_spec, buffer, 0, NULL);
 				translateWalletError(wallet_return, 0, NULL);
 			}
 		}
@@ -551,11 +568,13 @@ void processPacket(void)
 
 	case PACKET_TYPE_LOAD_WALLET:
 		// Load wallet.
-		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
+		if (!expectLength(4 + WALLET_ENCRYPTION_KEY_LENGTH))
 		{
+			getBytesFromStream(buffer, 4);
+			wallet_spec = readU32LittleEndian(buffer);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
-			wallet_return = initWallet();
+			wallet_return = initWallet(wallet_spec);
 			translateWalletError(wallet_return, 0, NULL);
 		}
 		break;
@@ -586,7 +605,7 @@ void processPacket(void)
 			{
 				if (initialiseEntropyPool(buffer))
 				{
-					translateWalletError(WALLET_WRITE_ERROR, 0, NULL);
+					translateWalletError(WALLET_RNG_FAILURE, 0, NULL);
 				}
 				else
 				{
@@ -652,11 +671,13 @@ void processPacket(void)
 
 	case PACKET_TYPE_RESTORE_WALLET:
 		// Restore wallet.
-		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH + SEED_LENGTH))
+		if (!expectLength(4 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH + SEED_LENGTH))
 		{
+			getBytesFromStream(buffer, 4);
+			wallet_spec = readU32LittleEndian(buffer);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
-			restoreWallet();
+			restoreWallet(wallet_spec);
 		}
 		break;
 
@@ -773,9 +794,6 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 		case WALLET_NOT_THERE:
 			return "Wallet doesn't exist";
 			break;
-		case WALLET_END_OF_LIST:
-			return "End of address list";
-			break;
 		case WALLET_INVALID_HANDLE:
 			return "Invalid address handle";
 			break;
@@ -784,6 +802,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case WALLET_RNG_FAILURE:
 			return "Failure in random number generation system";
+			break;
+		case WALLET_INVALID_WALLET_NUM:
+			return "Invalid wallet number specified";
 			break;
 		default:
 			assert(0);
@@ -913,12 +934,13 @@ uint8_t askUser(AskUserCommand command)
 
 /** Test stream data for: create new wallet. */
 static const uint8_t test_stream_new_wallet[] = {
-0x04, 0x48, 0x00, 0x00, 0x00,
+0x04, 0x4c, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, // wallet number
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20,
+0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20, // name
 0x66, 0x66, 0x20, 0x20, 0x20, 0x6F, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
@@ -999,7 +1021,8 @@ static const uint8_t test_stream_format[] = {
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
-0x0b, 0x20, 0x00, 0x00, 0x00,
+0x0b, 0x24, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1007,7 +1030,8 @@ static const uint8_t test_stream_load_correct[] = {
 
 /** Test stream data for: load wallet using incorrect key. */
 static const uint8_t test_stream_load_incorrect[] = {
-0x0b, 0x20, 0x00, 0x00, 0x00,
+0x0b, 0x24, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00,
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1027,7 +1051,8 @@ static const uint8_t test_stream_change_key[] = {
 
 /** Test stream data for: load with new encryption key. */
 static const uint8_t test_stream_load_with_changed_key[] = {
-0x0b, 0x20, 0x00, 0x00, 0x00,
+0x0b, 0x24, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1052,17 +1077,18 @@ static const uint8_t test_stream_backup_wallet[] = {
 
 /** Test stream data for: restore wallet. */
 static const uint8_t test_stream_restore_wallet[] = {
-0x12, 0x88, 0x00, 0x00, 0x00,
+0x12, 0x8c, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, // wallet number
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20,
+0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20, // name
 0x66, 0x66, 0x20, 0x20, 0x20, 0x6F, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
+0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, // seed
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
 0x12, 0x34, 0x56, 0x00, 0x9a, 0xbc, 0xde, 0xf0,
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
@@ -1093,7 +1119,6 @@ int main(void)
 	initTests(__FILE__);
 
 	initWalletTest();
-	initWallet();
 
 	printf("Formatting...\n");
 	SEND_ONE_TEST_STREAM(test_stream_format);

@@ -38,14 +38,14 @@ static const char str_WALLET_WRITE_ERROR[] PROGMEM = "EEPROM Write error";
 static const char str_WALLET_ADDRESS_NOT_FOUND[] PROGMEM = "Address not in wallet";
 /** String for #WALLET_NOT_THERE wallet error. */
 static const char str_WALLET_NOT_THERE[] PROGMEM = "Wallet doesn't exist";
-/** String for #WALLET_END_OF_LIST wallet error. */
-static const char str_WALLET_END_OF_LIST[] PROGMEM = "End of address list";
 /** String for #WALLET_INVALID_HANDLE wallet error. */
 static const char str_WALLET_INVALID_HANDLE[] PROGMEM = "Invalid address handle";
 /** String for #WALLET_BACKUP_ERROR wallet error. */
 static const char str_WALLET_BACKUP_ERROR[] PROGMEM = "Seed could not be written to specified device";
 /** String for #WALLET_RNG_FAILURE wallet error. */
 static const char str_WALLET_RNG_FAILURE[] PROGMEM = "Failure in random number generation system";
+/** String for #WALLET_INVALID_WALLET_NUM wallet error. */
+static const char str_WALLET_INVALID_WALLET_NUM[] PROGMEM = "Invalid wallet number";
 /** String for #TRANSACTION_INVALID_FORMAT transaction parser error. */
 static const char str_TRANSACTION_INVALID_FORMAT[] PROGMEM = "Format of transaction is unknown or invalid";
 /** String for #TRANSACTION_TOO_MANY_INPUTS transaction parser error. */
@@ -119,9 +119,6 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 		case WALLET_NOT_THERE:
 			return (char)pgm_read_byte(&(str_WALLET_NOT_THERE[pos]));
 			break;
-		case WALLET_END_OF_LIST:
-			return (char)pgm_read_byte(&(str_WALLET_END_OF_LIST[pos]));
-			break;
 		case WALLET_INVALID_HANDLE:
 			return (char)pgm_read_byte(&(str_WALLET_INVALID_HANDLE[pos]));
 			break;
@@ -130,6 +127,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case WALLET_RNG_FAILURE:
 			return (char)pgm_read_byte(&(str_WALLET_RNG_FAILURE[pos]));
+			break;
+		case WALLET_INVALID_WALLET_NUM:
+			return (char)pgm_read_byte(&(str_WALLET_INVALID_WALLET_NUM[pos]));
 			break;
 		default:
 			return (char)pgm_read_byte(&(str_UNKNOWN[pos]));
@@ -219,9 +219,6 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 		case WALLET_NOT_THERE:
 			return (uint16_t)(sizeof(str_WALLET_NOT_THERE) - 1);
 			break;
-		case WALLET_END_OF_LIST:
-			return (uint16_t)(sizeof(str_WALLET_END_OF_LIST) - 1);
-			break;
 		case WALLET_INVALID_HANDLE:
 			return (uint16_t)(sizeof(str_WALLET_INVALID_HANDLE) - 1);
 			break;
@@ -230,6 +227,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case WALLET_RNG_FAILURE:
 			return (uint16_t)(sizeof(str_WALLET_RNG_FAILURE) - 1);
+			break;
+		case WALLET_INVALID_WALLET_NUM:
+			return (uint16_t)(sizeof(str_WALLET_INVALID_WALLET_NUM) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

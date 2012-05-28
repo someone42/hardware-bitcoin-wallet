@@ -20,7 +20,6 @@ int main(void)
 	initUsart();
 	initAdc();
 	initLcdAndInput();
-	initWallet();
 
 	do
 	{

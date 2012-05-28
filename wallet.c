@@ -58,6 +58,9 @@ static uint32_t num_addresses;
 /** The address in non-volatile memory where the currently loaded wallet
   * record is. All "offsets" use this as the base address. */
 static uint32_t base_nv_address;
+/** Cache of number of wallets that can fit in non-volatile storage. This will
+  * be 0 if a value hasn't been calculated yet. */
+static uint32_t num_wallets;
 
 #ifdef TEST
 /** The file to perform test non-volatile I/O on. */
@@ -214,18 +217,35 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 	return NV_NO_ERROR;
 }
 
-/** Initialise wallet (load it if it's there).
+/** Initialise a wallet (load it if it's there).
+  * \param wallet_spec The wallet number of the wallet to load.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred.
   */
-WalletErrors initWallet(void)
+WalletErrors initWallet(uint32_t wallet_spec)
 {
 	uint8_t buffer[32];
 	uint8_t hash[32];
 	uint32_t version;
+	uint32_t local_num_wallets;
 
-	wallet_loaded = 0;
-	base_nv_address = ADDRESS_WALLET_START;
+	if (uninitWallet() != WALLET_NO_ERROR)
+	{
+		return last_error;
+	}
+
+	local_num_wallets = getNumberOfWallets();
+	if (local_num_wallets == 0)
+	{
+		last_error = WALLET_READ_ERROR;
+		return last_error;
+	}
+	if (wallet_spec >= local_num_wallets)
+	{
+		last_error = WALLET_INVALID_WALLET_NUM;
+		return last_error;
+	}
+	base_nv_address = ADDRESS_WALLET_START + wallet_spec * WALLET_RECORD_LENGTH;
 
 	// Read version.
 	if (nonVolatileRead(buffer, base_nv_address + OFFSET_VERSION, 4) != NV_NO_ERROR)
@@ -499,6 +519,7 @@ static WalletErrors writeWalletChecksum(void)
 
 /** Create new wallet. A brand new wallet contains no addresses and should
   * have a unique, unpredictable deterministic private key generation seed.
+  * \param wallet_spec The wallet number of the new wallet.
   * \param name Should point to #NAME_LENGTH bytes (padded with spaces if
   *             necessary) containing the desired name of the wallet.
   * \param use_seed If this is non-zero, then the contents of seed will be
@@ -513,12 +534,29 @@ static WalletErrors writeWalletChecksum(void)
   *         wallet will also be loaded.
   * \warning This will erase the current one.
   */
-WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
+WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, uint8_t *seed)
 {
 	uint8_t buffer[32];
 	WalletErrors r;
+	uint32_t local_num_wallets;
 
-	base_nv_address = ADDRESS_WALLET_START;
+	if (uninitWallet() != WALLET_NO_ERROR)
+	{
+		return last_error;
+	}
+
+	local_num_wallets = getNumberOfWallets();
+	if (local_num_wallets == 0)
+	{
+		last_error = WALLET_READ_ERROR;
+		return last_error;
+	}
+	if (wallet_spec >= local_num_wallets)
+	{
+		last_error = WALLET_INVALID_WALLET_NUM;
+		return last_error;
+	}
+	base_nv_address = ADDRESS_WALLET_START + wallet_spec * WALLET_RECORD_LENGTH;
 
 	// Erase all traces of the existing wallet.
 	r = sanitiseNonVolatileStorage(base_nv_address, base_nv_address + WALLET_RECORD_LENGTH);
@@ -615,7 +653,7 @@ WalletErrors newWallet(uint8_t *name, uint8_t use_seed, uint8_t *seed)
 	}
 	nonVolatileFlush();
 
-	last_error = initWallet();
+	last_error = initWallet(wallet_spec);
 	return last_error;
 }
 
@@ -909,17 +947,33 @@ WalletErrors changeWalletName(uint8_t *new_name)
   * \param out_name The (space-padded) name of the wallet will be written
   *                 to here (if everything goes well). This should be a
   *                 byte array with enough space to store #NAME_LENGTH bytes.
+  * \param wallet_spec The wallet number of wallet to query.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred.
   */
-WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name)
+WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint32_t wallet_spec)
 {
-	if (nonVolatileRead(out_version, ADDRESS_WALLET_START + OFFSET_VERSION, 4) != NV_NO_ERROR)
+	uint32_t local_num_wallets;
+	uint32_t local_base_nv_address;
+
+	local_num_wallets = getNumberOfWallets();
+	if (local_num_wallets == 0)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
 	}
-	if (nonVolatileRead(out_name, ADDRESS_WALLET_START + OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
+	if (wallet_spec >= local_num_wallets)
+	{
+		last_error = WALLET_INVALID_WALLET_NUM;
+		return last_error;
+	}
+	local_base_nv_address = ADDRESS_WALLET_START + wallet_spec * WALLET_RECORD_LENGTH;
+	if (nonVolatileRead(out_version, local_base_nv_address + OFFSET_VERSION, 4) != NV_NO_ERROR)
+	{
+		last_error = WALLET_READ_ERROR;
+		return last_error;
+	}
+	if (nonVolatileRead(out_name, local_base_nv_address + OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -985,6 +1039,70 @@ WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device)
 	}
 }
 
+/** Obtain the size of non-volatile storage by doing a bunch of test reads.
+  * \return The size in bytes, less one, of non-volatile storage. 0 indicates
+  *         that a read error occurred. For example, a return value of 9999
+  *         means that non-volatile storage is 10000 bytes large (or
+  *         equivalently, 9999 is the largest valid address).
+  */
+static uint32_t findOutNonVolatileSize(void)
+{
+	uint32_t bit;
+	uint32_t size;
+	uint8_t junk;
+	NonVolatileReturn r;
+
+	// Find out size using binary search.
+	bit = 0x80000000;
+	size = 0;
+	while (bit != 0)
+	{
+		size |= bit;
+		r = nonVolatileRead(&junk, size, 1);
+		if (r == NV_INVALID_ADDRESS)
+		{
+			size ^= bit; // too big; clear it
+		}
+		else if (r != NV_NO_ERROR)
+		{
+			last_error = WALLET_READ_ERROR;
+			return 0; // read error occurred
+		}
+		bit >>= 1;
+	}
+	return size;
+}
+
+/** Get the number of wallets which can fit in non-volatile storage, assuming
+  * the storage format specified in storage_common.h.
+  * \return The number of wallets on success, or 0 if a read error occurred.
+  */
+uint32_t getNumberOfWallets(void)
+{
+	uint32_t size;
+
+	if (num_wallets == 0)
+	{
+		// Need to calculate number of wallets that can fit in non-volatile
+		// storage.
+		size = findOutNonVolatileSize();
+		if (size != 0)
+		{
+			if (size != 0xffffffff)
+			{
+				// findOutNonVolatileSize() returns the size of non-volatile
+				// storage, less one byte.
+				size++;
+			}
+			num_wallets = (size - ADDRESS_WALLET_START) / WALLET_RECORD_LENGTH;
+		}
+		// If findOutNonVolatileSize() returned 0, num_wallets will still be
+		// 0, signifying that a read error occurred. last_error will also
+		// be set appropriately.
+	}
+	return num_wallets;
+}
+
 #ifdef TEST
 
 /** Size of storage area, in bytes. */
@@ -1016,6 +1134,11 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 	int i;
 #endif // #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 
+	if (address > (0xffffffff - (uint32_t)length))
+	{
+		// address + length will overflow.
+		return NV_INVALID_ADDRESS;
+	}
 	if ((address + length) > TEST_FILE_SIZE)
 	{
 		return NV_INVALID_ADDRESS;
@@ -1051,6 +1174,12 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 	return NV_NO_ERROR;
 }
 
+/** Non-volatile reads between addresses TEST_FILE_SIZE (inclusive) and this
+  * value (inclusive) will still succeed, but will do nothing. This
+  * behaviour is used to test findOutNonVolatileSize(). If this is
+  * set to #TEST_FILE_SIZE - 1, then nothing special will happen. */
+static uint32_t allow_test_reads_up_to = TEST_FILE_SIZE - 1;
+
 /** Read from non-volatile storage.
   * \param data A pointer to the buffer which will receive the data.
   * \param address Byte offset specifying where in non-volatile storage to
@@ -1060,9 +1189,23 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
   */
 NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
 {
+	if (address > (0xffffffff - (uint32_t)length))
+	{
+		// address + length will overflow.
+		return NV_INVALID_ADDRESS;
+	}
 	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
 	{
-		return NV_INVALID_ADDRESS;
+		if ((address + (uint32_t)length) > (allow_test_reads_up_to + 1))
+		{
+			return NV_INVALID_ADDRESS;
+		}
+		else
+		{
+			// It's just a test read, so allow it, but don't actually read
+			// anything.
+			return NV_NO_ERROR;
+		}
 	}
 	fseek(wallet_test_file, (long)address, SEEK_SET);
 	fread(data, (size_t)length, 1, wallet_test_file);
@@ -1233,12 +1376,112 @@ static void checkFunctionsReturnWalletNotThere(void)
 	}
 }
 
+/** Call all wallet functions which accept a wallet number and check
+  * that they fail or succeed for a given wallet number.
+  * \param wallet_spec The wallet number to check.
+  * \param should_succeed Non-zero if the wallet number is valid (and thus the
+  *                       wallet functions should succeed), zero if the wallet
+  *                       number is not valid (and thus the wallet functions
+  *                       should fail).
+  */
+static void checkWalletSpecFunctions(uint32_t wallet_spec, int should_succeed)
+{
+	uint8_t name[NAME_LENGTH];
+	uint8_t version[4];
+	WalletErrors wallet_return;
+
+	memset(name, ' ', NAME_LENGTH);
+	uninitWallet();
+	wallet_return = newWallet(wallet_spec, name, 0, NULL);
+	if (should_succeed && (wallet_return != WALLET_NO_ERROR))
+	{
+		printf("newWallet() failed with wallet number %u when it should have succeeded\n", wallet_spec);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	if (!should_succeed && (wallet_return != WALLET_INVALID_WALLET_NUM))
+	{
+		printf("newWallet() did not return WALLET_INVALID_WALLET_NUM with wallet number %u when it should have\n", wallet_spec);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	uninitWallet();
+	wallet_return = initWallet(wallet_spec);
+	if (should_succeed && (wallet_return != WALLET_NO_ERROR))
+	{
+		printf("initWallet() failed with wallet number %u when it should have succeeded\n", wallet_spec);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	if (!should_succeed && (wallet_return != WALLET_INVALID_WALLET_NUM))
+	{
+		printf("initWallet() did not return WALLET_INVALID_WALLET_NUM with wallet number %u when it should have\n", wallet_spec);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	uninitWallet();
+	wallet_return = getWalletInfo(version, name, wallet_spec);
+	if (should_succeed && (wallet_return != WALLET_NO_ERROR))
+	{
+		printf("getWalletInfo() failed with wallet number %u when it should have succeeded\n", wallet_spec);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	if (!should_succeed && (wallet_return != WALLET_INVALID_WALLET_NUM))
+	{
+		printf("getWalletInfo() did not return WALLET_INVALID_WALLET_NUM with wallet number %u when it should have\n", wallet_spec);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+}
+
+/** Test findOutNonVolatileSize() for a given non-volatile storage size.
+  * \param size The size of non-volatile storage, in number of bytes less
+  *             one.
+  */
+static void testFindOutNonVolatileSize(uint32_t size)
+{
+	allow_test_reads_up_to = size;
+	if (findOutNonVolatileSize() != size)
+	{
+		printf("findOutNonVolatileSize() failed for size = %u\n", size);
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+}
+
 int main(void)
 {
 	uint8_t temp[128];
 	uint8_t address1[20];
 	uint8_t address2[20];
+	uint8_t compare_address[20];
 	uint8_t name[NAME_LENGTH];
+	uint8_t name2[NAME_LENGTH];
+	uint8_t compare_name[NAME_LENGTH];
 	uint8_t encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t new_encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t version[4];
@@ -1250,6 +1493,8 @@ int main(void)
 	uint32_t start_address;
 	uint32_t end_address;
 	uint32_t version_field_address;
+	uint32_t returned_num_wallets;
+	uint32_t stupidly_calculated_num_wallets;
 	AddressHandle *handles_buffer;
 	AddressHandle ah;
 	PointAffine public_key;
@@ -1289,7 +1534,7 @@ int main(void)
 	}
 
 	// Check that the version field is "wallet not there".
-	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1314,7 +1559,7 @@ int main(void)
 
 	// The non-volatile storage area was blanked out, so there shouldn't be a
 	// (valid) wallet there.
-	if (initWallet() == WALLET_NOT_THERE)
+	if (initWallet(0) == WALLET_NOT_THERE)
 	{
 		reportSuccess();
 	}
@@ -1326,7 +1571,7 @@ int main(void)
 
 	// Try creating a wallet and testing initWallet() on it.
 	memcpy(name, "123456789012345678901234567890abcdefghij", NAME_LENGTH);
-	if (newWallet(name, 0, NULL) == WALLET_NO_ERROR)
+	if (newWallet(0, name, 0, NULL) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1335,7 +1580,7 @@ int main(void)
 		printf("Could not create new wallet\n");
 		reportFailure();
 	}
-	if (initWallet() == WALLET_NO_ERROR)
+	if (initWallet(0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1355,7 +1600,7 @@ int main(void)
 	}
 
 	// Check that the version field is "unencrypted wallet".
-	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1384,7 +1629,7 @@ int main(void)
 		printf("Cannot nuke NV storage using sanitiseNonVolatileStorage()\n");
 		reportFailure();
 	}
-	if (initWallet() == WALLET_NOT_THERE)
+	if (initWallet(0) == WALLET_NOT_THERE)
 	{
 		reportSuccess();
 	}
@@ -1397,7 +1642,7 @@ int main(void)
 	// Make some new addresses, then create a new wallet and make sure the
 	// new wallet is empty (i.e. check that newWallet() deletes existing
 	// wallet).
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	if (makeNewAddress(temp, &public_key) != BAD_ADDRESS_HANDLE)
 	{
 		reportSuccess();
@@ -1407,7 +1652,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		reportFailure();
 	}
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	if ((getNumAddresses() == 0) && (walletGetLastError() == WALLET_EMPTY))
 	{
 		reportSuccess();
@@ -1433,7 +1678,7 @@ int main(void)
 
 	// Load wallet again. Since there is actually a wallet there, this
 	// should succeed.
-	if (initWallet() == WALLET_NO_ERROR)
+	if (initWallet(0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1466,7 +1711,7 @@ int main(void)
 			abort = 1;
 			break;
 		}
-		if (initWallet() == WALLET_NO_ERROR)
+		if (initWallet(0) == WALLET_NO_ERROR)
 		{
 			printf("Wallet still loads when wallet checksum is wrong, offset = %d\n", i);
 			abort = 1;
@@ -1490,7 +1735,7 @@ int main(void)
 	}
 
 	// Create 2 new wallets and check that their addresses aren't the same
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	if (makeNewAddress(address1, &public_key) != BAD_ADDRESS_HANDLE)
 	{
 		reportSuccess();
@@ -1500,7 +1745,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		reportFailure();
 	}
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	memset(address2, 0, 20);
 	memset(&public_key, 0, sizeof(PointAffine));
 	if (makeNewAddress(address2, &public_key) != BAD_ADDRESS_HANDLE)
@@ -1553,7 +1798,7 @@ int main(void)
 
 	// Make some new addresses, up to a limit.
 	// Also check that addresses are unique.
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	abort = 0;
 	address_buffer = malloc(MAX_TESTING_ADDRESSES * 20);
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
@@ -1609,7 +1854,7 @@ int main(void)
 	}
 
 	// Check that getNumAddresses() fails when the wallet is empty.
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	if (getNumAddresses() == 0)
 	{
 		if (walletGetLastError() == WALLET_EMPTY)
@@ -1826,7 +2071,7 @@ int main(void)
 	}
 
 	// Check that the version field is "encrypted wallet".
-	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1858,7 +2103,7 @@ int main(void)
 
 	// Check that getWalletInfo() still works after unloading wallet.
 	uninitWallet();
-	if (getWalletInfo(version, temp) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1890,7 +2135,7 @@ int main(void)
 
 	// Change wallet's name and check that getWalletInfo() reflects the
 	// name change.
-	initWallet();
+	initWallet(0);
 	memcpy(name, "HHHHH HHHHHHHHHHHHHHHHH HHHHHHHHHHHHHH  ", NAME_LENGTH);
 	if (changeWalletName(name) == WALLET_NO_ERROR)
 	{
@@ -1901,7 +2146,7 @@ int main(void)
 		printf("changeWalletName() couldn't change name\n");
 		reportFailure();
 	}
-	getWalletInfo(version, temp);
+	getWalletInfo(version, temp, 0);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		reportSuccess();
@@ -1915,7 +2160,7 @@ int main(void)
 	// Check that name change is preserved when unloading and loading a
 	// wallet.
 	uninitWallet();
-	getWalletInfo(version, temp);
+	getWalletInfo(version, temp, 0);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		reportSuccess();
@@ -1928,7 +2173,7 @@ int main(void)
 
 	// Check that initWallet() succeeds (changing the name changes the
 	// checksum, so this tests whether the checksum was updated).
-	if (initWallet() == WALLET_NO_ERROR)
+	if (initWallet(0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1937,7 +2182,7 @@ int main(void)
 		printf("initWallet() failed after name change\n");
 		reportFailure();
 	}
-	getWalletInfo(version, temp);
+	getWalletInfo(version, temp, 0);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		reportSuccess();
@@ -1951,7 +2196,7 @@ int main(void)
 	// Check that loading the wallet with the old key fails.
 	uninitWallet();
 	setEncryptionKey(encryption_key);
-	if (initWallet() == WALLET_NOT_THERE)
+	if (initWallet(0) == WALLET_NOT_THERE)
 	{
 		reportSuccess();
 	}
@@ -1964,7 +2209,7 @@ int main(void)
 	// Check that loading the wallet with the new key succeeds.
 	uninitWallet();
 	setEncryptionKey(new_encryption_key);
-	if (initWallet() == WALLET_NO_ERROR)
+	if (initWallet(0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1976,7 +2221,7 @@ int main(void)
 
 	// Test the getAddressAndPublicKey() and getPrivateKey() functions on an
 	// empty wallet.
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_EMPTY)
 	{
 		reportSuccess();
@@ -1997,7 +2242,7 @@ int main(void)
 	}
 
 	// Test wallet backup to valid device.
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	if (backupWallet(0, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
@@ -2022,7 +2267,7 @@ int main(void)
 	}
 
 	// Delete wallet and check that seed of a new wallet is different.
-	newWallet(name, 0, NULL);
+	newWallet(0, name, 0, NULL);
 	backupWallet(0, 0);
 	memcpy(seed2, test_wallet_backup, SEED_LENGTH);
 	if (memcmp(seed1, seed2, SEED_LENGTH))
@@ -2036,7 +2281,7 @@ int main(void)
 	}
 
 	// Try to restore a wallet backup.
-	if (newWallet(name, 1, seed1) == WALLET_NO_ERROR)
+	if (newWallet(0, name, 1, seed1) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -2095,7 +2340,7 @@ int main(void)
 	suppress_write_debug_info = 1; // stop console from going crazy
 	suppress_set_entropy_pool = 1; // avoid spurious entropy pool update writes
 	abort = 0;
-	for (i = 0; i < 2000; i++)
+	for (i = 0; i < 20; i++)
 	{
 		initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 		minimum_address_written = 0xffffffff;
@@ -2165,7 +2410,7 @@ int main(void)
 	suppress_write_debug_info = 1; // stop console from going crazy
 	suppress_set_entropy_pool = 0;
 	abort = 0;
-	for (i = 0; i < 5000; i++)
+	for (i = 0; i < 50; i++)
 	{
 		start_address = (uint32_t)(rand() % TEST_FILE_SIZE);
 		end_address = start_address + (uint32_t)(rand() % TEST_FILE_SIZE);
@@ -2230,6 +2475,286 @@ int main(void)
 	{
 		reportSuccess();
 	}
+	suppress_write_debug_info = 0; // can start reporting writes again
+
+	// Check that findOutNonVolatileSize() works for various sizes.
+	testFindOutNonVolatileSize(TEST_FILE_SIZE - 1);
+	testFindOutNonVolatileSize(424242);
+	// Cannot do size = 0xffffffff because an overflow would occur in
+	// nonVolatileRead().
+	testFindOutNonVolatileSize(0xfffffffe);
+	testFindOutNonVolatileSize(0x80000000);
+	testFindOutNonVolatileSize(0x7fffffff);
+	allow_test_reads_up_to = TEST_FILE_SIZE - 1; // disable test read behaviour for next test
+
+	// Check that getNumberOfWallets() works and returns the appropriate value
+	// for various non-volatile storage sizes.
+	abort = 0;
+	abort_error = 0;
+	// Step in increments of 1 byte to look for off-by-one errors.
+	for (i = TEST_FILE_SIZE; i < TEST_FILE_SIZE + 1024; i++)
+	{
+		allow_test_reads_up_to = i - 1; // i = size but allow_test_reads_up_to = size - 1
+		num_wallets = 0; // reset cache
+		returned_num_wallets = getNumberOfWallets();
+		if (returned_num_wallets == 0)
+		{
+			printf("getNumberOfWallets() doesn't work\n");
+			reportFailure();
+			abort_error = 1;
+			break;
+		}
+		stupidly_calculated_num_wallets = 0;
+		for (j = ADDRESS_WALLET_START; j + (WALLET_RECORD_LENGTH - 1) < i; j += WALLET_RECORD_LENGTH)
+		{
+			stupidly_calculated_num_wallets++;
+		}
+		if (stupidly_calculated_num_wallets != returned_num_wallets)
+		{
+			printf("getNumberOfWallets() returning inappropriate value\n");
+			reportFailure();
+			abort = 1;
+			break;
+		}
+	}
+	if (!abort)
+	{
+		reportSuccess();
+	}
+	if (!abort_error)
+	{
+		reportSuccess();
+	}
+	allow_test_reads_up_to = TEST_FILE_SIZE - 1; // disable test read behaviour for next test
+	num_wallets = 0; // reset cache for next test
+
+	// For all functions which accept wallet numbers, try some wallet numbers
+	// which are in or out of range.
+	returned_num_wallets = getNumberOfWallets();
+	checkWalletSpecFunctions(0, 1); // first one
+	// The next line does assume that returned_num_wallets > 1.
+	checkWalletSpecFunctions(returned_num_wallets - 1, 1); // last one
+	checkWalletSpecFunctions(returned_num_wallets, 0); // out of range
+	// The next line does assume that returned_num_wallets != 0xffffffff.
+	checkWalletSpecFunctions(returned_num_wallets + 1, 0); // out of range
+	checkWalletSpecFunctions(0xffffffff, 0); // out of range
+
+	// Creating one wallet and some addresses, then create a wallet with a
+	// different wallet number and see if it overwrites the first one
+	// (it shouldn't).
+	uninitWallet();
+	memcpy(name, "A wallet with wallet number 0           ", NAME_LENGTH);
+	newWallet(0, name, 0, NULL);
+	makeNewAddress(address1, &public_key);
+	makeNewAddress(address1, &public_key);
+	makeNewAddress(address1, &public_key);
+	uninitWallet();
+	memcpy(name2, "A wallet with wallet number 1           ", NAME_LENGTH);
+	newWallet(1, name2, 0, NULL);
+	makeNewAddress(address2, &public_key);
+	makeNewAddress(address2, &public_key);
+	uninitWallet();
+	initWallet(0);
+	ah = getNumAddresses();
+	getAddressAndPublicKey(compare_address, &public_key, ah);
+	if (memcmp(address1, compare_address, 20))
+	{
+		printf("Creating wallet 1 seems to mangle wallet 0\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	// Now:
+	// name contains name of wallet 0,
+	// name2 contains name of wallet 1,
+	// address1 contains the most recently created address in wallet 0,
+	// address2 contains the most recently created address in wallet 1.
+
+	// Unload wallet 0 then load wallet 1 and making sure wallet 1 was loaded.
+	uninitWallet();
+	initWallet(1);
+	ah = getNumAddresses();
+	getAddressAndPublicKey(compare_address, &public_key, ah);
+	if (memcmp(address2, compare_address, 20))
+	{
+		printf("Loading wallet 0 seems to prevent wallet 1 from being loaded\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check getWalletInfo() returns the name that was set for both wallets.
+	getWalletInfo(version, compare_name, 0);
+	if (memcmp(name, compare_name, NAME_LENGTH))
+	{
+		printf("Wallet 0's name got mangled\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	getWalletInfo(version, compare_name, 1);
+	if (memcmp(name2, compare_name, NAME_LENGTH))
+	{
+		printf("Wallet 1's name got mangled\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Set wallet 1 to have a different encryption key from wallet 0 and
+	// check that the correct encryption key (and only that one) works.
+	memset(encryption_key, 7, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	newWallet(0, name, 0, NULL);
+	makeNewAddress(address1, &public_key);
+	uninitWallet();
+	memset(encryption_key, 42, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	newWallet(1, name, 0, NULL);
+	makeNewAddress(address2, &public_key);
+	uninitWallet();
+	memset(encryption_key, 7, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	if (initWallet(0) != WALLET_NO_ERROR)
+	{
+		printf("Cannot load wallet 0 with correct key\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	uninitWallet();
+	memset(encryption_key, 42, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	if (initWallet(0) == WALLET_NO_ERROR)
+	{
+		printf("Wallet 0 can be loaded with wallet 1's key\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	uninitWallet();
+	memset(encryption_key, 7, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	if (initWallet(1) == WALLET_NO_ERROR)
+	{
+		printf("Wallet 1 can be loaded with wallet 0's key\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	uninitWallet();
+	memset(encryption_key, 42, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	if (initWallet(1) != WALLET_NO_ERROR)
+	{
+		printf("Cannot load wallet 1 with correct key\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	uninitWallet();
+
+	// Change wallet 1's key and check that it doesn't change wallet 0.
+	memset(encryption_key, 42, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	initWallet(1);
+	memset(new_encryption_key, 69, WALLET_ENCRYPTION_KEY_LENGTH);
+	changeEncryptionKey(new_encryption_key);
+	uninitWallet();
+	memset(encryption_key, 7, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	if (initWallet(0) != WALLET_NO_ERROR)
+	{
+		printf("Cannot load wallet 0 with correct key after wallet 1's key was changed\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	uninitWallet();
+	memset(encryption_key, 69, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	if (initWallet(1) != WALLET_NO_ERROR)
+	{
+		printf("Cannot load wallet 1 with correct key after wallet 1's key was changed\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	uninitWallet();
+
+	// So far, the multiple wallet tests have only looked at wallets 0 and 1.
+	// The following test creates the maximum number of wallets that
+	// non-volatile storage can hold and checks that they can all create
+	// addresses independently.
+	returned_num_wallets = getNumberOfWallets();
+	address_buffer = malloc(returned_num_wallets * 20);
+	memset(encryption_key, 0, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	for (i = 0; i < (int)returned_num_wallets; i++)
+	{
+		newWallet((uint32_t)i, name, 0, NULL);
+		makeNewAddress(&(address_buffer[i * 20]), &public_key);
+		uninitWallet();
+	}
+	abort = 0;
+	for (i = 0; i < (int)returned_num_wallets; i++)
+	{
+		initWallet((uint32_t)i);
+		getAddressAndPublicKey(compare_address, &public_key, 1);
+		if (memcmp(&(address_buffer[i * 20]), compare_address, 20))
+		{
+			printf("Wallet %d got corrupted\n", i);
+			reportFailure();
+			abort = 1;
+			break;
+		}
+		uninitWallet();
+	}
+	if (!abort)
+	{
+		reportSuccess();
+	}
+
+	// Check that addresses from each wallet are unique.
+	abort_duplicate = 0;
+	for (i = 0; i < (int)returned_num_wallets; i++)
+	{
+		for (j = 0; j < i; j++)
+		{
+			if (!memcmp(&(address_buffer[i * 20]), &(address_buffer[j * 20]), 20))
+			{
+				printf("Different wallets generate the same addresses\n");
+				abort_duplicate = 1;
+				reportFailure();
+				break;
+			}
+		}
+	}
+	if (!abort_duplicate)
+	{
+		reportSuccess();
+	}
+	free(address_buffer);
 
 	fclose(wallet_test_file);
 

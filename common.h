@@ -32,8 +32,9 @@ typedef unsigned long uint32_t;
 #endif // #ifdef NO_STDINT_H
 
 // The only functions from string.h used by hardware Bitcoin wallet
-// are memcpy() and memset(). If string.h is not available on the target
-// platform/toolchain, these functions will have to be implemented somewhere.
+// are memcpy(), memset() and memcmp(). If string.h is not available on the
+// target platform/toolchain, these functions will have to be implemented
+// somewhere.
 #include <string.h>
 
 /** Get maximum of a and b.
