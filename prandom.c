@@ -94,6 +94,7 @@ uint8_t setEntropyPool(uint8_t *in_pool_state)
 	{
 		return 1; // non-volatile write error
 	}
+	nonVolatileFlush();
 	return 0; // success
 }
 

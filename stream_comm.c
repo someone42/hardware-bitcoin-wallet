@@ -384,9 +384,11 @@ static NOINLINE void listWallets(void)
 
 /** Read name and seed from input stream and restore a wallet using those
   * values. This also prompts the user for approval of the action.
-  * \param wallet_spec The wallet number of wallet to restore.
+  * \param wallet_spec The wallet number of the wallet to restore.
+  * \param make_hidden Whether to make the restored wallet a hidden wallet
+  *                    (non-zero) or not (zero).
   */
-static NOINLINE void restoreWallet(uint32_t wallet_spec)
+static NOINLINE void restoreWallet(uint32_t wallet_spec, uint8_t make_hidden)
 {
 	WalletErrors wallet_return;
 	uint8_t name[NAME_LENGTH];
@@ -400,7 +402,7 @@ static NOINLINE void restoreWallet(uint32_t wallet_spec)
 	}
 	else
 	{
-		wallet_return = newWallet(wallet_spec, name, 1, seed);
+		wallet_return = newWallet(wallet_spec, name, 1, seed, make_hidden);
 		translateWalletError(wallet_return, 0, NULL);
 	}
 }
@@ -462,6 +464,7 @@ void processPacket(void)
 	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
 	// right mind would use encryption with smaller than 32 bit keys.
 	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, ENTROPY_POOL_LENGTH))];
+	uint8_t make_hidden;
 	uint32_t wallet_spec;
 	uint32_t num_addresses;
 	AddressHandle ah;
@@ -495,10 +498,11 @@ void processPacket(void)
 
 	case PACKET_TYPE_NEW_WALLET:
 		// Create new wallet.
-		if (!expectLength(4 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
+		if (!expectLength(4 + 1 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
 		{
 			getBytesFromStream(buffer, 4);
 			wallet_spec = readU32LittleEndian(buffer);
+			getBytesFromStream(&make_hidden, 1);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
 			getBytesFromStream(buffer, NAME_LENGTH);
@@ -508,7 +512,7 @@ void processPacket(void)
 			}
 			else
 			{
-				wallet_return = newWallet(wallet_spec, buffer, 0, NULL);
+				wallet_return = newWallet(wallet_spec, buffer, 0, NULL, make_hidden);
 				translateWalletError(wallet_return, 0, NULL);
 			}
 		}
@@ -671,13 +675,14 @@ void processPacket(void)
 
 	case PACKET_TYPE_RESTORE_WALLET:
 		// Restore wallet.
-		if (!expectLength(4 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH + SEED_LENGTH))
+		if (!expectLength(4 + 1 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH + SEED_LENGTH))
 		{
 			getBytesFromStream(buffer, 4);
 			wallet_spec = readU32LittleEndian(buffer);
+			getBytesFromStream(&make_hidden, 1);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
-			restoreWallet(wallet_spec);
+			restoreWallet(wallet_spec, make_hidden);
 		}
 		break;
 
@@ -805,6 +810,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case WALLET_INVALID_WALLET_NUM:
 			return "Invalid wallet number specified";
+			break;
+		case WALLET_INVALID_OPERATION:
+			return "Operation not allowed on this wallet";
 			break;
 		default:
 			assert(0);
@@ -934,8 +942,9 @@ uint8_t askUser(AskUserCommand command)
 
 /** Test stream data for: create new wallet. */
 static const uint8_t test_stream_new_wallet[] = {
-0x04, 0x4c, 0x00, 0x00, 0x00,
+0x04, 0x4d, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, // wallet number
+0x00, // make hidden?
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1079,6 +1088,7 @@ static const uint8_t test_stream_backup_wallet[] = {
 static const uint8_t test_stream_restore_wallet[] = {
 0x12, 0x8c, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, // wallet number
+0x00, // make hidden?
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,

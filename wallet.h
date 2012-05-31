@@ -52,14 +52,16 @@ typedef enum WalletErrorsEnum
 	/** Problem with random number generation system. */
 	WALLET_RNG_FAILURE			=	10,
 	/** Invalid wallet number specified. */
-	WALLET_INVALID_WALLET_NUM	=	11
+	WALLET_INVALID_WALLET_NUM	=	11,
+	/** The specified operation is not allowed on this type of wallet. */
+	WALLET_INVALID_OPERATION	=	12
 } WalletErrors;
 
 extern WalletErrors walletGetLastError(void);
 extern WalletErrors initWallet(uint32_t wallet_spec);
 extern WalletErrors uninitWallet(void);
 extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
-extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, uint8_t *seed);
+extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, uint8_t *seed, uint8_t make_hidden);
 extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);
 extern WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah);
 extern uint32_t getNumAddresses(void);

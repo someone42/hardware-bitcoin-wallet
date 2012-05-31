@@ -46,6 +46,8 @@ static const char str_WALLET_BACKUP_ERROR[] PROGMEM = "Seed could not be written
 static const char str_WALLET_RNG_FAILURE[] PROGMEM = "Failure in random number generation system";
 /** String for #WALLET_INVALID_WALLET_NUM wallet error. */
 static const char str_WALLET_INVALID_WALLET_NUM[] PROGMEM = "Invalid wallet number";
+/** String for #WALLET_INVALID_OPERATION wallet error. */
+static const char str_WALLET_INVALID_OPERATION[] PROGMEM = "Operation not allowed";
 /** String for #TRANSACTION_INVALID_FORMAT transaction parser error. */
 static const char str_TRANSACTION_INVALID_FORMAT[] PROGMEM = "Format of transaction is unknown or invalid";
 /** String for #TRANSACTION_TOO_MANY_INPUTS transaction parser error. */
@@ -130,6 +132,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case WALLET_INVALID_WALLET_NUM:
 			return (char)pgm_read_byte(&(str_WALLET_INVALID_WALLET_NUM[pos]));
+			break;
+		case WALLET_INVALID_OPERATION:
+			return (char)pgm_read_byte(&(str_WALLET_INVALID_OPERATION[pos]));
 			break;
 		default:
 			return (char)pgm_read_byte(&(str_UNKNOWN[pos]));
@@ -230,6 +235,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case WALLET_INVALID_WALLET_NUM:
 			return (uint16_t)(sizeof(str_WALLET_INVALID_WALLET_NUM) - 1);
+			break;
+		case WALLET_INVALID_OPERATION:
+			return (uint16_t)(sizeof(str_WALLET_INVALID_OPERATION) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);
