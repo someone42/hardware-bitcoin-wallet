@@ -389,6 +389,17 @@ void initialiseDefaultEntropyPool(void)
 	initialiseEntropyPool(pool_state);
 }
 
+/** Corrupt the persistent entropy pool, so that the getRandom256() is unable
+  * to obtain a random number. */
+void corruptEntropyPool(void)
+{
+	uint8_t one_byte;
+
+	nonVolatileRead(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	one_byte = (uint8_t)(one_byte ^ 0xde);
+	nonVolatileWrite(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+}
+
 /** Set this to a non-zero value to simulate the HWRNG breaking. */
 static int broken_hwrng;
 

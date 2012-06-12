@@ -45,6 +45,7 @@ extern uint8_t getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state);
 extern void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num);
 #ifdef TEST
 extern void initialiseDefaultEntropyPool(void);
+extern void corruptEntropyPool(void);
 #endif // #ifdef TEST
 
 #endif // #ifndef PRANDOM_H_INCLUDED

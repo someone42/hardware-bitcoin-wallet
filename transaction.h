@@ -30,8 +30,9 @@ typedef enum TransactionErrorsEnum
 	TRANSACTION_TOO_LARGE				=	4,
 	/** Transaction not recognised (i.e. non-standard). */
 	TRANSACTION_NON_STANDARD			=	5,
-	/** Read error occurred when trying to read from input stream. */
-	TRANSACTION_READ_ERROR				=	6
+	/** Output amount too high in transaction. This can also be returned if
+	  * the calculated transaction fee is negative. */
+	TRANSACTION_INVALID_AMOUNT			=	7
 } TransactionErrors;
 
 extern uint16_t getTransactionNumInputs(void);

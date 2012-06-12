@@ -705,9 +705,12 @@ void processPacket(void)
 /** Contents of a test stream (to read from). */
 static uint8_t *stream;
 /** 0-based index into #stream specifying which byte will be read next. */
-static unsigned int stream_ptr;
+static uint32_t stream_ptr;
 /** Length of the test stream, in number of bytes. */
-static unsigned int stream_length;
+static uint32_t stream_length;
+/** Whether (non-zero) or not (zero) to use a test stream consisting of an
+  * infinite stream of zeroes. */
+static int is_infinite_zero_stream;
 
 /** Sets input stream (what will be read by streamGetOneByte()) to the
   * contents of a buffer.
@@ -715,7 +718,7 @@ static unsigned int stream_length;
   *               return successive bytes from this buffer.
   * \param length The length of the buffer, in number of bytes.
   */
-void setTestInputStream(const uint8_t *buffer, unsigned int length)
+void setTestInputStream(const uint8_t *buffer, uint32_t length)
 {
 	if (stream != NULL)
 	{
@@ -725,6 +728,14 @@ void setTestInputStream(const uint8_t *buffer, unsigned int length)
 	memcpy(stream, buffer, length);
 	stream_length = length;
 	stream_ptr = 0;
+	is_infinite_zero_stream = 0;
+}
+
+/** Sets the input stream (what will be read by streamGetOneByte()) to an
+  * infinite stream of zeroes. */
+void setInfiniteZeroInputStream(void)
+{
+	is_infinite_zero_stream = 1;
 }
 
 /** Get one byte from the contents of the buffer set by setTestInputStream().
@@ -732,17 +743,24 @@ void setTestInputStream(const uint8_t *buffer, unsigned int length)
   */
 uint8_t streamGetOneByte(void)
 {
-	if (stream == NULL)
+	if (is_infinite_zero_stream)
 	{
-		printf("ERROR: Tried to read a stream whose contents weren't set.\n");
-		exit(1);
+		return 0;
 	}
-	if (stream_ptr >= stream_length)
+	else
 	{
-		printf("ERROR: Tried to read past end of stream\n");
-		exit(1);
+		if (stream == NULL)
+		{
+			printf("ERROR: Tried to read a stream whose contents weren't set.\n");
+			exit(1);
+		}
+		if (stream_ptr >= stream_length)
+		{
+			printf("ERROR: Tried to read past end of stream\n");
+			exit(1);
+		}
+		return stream[stream_ptr++];
 	}
-	return stream[stream_ptr++];
 }
 
 /** Simulate the sending of a byte by displaying its value.
@@ -836,6 +854,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case TRANSACTION_NON_STANDARD:
 			return "Transaction is non-standard";
+			break;
+		case TRANSACTION_INVALID_AMOUNT:
+			return "Invalid output amount in transaction";
 			break;
 		default:
 			assert(0);
@@ -1086,7 +1107,7 @@ static const uint8_t test_stream_backup_wallet[] = {
 
 /** Test stream data for: restore wallet. */
 static const uint8_t test_stream_restore_wallet[] = {
-0x12, 0x8c, 0x00, 0x00, 0x00,
+0x12, 0x8d, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, // wallet number
 0x00, // make hidden?
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
@@ -1111,7 +1132,7 @@ static const uint8_t test_stream_restore_wallet[] = {
   * \param test_stream The test stream data to use.
   * \param size The length of the test stream, in bytes.
   */
-static void sendOneTestStream(const uint8_t *test_stream, unsigned int size)
+static void sendOneTestStream(const uint8_t *test_stream, uint32_t size)
 {
 	setTestInputStream(test_stream, size);
 	processPacket();
@@ -1120,7 +1141,7 @@ static void sendOneTestStream(const uint8_t *test_stream, unsigned int size)
 
 /** Wrapper around sendOneTestStream() that covers its most common use
   * case (use of a constant byte array). */
-#define SEND_ONE_TEST_STREAM(x)	sendOneTestStream(x, sizeof(x));
+#define SEND_ONE_TEST_STREAM(x)	sendOneTestStream(x, (uint32_t)sizeof(x));
 
 int main(void)
 {
