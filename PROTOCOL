@@ -47,8 +47,23 @@ value is address handle
 Response: 02 (with address followed by pubkey) or 03
 
 0x0A: sign transaction
-length is 4 + <tx size>
-value is address handle then transaction
+length is 4 + <transaction data size>
+value is address handle then transaction data
+In order to calculate transaction fees, the transaction data of all input
+transactions is required in addition to the transaction data of the spending
+transaction. The full transaction data part of the payload should look like
+this:
+0x01 | <previous output number 1> | <input transaction 1> |
+0x01 | <previous output number 2> | <input transaction 2> |
+...
+0x01 | <previous output number n> | <input transaction n> |
+0x00 | <spending transaction>
+where "|" denotes concatenation and <previous output number> is a
+little-endian 32-bit number which specifies which output (within the
+respective input transaction) the spending transaction spends.
+All input transactions should be in their unmodified form. The spending
+transaction should be modified for signing, with input scripts replaced
+appropriately and a 4-byte hash type tag appended.
 Response: 02 (with signature) or 03
 
 0x0B: load (unlock) wallet

@@ -60,6 +60,8 @@ static const char str_TRANSACTION_TOO_LARGE[] PROGMEM = "Transaction's size is t
 static const char str_TRANSACTION_NON_STANDARD[] PROGMEM = "Transaction is non-standard";
 /** String for #TRANSACTION_INVALID_AMOUNT transaction parser error. */
 static const char str_TRANSACTION_INVALID_AMOUNT[] PROGMEM = "Invalid output amount in transaction";
+/** String for #TRANSACTION_INVALID_REFERENCE transaction parser error. */
+static const char str_TRANSACTION_INVALID_REFERENCE[] PROGMEM = "Invalid transaction reference";
 /** String for unknown error. */
 static const char str_UNKNOWN[] PROGMEM = "Unknown error";
 /**@}*/
@@ -163,6 +165,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 		case TRANSACTION_INVALID_AMOUNT:
 			return (char)pgm_read_byte(&(str_TRANSACTION_INVALID_AMOUNT[pos]));
 			break;
+		case TRANSACTION_INVALID_REFERENCE:
+			return (char)pgm_read_byte(&(str_TRANSACTION_INVALID_REFERENCE[pos]));
+			break;
 		default:
 			return (char)pgm_read_byte(&(str_UNKNOWN[pos]));
 			break;
@@ -265,6 +270,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case TRANSACTION_INVALID_AMOUNT:
 			return (uint16_t)(sizeof(str_TRANSACTION_INVALID_AMOUNT) - 1);
+			break;
+		case TRANSACTION_INVALID_REFERENCE:
+			return (uint16_t)(sizeof(str_TRANSACTION_INVALID_REFERENCE) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

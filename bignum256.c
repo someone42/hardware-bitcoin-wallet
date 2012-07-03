@@ -182,7 +182,7 @@ void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint
   * \param op_size Size, in bytes, of the operands and the result.
   * \return 1 if carry occurred, 0 if no carry occurred.
   */
-static uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t op_size)
+uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t op_size)
 {
 	uint16_t partial;
 	uint8_t carry;

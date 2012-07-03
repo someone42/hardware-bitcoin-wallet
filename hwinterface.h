@@ -144,6 +144,13 @@ extern void streamPutOneByte(uint8_t one_byte);
   *         store the amount/address pair.
   */
 extern uint8_t newOutputSeen(char *text_amount, char *text_address);
+/** Notify the user interface that the transaction parser has seen the
+  * transaction fee. If there is no transaction fee, the transaction parser
+  * will not call this.
+  * \param text_amount The transaction fee, as a null-terminated text string
+  *                    such as "0.01".
+  */
+extern void setTransactionFee(char *text_amount);
 /** Notify the user interface that the list of Bitcoin amount/address pairs
   * should be cleared. */
 extern void clearOutputsSeen(void);

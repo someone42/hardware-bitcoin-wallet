@@ -49,11 +49,8 @@
   * one. */
 static uint8_t prev_transaction_hash[32];
 /** 0 means disregard #prev_transaction_hash, non-zero means
-  * that #prev_transaction_hash is valid for prev_transaction_hash_valid more
-  * transactions (eg. if prev_transaction_hash_valid is 2,
-  * then #prev_transaction_hash can be considered valid for the approval of 2
-  * more transactions). */
-static uint16_t prev_transaction_hash_valid;
+  * that #prev_transaction_hash is valid. */
+static uint8_t prev_transaction_hash_valid;
 
 /** Length of current packet's payload. */
 static uint32_t payload_length;
@@ -208,7 +205,6 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 		if (bigCompare(transaction_hash, prev_transaction_hash) == BIGCMP_EQUAL)
 		{
 			*out_approved = 1;
-			prev_transaction_hash_valid--;
 		}
 	}
 	if (!(*out_approved))
@@ -225,19 +221,7 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 			// User approved transaction.
 			*out_approved = 1;
 			memcpy(prev_transaction_hash, transaction_hash, 32);
-			// The transaction hash can only be reused another
-			// (number of inputs) - 1 times. This is to prevent an exploit
-			// where an attacker crafts a lot of copies (with differing inputs
-			// but identical outputs) of a genuine transaction. With unlimited
-			// reuse of the transaction hash, acceptance of the original
-			// genuine transaction would also allow all the copies to be
-			// automatically accepted, causing the user to spend more than
-			// they intended.
-			prev_transaction_hash_valid = getTransactionNumInputs();
-			if (prev_transaction_hash_valid)
-			{
-				prev_transaction_hash_valid--;
-			}
+			prev_transaction_hash_valid = 1;
 		}
 	} // if (!(*out_approved))
 }
@@ -587,6 +571,7 @@ void processPacket(void)
 		// Unload wallet.
 		if (!expectLength(0))
 		{
+			prev_transaction_hash_valid = 0;
 			clearEncryptionKey();
 			sanitiseRam();
 			memset(buffer, 0xff, sizeof(buffer));

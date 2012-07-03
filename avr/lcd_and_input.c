@@ -223,6 +223,13 @@ static char list_address[MAX_OUTPUTS][TEXT_ADDRESS_LENGTH];
 /** Index into #list_amount and #list_address which specifies where the next
   * output amount/address will be copied into. */
 static uint8_t list_index;
+/** Whether the transaction fee has been set (non-zero) or not (zero). If
+  * the transaction fee still hasn't been set after parsing, then the
+  * transaction is free. */
+static uint8_t transaction_fee_set;
+/** Storage for transaction fee amount. This is only valid
+  * if #transaction_fee_set is non-zero. */
+static char transaction_fee_amount[TEXT_AMOUNT_LENGTH];
 
 /** This does the scrolling and checks the state of the buttons. */
 ISR(TIMER0_COMPA_vect)
@@ -436,11 +443,25 @@ uint8_t newOutputSeen(char *text_amount, char *text_address)
 	return 0;
 }
 
+/** Notify the user interface that the transaction parser has seen the
+  * transaction fee. If there is no transaction fee, the transaction parser
+  * will not call this.
+  * \param text_amount The transaction fee, as a null-terminated text string
+  *                    such as "0.01".
+  */
+void setTransactionFee(char *text_amount)
+{
+	strncpy(transaction_fee_amount, text_amount, TEXT_AMOUNT_LENGTH);
+	transaction_fee_amount[TEXT_AMOUNT_LENGTH - 1] = '\0';
+	transaction_fee_set = 1;
+}
+
 /** Notify the user interface that the list of Bitcoin amount/address pairs
   * should be cleared. */
 void clearOutputsSeen(void)
 {
 	list_index = 0;
+	transaction_fee_set = 0;
 }
 
 /** Wait until neither accept nor cancel buttons are being pressed. */
@@ -501,6 +522,12 @@ static char str_sign_part0[] PROGMEM = "Sending ";
 /** What will be appended to output amounts for #ASKUSER_SIGN_TRANSACTION
   * prompt. */
 static char str_sign_part1[] PROGMEM = " BTC to";
+/** What will be prepended to the transaction fee amount
+  * for #ASKUSER_SIGN_TRANSACTION prompt. */
+static char str_fee_part0[] PROGMEM = "Transaction fee:";
+/** What will be appended to the transaction fee amount
+  * for #ASKUSER_SIGN_TRANSACTION prompt. */
+static char str_fee_part1[] PROGMEM = " BTC";
 /** First line of #ASKUSER_FORMAT prompt. */
 static char str_format_line0[] PROGMEM = "Do you want to";
 /** Second line of #ASKUSER_FORMAT prompt. */
@@ -574,6 +601,17 @@ uint8_t askUser(AskUserCommand command)
 				// output, the entire transaction is forfeit.
 				break;
 			}
+		}
+		if (!r && transaction_fee_set)
+		{
+			clearLcd();
+			waitForNoButtonPress();
+			gotoStartOfLine(0);
+			writeString(str_fee_part0, 1);
+			gotoStartOfLine(1);
+			writeString(transaction_fee_amount, 0);
+			writeString(str_fee_part1, 1);
+			r = waitForButtonPress();
 		}
 	}
 	else if (command == ASKUSER_FORMAT)

@@ -49,6 +49,7 @@ extern void bigSetZero(BigNum256 r);
 extern void bigAssign(BigNum256 r, BigNum256 op1);
 extern void bigSetField(const uint8_t *in_n, const uint8_t *in_complement_n, const uint8_t in_size_complement_n);
 extern void bigModulo(BigNum256 r, BigNum256 op1);
+extern uint8_t bigAddVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t op_size);
 extern uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, uint8_t size);
 extern void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2);

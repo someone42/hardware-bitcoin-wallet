@@ -32,10 +32,11 @@ typedef enum TransactionErrorsEnum
 	TRANSACTION_NON_STANDARD			=	5,
 	/** Output amount too high in transaction. This can also be returned if
 	  * the calculated transaction fee is negative. */
-	TRANSACTION_INVALID_AMOUNT			=	7
+	TRANSACTION_INVALID_AMOUNT			=	7,
+	/** Reference to an inner transaction is invalid. */
+	TRANSACTION_INVALID_REFERENCE		=	8
 } TransactionErrors;
 
-extern uint16_t getTransactionNumInputs(void);
 extern TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_hash, uint32_t length);
 extern uint8_t signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key);
 extern void swapEndian256(BigNum256 buffer);
