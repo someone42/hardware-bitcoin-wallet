@@ -1,0 +1,7 @@
+bdf_converter converts BDF font files into a font table suitable for
+ssd1306.c. Included is a 8x16 font from the "Terminus" font family
+(see http://terminus-font.sourceforge.net/), created by
+Dimitar Toshkov Zhekov and distributed under the licence specified in OFL.txt
+
+To compile bdf_converter.c, use something like:
+gcc -o bdf_converter bdf_converter.c

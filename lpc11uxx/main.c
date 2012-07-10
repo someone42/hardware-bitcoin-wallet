@@ -8,6 +8,7 @@
 #include "LPC11Uxx.h"
 #include "usart.h"
 #include "serial_fifo.h"
+#include "ssd1306.h"
 #include "../hwinterface.h"
 #include "../stream_comm.h"
 
@@ -36,6 +37,8 @@ static void initSystemClock(void)
 	LPC_SYSCON->SYSAHBCLKDIV = 1; // set system clock divider = 1
 }
 
+extern void testSSD1306(void);
+
 /** Entry point. This is the first thing which is called after startup code.
   * This never returns. */
 int main(void)
@@ -43,7 +46,9 @@ int main(void)
 	initSystemClock();
 	initUsart();
 	initSerialFIFO();
+	initSSD1306();
 	__enable_irq();
+	testSSD1306();
 
 	do
 	{
