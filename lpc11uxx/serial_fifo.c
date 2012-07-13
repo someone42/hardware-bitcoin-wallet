@@ -22,6 +22,7 @@
 #include "LPC11Uxx.h"
 #include "usart.h"
 #include "serial_fifo.h"
+#include "user_interface.h"
 #include "../common.h"
 #include "../hwinterface.h"
 #include "../endian.h"
@@ -119,8 +120,8 @@ uint8_t circularBufferRead(volatile CircularBuffer *buffer, int is_irq)
 	}
 	if (buffer->error)
 	{
-		// TODO: When display is implemented, uncomment this.
-		//streamError();
+		streamError();
+		__disable_irq();
 		while(1)
 		{
 			// do nothing
@@ -157,8 +158,8 @@ void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, int is_i
 	{
 		if (buffer->error)
 		{
-			// TODO: When display is implemented, uncomment this.
-			//streamError();
+			streamError();
+			__disable_irq();
 			while(1)
 			{
 				// do nothing

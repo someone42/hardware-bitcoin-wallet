@@ -171,6 +171,15 @@ const uint8_t font_table[] = {
   * renderDisplay() will render the contents of this buffer to the display.
   */
 static uint8_t text_buffer[CHARACTERS_PER_LINE * NUMBER_OF_LINES];
+/** The line where the (hidden) cursor is at. 0 = topmost. This is also the
+  * line within #text_buffer that writeStringToDisplay() will write to next.
+  */
+static uint32_t cursor_line;
+/** The position on the current line where the (hidden) cursor is at.
+  * 0 = leftmost. This is also the line offset within #text_buffer that
+  * writeStringToDisplay() will write to next.
+  */
+static uint32_t cursor_pos;
 
 /** Set up LPC11Uxx peripherals to communicate with the SSD1306-based display.
   * The SPI1 bus is set up at 1 Mhz to communicate with the SSD1306 controller
@@ -194,7 +203,7 @@ static uint8_t text_buffer[CHARACTERS_PER_LINE * NUMBER_OF_LINES];
 static void configurePeripheralsForSSD1306(void)
 {
 	// Enable SSP1 block.
-	LPC_SYSCON->SYSAHBCLKCTRL |= 0x50000; // enable clock to IOCON and SSP1
+	LPC_SYSCON->SYSAHBCLKCTRL |= 0x50040; // enable clock to GPIO, IOCON and SSP1
 	LPC_IOCON->PIO1_20 = 0x8a; // set SCK1 pin, pull-down enabled
 	LPC_IOCON->PIO1_21 = 0x8a; // set MISO1 pin, pull-down enabled
 	LPC_IOCON->PIO1_22 = 0x8a; // set MOSI1 pin, pull-down enabled
@@ -238,13 +247,13 @@ static void writeSPI1Byte(int is_data, uint8_t value)
 }
 
 /** Turn display on. */
-static void displayOn(void)
+void displayOn(void)
 {
 	writeSPI1Byte(0, 0xaf); // display on
 }
 
 /** Turn display off. */
-static void displayOff(void)
+void displayOff(void)
 {
 	writeSPI1Byte(0, 0xae); // display off
 }
@@ -293,8 +302,8 @@ static void resetSSD1306(void)
 	writeSPI1Byte(0, 0x01); // memory addressing mode = vertical
 }
 
-/** Clear GDDRAM so that if the display is turned on, it will be blank. */
-static void clearEntireDisplay(void)
+/** Clear the display and all associated buffers. */
+void clearDisplay(void)
 {
 	uint32_t i;
 
@@ -302,6 +311,9 @@ static void clearEntireDisplay(void)
 	{
 		writeSPI1Byte(1, 0);
 	}
+	cursor_line = 0;
+	cursor_pos = 0;
+	memset(text_buffer, FONT_BLANK, sizeof(text_buffer));
 }
 
 /** Set up everything so that the display is ready to start having text
@@ -310,7 +322,7 @@ void initSSD1306(void)
 {
 	configurePeripheralsForSSD1306();
 	resetSSD1306();
-	clearEntireDisplay();
+	clearDisplay();
 }
 
 /** Font table byte lookup function which has bit granularity. Alternatively,
@@ -454,23 +466,134 @@ static void renderDisplay(void)
 	} // end for (x = 0; x < DISPLAY_WIDTH; x++)
 }
 
-/** Test text renderer. Remove this when proper user interface functions
-  * are implemented. */
-void testSSD1306(void)
+/** Move cursor to the start of the next line, but only if the cursor is not
+  * already at the start of the current line. */
+void nextLine(void)
 {
+	if (cursor_pos != 0)
+	{
+		cursor_line++;
+		cursor_pos = 0;
+	}
+}
+
+/** Write one character to the text buffer (#text_buffer).
+  * \param c The character to write.
+  */
+static void writeCharacterToTextBuffer(char c)
+{
+	if (cursor_pos >= CHARACTERS_PER_LINE)
+	{
+		nextLine();
+	}
+	if (cursor_line < NUMBER_OF_LINES)
+	{
+		text_buffer[cursor_line * CHARACTERS_PER_LINE + cursor_pos] = c;
+		cursor_pos++;
+		if (cursor_pos >= CHARACTERS_PER_LINE)
+		{
+			nextLine();
+		}
+	}
+}
+
+/** Write a string to the display, beginning from the cursor's current
+  * position. This does not do word wrapping.
+  * \param str The string to write.
+  */
+void writeStringToDisplay(const char *str)
+{
+	char current_char;
+
+	do
+	{
+		current_char = *str;
+		str++;
+		if (current_char != '\0')
+		{
+			writeCharacterToTextBuffer(current_char);
+		}
+	} while (current_char != '\0');
+	renderDisplay();
+}
+
+/** Get the length, in characters, of a word.
+  * \param str The null-terminated string with the word in it.
+  * \return The length of the word.
+  */
+static uint32_t getWordLength(const char *str)
+{
+	uint32_t length;
+
+	length = 0;
+	while ((*str != '\0') && (*str != ' '))
+	{
+		str++;
+		length++;
+	}
+	return length;
+}
+
+/** Write a string to the display, beginning from the cursor's current
+  * position. This does do word wrapping.
+  * \param str The string to write.
+  */
+void writeStringToDisplayWordWrap(const char *str)
+{
+	uint32_t length;
 	uint32_t i;
 
-	displayOn();
-
-	i = 0;
-	while(1)
+	while (*str != '\0')
 	{
-		text_buffer[i] = streamGetOneByte();
-		renderDisplay();
-		i++;
-		if (i == sizeof(text_buffer))
+		length = getWordLength(str);
+		if ((cursor_pos + length) > CHARACTERS_PER_LINE)
 		{
-			i = 0;
+			// Need to word wrap.
+			nextLine();
+		}
+		for (i = 0; i < length; i++)
+		{
+			writeCharacterToTextBuffer(str[i]);
+		}
+		str += length;
+		while (*str == ' ')
+		{
+			str++;
+			if (cursor_pos != 0)
+			{
+				// A newline is equivalent to any number of spaces.
+				writeCharacterToTextBuffer(' ');
+			}
+		}
+	}
+	renderDisplay();
+}
+
+/** Queries whether the cursor is at (or past) the end of the display.
+  * \return Non-zero if the cursor is at (or past) the end, 0 if not.
+  */
+int displayCursorAtEnd(void)
+{
+	if (cursor_line >= NUMBER_OF_LINES)
+	{
+		return 1; // cursor is past last line
+	}
+	else
+	{
+		if (cursor_line == (NUMBER_OF_LINES - 1))
+		{
+			if (cursor_pos >= CHARACTERS_PER_LINE)
+			{
+				return 1; // cursor is past end of last line
+			}
+			else
+			{
+				return 0;
+			}
+		}
+		else
+		{
+			return 0;
 		}
 	}
 }
