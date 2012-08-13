@@ -1,0 +1,4 @@
+gen_twiddle generates a twiddle factor lookup table for fft.c.
+
+To compile gen_twiddle.c, use something like:
+gcc -o gen_twiddle gen_twiddle.c
