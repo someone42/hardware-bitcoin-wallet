@@ -35,5 +35,8 @@ typedef struct ComplexFixed_struct
 
 extern int fft(ComplexFixed *data, int is_inverse);
 extern int fftPostProcessReal(ComplexFixed *data, int is_inverse);
+#ifdef TEST_FFT
+extern void testFFT(void);
+#endif // #ifdef TEST_FFT
 
 #endif // #ifndef LPC11UXX_FFT_H_INCLUDED

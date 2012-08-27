@@ -13,6 +13,10 @@
 #include "../hwinterface.h"
 #include "../stream_comm.h"
 
+#ifdef TEST_FFT
+#include "fft.h"
+#endif // #ifdef TEST_FFT
+
 /** Upon reset, the LPC11Uxx clock source is its IRC oscillator. This
   * function switches it to run at 48 Mhz the system PLL, using an external
   * crystal as the PLL input.
@@ -45,12 +49,23 @@ int main(void)
 	initSystemClock();
 	initUsart();
 	initSerialFIFO();
+
 	initSSD1306();
 	initUserInterface();
+
 	__enable_irq();
+
+#ifdef TEST_FFT
+	testFFT();
+	while(1)
+	{
+		// do nothing
+	}
+#else
 
 	do
 	{
 		processPacket();
 	} while (1);
+#endif // #ifdef TEST_FFT
 }

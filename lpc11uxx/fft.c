@@ -27,6 +27,14 @@
 #include "fix16.h"
 #include "fft.h"
 
+#ifdef TEST_FFT
+#include <string.h>
+#include <math.h>
+#include "../hwinterface.h"
+#include "../endian.h"
+#include "LPC11Uxx.h"
+#endif // #ifdef TEST_FFT
+
 /** 3rd level of #R_DEF0 definition. */
 #define R_DEF3(x)	x,			x + 8
 /** 2nd level of #R_DEF0 definition. */
@@ -172,7 +180,7 @@ static ComplexFixed getTwiddleFactor(uint32_t tf_index)
 	ComplexFixed r;
 	uint32_t first_quadrant_tf_index;
 
-	if (tf_index > (FFT_SIZE / 2))
+	if (tf_index > FFT_SIZE)
 	{
 		// tf_index too large.
 		r.real = fix16_zero;
@@ -180,20 +188,20 @@ static ComplexFixed getTwiddleFactor(uint32_t tf_index)
 		fix16_error_flag = 1;
 		return r;
 	}
-	// tf_index must now be in [0, FFT_SIZE / 2].
+	// tf_index must now be in [0, FFT_SIZE].
 	first_quadrant_tf_index = tf_index;
-	if (tf_index > (FFT_SIZE / 4))
+	if (tf_index > (FFT_SIZE / 2))
 	{
 		// sin(pi - phi) = sin(phi).
-		first_quadrant_tf_index = (FFT_SIZE / 2) - first_quadrant_tf_index;
+		first_quadrant_tf_index = FFT_SIZE - first_quadrant_tf_index;
 	}
-	// first_quadrant_tf_index must now be in [0, FFT_SIZE / 4].
+	// first_quadrant_tf_index must now be in [0, FFT_SIZE / 2].
 	if (first_quadrant_tf_index == 0)
 	{
 		r.real = fix16_one;
 		r.imag = fix16_zero;
 	}
-	else if (first_quadrant_tf_index == (FFT_SIZE / 4))
+	else if (first_quadrant_tf_index == (FFT_SIZE / 2))
 	{
 		r.real = fix16_zero;
 		r.imag = fix16_one;
@@ -201,10 +209,10 @@ static ComplexFixed getTwiddleFactor(uint32_t tf_index)
 	else
 	{
 		// cos(phi) = sin(pi / 2 - phi)
-		r.real = twiddle_factor_lookup[(FFT_SIZE / 4) - first_quadrant_tf_index];
+		r.real = twiddle_factor_lookup[(FFT_SIZE / 2) - first_quadrant_tf_index];
 		r.imag = twiddle_factor_lookup[first_quadrant_tf_index];
 	}
-	if (tf_index > (FFT_SIZE / 4))
+	if (tf_index > (FFT_SIZE / 2))
 	{
 		// cos(pi - phi) = -cos(phi).
 		r.real = fix16_sub(fix16_zero, r.real);
@@ -272,7 +280,7 @@ int fft(ComplexFixed *data, int is_inverse)
 		for (j = 0; j < i; j++)
 		{
 			factor = getTwiddleFactor(tf_index);
-			if (is_inverse)
+			if (!is_inverse)
 			{
 				factor = complexFixedConjugate(factor);
 			}
@@ -368,7 +376,7 @@ int fftPostProcessReal(ComplexFixed *data, int is_inverse)
 		// Since the input is the result of a FFT of size FFT_SIZE and we want
 		// a FFT of size FFT_SIZE * 2, additional twiddling is necessary.
 		twiddle_factor = getTwiddleFactor(i);
-		if (is_inverse)
+		if (!is_inverse)
 		{
 			twiddle_factor = complexFixedConjugate(twiddle_factor);
 		}
@@ -407,3 +415,138 @@ int fftPostProcessReal(ComplexFixed *data, int is_inverse)
 		return 0; // success
 	}
 }
+
+#ifdef TEST_FFT
+
+/** Receive real number in fixed-point representation from stream.
+  * \return The received number.
+  */
+static fix16_t receiveFix16(void)
+{
+	uint8_t buffer[4];
+	int j;
+
+	for (j = 0; j < 4; j++)
+	{
+		buffer[j] = streamGetOneByte();
+	}
+	// The platform-dependent cast below will work correctly on LPC11Uxx,
+	// since it uses a two's complement representation of signed integers.
+	return (fix16_t)readU32LittleEndian(buffer);
+}
+
+/** Send real number in fixed-point representation to stream.
+  * \param value The number to send.
+  */
+static void sendFix16(fix16_t value)
+{
+	uint8_t buffer[4];
+	int j;
+
+	writeU32LittleEndian(buffer, (uint32_t)value);
+	for (j = 0; j < 4; j++)
+	{
+		streamPutOneByte(buffer[j]);
+	}
+}
+
+/** Test fft() and fftPostProcessReal() by grabbing input data from the
+  * stream, computing its FFT and sending it to the stream. The host can
+  * then check the output of the FFT.
+  *
+  * Previously, test cases were stored in this file and this function did
+  * all the checking. However, that proved to be infeasible; all
+  * microcontrollers in the LPC11Uxx series don't contain enough flash to
+  * store a comprehensive set of test cases.
+  */
+void testFFT(void)
+{
+	ComplexFixed data[FFT_SIZE + 1];
+	uint32_t i;
+	uint32_t size;
+	uint32_t cycles;
+	int test_number;
+	int is_inverse;
+	int failed;
+	uint8_t buffer[4];
+
+	while(1)
+	{
+		// Order of tests:
+		// 0 = forward, normal-sized
+		// 1 = inverse, normal-sized
+		// 2 = forward, double-sized
+		// 3 = inverse, double-sized
+		for (test_number = 0; test_number < 4; test_number++)
+		{
+			// Read input data.
+			// TODO: comments about how interleaving done by host.
+			for (i = 0; i < FFT_SIZE; i++)
+			{
+				data[i].real = receiveFix16();
+				data[i].imag = receiveFix16();
+			}
+
+			// Perform the FFT and measure how long it takes.
+			SysTick->CTRL = 4; // disable system tick timer, frequency = CPU
+			SysTick->VAL = 0; // clear system tick timer
+			SysTick->LOAD = 0x00FFFFFF; // set timer reload to max
+			SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
+			if ((test_number == 1) || (test_number == 3))
+			{
+				is_inverse = 1;
+			}
+			else
+			{
+				is_inverse = 0;
+			}
+			failed = fft(data, is_inverse);
+			if (test_number >= 2)
+			{
+				if (!failed)
+				{
+					failed = fftPostProcessReal(data, is_inverse);
+				}
+			}
+			cycles = SysTick->VAL; // read as soon as possible
+			cycles = (0x00FFFFFF - cycles);
+
+			// Send output data.
+			if (test_number >= 2)
+			{
+				size = FFT_SIZE + 1;
+			}
+			else
+			{
+				size = FFT_SIZE;
+			}
+			if (failed)
+			{
+				// Failure is marked by output consisting of nothing but
+				// fix16_overflow. It's probably impossible for a successful
+				// FFT to produce this result.
+				for (i = 0; i < size; i++)
+				{
+					sendFix16(fix16_overflow);
+					sendFix16(fix16_overflow);
+				}
+			}
+			else
+			{
+				for (i = 0; i < size; i++)
+				{
+					sendFix16(data[i].real);
+					sendFix16(data[i].imag);
+				}
+			}
+			// Tell host how long it took
+			writeU32LittleEndian(buffer, cycles);
+			for (i = 0; i < 4; i++)
+			{
+				streamPutOneByte(buffer[i]);
+			}
+		} // end for (test_number = 0; test_number < 4; test_number++)
+	} // end while(1)
+}
+
+#endif // #ifdef TEST_FFT
