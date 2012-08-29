@@ -13,6 +13,8 @@
 % 2. inverse, normal-sized,
 % 3. forward, double-sized,
 % 4. inverse, double-sized.
+%
+% This file is licensed as described by the file LICENCE.
 
 global FFT_SIZE = 256; % size of normal-sized FFT
 global file_id; % file ID of file to write test vectors to

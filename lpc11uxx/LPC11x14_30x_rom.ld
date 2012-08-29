@@ -25,18 +25,13 @@ OUTPUT_ARCH(arm);
 
 /*
 +=============================================================================+
-| stacks sizes
+| stack size
 +=============================================================================+
 */
 
-/* Handler mode (core exceptions / interrupts) can use only main stack */
-/* Thread mode can use main stack (default) or process stack - selected in CONTROL special register */
+__stack_size = 3500;
 
-__main_stack_size = 3500;
-__process_stack_size = 0;
-
-PROVIDE(__main_stack_size = __main_stack_size);
-PROVIDE(__process_stack_size = __process_stack_size);
+PROVIDE(__stack_size = __stack_size);
 
 /*
 +=============================================================================+
@@ -184,25 +179,7 @@ SECTIONS
 		__stack_start = .;
 		PROVIDE(__stack_start = __stack_start);
 
-		. = ALIGN(8);
-		__main_stack_start = .;
-		PROVIDE(__main_stack_start = __main_stack_start);
-
-		. += __main_stack_size;
-
-		. = ALIGN(8);
-		__main_stack_end = .;
-		PROVIDE(__main_stack_end = __main_stack_end);
-
-		. = ALIGN(8);
-		__process_stack_start = .;
-		PROVIDE(__process_stack_start = __process_stack_start);
-
-		. += __process_stack_size;
-
-		. = ALIGN(8);
-		__process_stack_end = .;
-		PROVIDE(__process_stack_end = __process_stack_end);
+		. += __stack_size;
 
 		. = ALIGN(8);
 		__stack_end = .;
