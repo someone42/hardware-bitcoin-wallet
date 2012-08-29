@@ -1,9 +1,6 @@
-The LPC11Uxx port will not compile as it is now, as it's missing:
-- CMSIS header files
-- Register definitions
-- A Makefile
-- Startup code
-- A linker script
+The LPC11Uxx port will not compile as it is now, as it's missing CMSIS header
+files and register definitions.
+
 These haven't been included due to licensing issues.
 
 The CMSIS header files and register definitions can be downloaded from:
@@ -11,10 +8,3 @@ http://ics.nxp.com/support/lpcxpresso/
 (CMSIS Library for LPC11Uxx)
 The files to extract from that package: core_cm0.h, core_cmFunc.h,
 core_cmInstr.h, LPC11Uxx.h and system_LPC11Uxx.h.
-
-As for the Makefile, startup code and linker script, the "lpc1114_blink_led"
-example from http://www.freddiechopin.info has code which will work. The
-"__process_stack_size" variable in the linker script does need to be changed
-to something bigger (try "__process_stack_size = 6144"). The "SRCS_DIRS = "
-line in the Makefile also needs to be changed to "SRCS_DIRS = .." to include
-all the platform-independent code.
