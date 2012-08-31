@@ -7,7 +7,6 @@
   * http://code.google.com/p/libfixmath/source/browse/trunk/libfixmath/.
   * The main modifications are:
   * - Removed code of unused functions.
-  * - Moved add/subtract to fix16_inline.h.
   * - Changed overflow code to set #fix16_error_flag instead of just
   *   returning #fix16_overflow.
   * - Moved fix16_log2() into fix16.c.
@@ -25,7 +24,39 @@
 #include "int64.h"
 #endif
 
-#include "fix16_inline.h"
+/* Subtraction and addition with overflow detection.
+*/
+fix16_t fix16_add(fix16_t a, fix16_t b)
+{
+	// Use unsigned integers because overflow with signed integers is
+	// an undefined operation (http://www.airs.com/blog/archives/120).
+	uint32_t _a = a, _b = b;
+	uint32_t sum = _a + _b;
+
+#ifndef FIXMATH_NO_OVERFLOW
+	// Overflow can only happen if sign of a == sign of b, and then
+	// it causes sign of sum != sign of a.
+	if (!((_a ^ _b) & 0x80000000) && ((_a ^ sum) & 0x80000000))
+		fix16_error_flag = 1;
+#endif
+
+	return sum;
+}
+
+fix16_t fix16_sub(fix16_t a, fix16_t b)
+{
+	uint32_t _a = a, _b = b;
+	uint32_t diff = _a - _b;
+
+#ifndef FIXMATH_NO_OVERFLOW
+	// Overflow can only happen if sign of a != sign of b, and then
+	// it causes sign of diff != sign of a.
+	if (((_a ^ _b) & 0x80000000) && ((_a ^ diff) & 0x80000000))
+		fix16_error_flag = 1;
+#endif
+
+	return diff;
+}
 
 /* 64-bit implementation for fix16_mul. Fastest version for e.g. ARM Cortex M3.
  * Performs a 32*32 -> 64bit multiplication. The middle 32 bits are the result,

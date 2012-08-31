@@ -94,8 +94,6 @@ const uint16_t twiddle_factor_lookup[128] = {
   */
 uint8_t fix16_error_flag;
 
-#include "fix16_inline.h"
-
 /** Add two complex numbers.
   * \param op1 The first operand.
   * \param op2 The second operand.

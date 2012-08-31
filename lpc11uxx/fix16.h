@@ -37,6 +37,14 @@
 # endif
 #endif
 
+#ifndef FIXMATH_ALWAYS_INLINE
+# ifdef __GNUC__
+#   define FIXMATH_ALWAYS_INLINE __attribute__((always_inline, unused))
+# else
+#   define FIXMATH_ALWAYS_INLINE
+# endif
+#endif
+
 #include <stdint.h>
 
 /*! Represent real numbers using the signed Q16.16 fixed-point representation.
@@ -69,6 +77,14 @@ static const fix16_t fix16_zero = 0x00000000; /*!< fix16_t value of 0 */
 
 extern uint8_t fix16_error_flag;
 
+/*! Adds the two given fix16_t's and returns the result.
+*/
+extern fix16_t fix16_add(fix16_t a, fix16_t b) FIXMATH_FUNC_ATTRS;
+
+/*! Subtracts the second given fix16_t from the first and returns the result.
+*/
+extern fix16_t fix16_sub(fix16_t a, fix16_t b) FIXMATH_FUNC_ATTRS;
+
 /*! Multiplies the two given fix16_t's and returns the result.
 */
 extern fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1) FIXMATH_FUNC_ATTRS;
@@ -76,5 +92,12 @@ extern fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1) FIXMATH_FUNC_ATTRS;
 /*! Returns the base 2 logarithm of the given fix16_t.
  */
 extern fix16_t fix16_log2(fix16_t x) FIXMATH_FUNC_ATTRS;
+
+/*! Convert an integer to its fix16_t representation.
+*/
+static FIXMATH_ALWAYS_INLINE fix16_t fix16_from_int(int a)
+{
+	return a * fix16_one;
+}
 
 #endif
