@@ -32,7 +32,7 @@
   * \warning This must be a power of 2, because the #FIX16_RECIPROCAL_OF
   *          macro is used to replace division with multiplication.
   */
-#define SAMPLE_SCALE_DOWN			32
+#define SAMPLE_SCALE_DOWN			64
 
 #ifdef TEST_STATISTICS
 extern void testStatistics(void);

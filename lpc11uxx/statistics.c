@@ -22,6 +22,7 @@
 #ifdef TEST_STATISTICS
 #include "../endian.h"
 #include "../hwinterface.h"
+#include "LPC11Uxx.h"
 #endif // #ifdef TEST_STATISTICS
 
 /** The maximum number of counts which can be held in one histogram bin. */
@@ -46,6 +47,12 @@ static uint32_t iterator_index;
 /** The count within a histogram bin where the histogram iterator is currently
   * at. */
 static uint32_t iterator_count;
+/** Cached value of histogram counts in the bin specified by #iterator_index.
+  * This is used to speed up getTermFromIterator(). */
+static uint32_t cached_histogram_count;
+/** Cached value of scaled sample value for the bin specified
+  * by #iterator_index. This is used to speed up getTermFromIterator(). */
+static fix16_t cached_scaled_sample;
 
 /** Reset all histogram counts to 0. */
 static void clearHistogram(void)
@@ -134,11 +141,27 @@ static void incrementHistogram(uint32_t index)
 	putHistogram(index, getHistogram(index) + 1);
 }
 
+/** This must be called whenever the iterator is active and #iterator_index
+  * changes. */
+static void updateIteratorCache(void)
+{
+	int sample_int;
+
+	cached_histogram_count = getHistogram(iterator_index);
+	sample_int = iterator_index;
+	// Centre middle of histogram range on 0.0, so that overflow will be less
+	// likely to occur.
+	sample_int -= (HISTOGRAM_NUM_BINS / 2);
+	cached_scaled_sample = fix16_from_int(sample_int);
+	cached_scaled_sample = fix16_mul(cached_scaled_sample, FIX16_RECIPROCAL_OF(SAMPLE_SCALE_DOWN));
+}
+
 /** Reset the histogram iterator back to the start. */
 static void resetIterator(void)
 {
 	iterator_index = 0;
 	iterator_count = 0;
+	updateIteratorCache();
 }
 
 /** Uses an iterator over the histogram to obtain one term in a central
@@ -146,18 +169,17 @@ static void resetIterator(void)
   * histogram bin (index).
   * \param mean The mean to calculate the central moment about.
   * \param power Which central moment to calculate (1 = first, 2 = second
-  *              etc.).
+  *              etc.). This must be positive and non-zero.
   * \return One term for the calculation of the specified central moment.
   */
 static fix16_t getTermFromIterator(fix16_t mean, uint32_t power)
 {
-	int sample_int;
 	uint32_t i;
 	fix16_t scaled_sample;
 	fix16_t r;
 
 	// Search for the index (bin number) of the next count.
-	while (iterator_count >= getHistogram(iterator_index))
+	while (iterator_count >= cached_histogram_count)
 	{
 		iterator_count = 0;
 		iterator_index++;
@@ -167,18 +189,13 @@ static fix16_t getTermFromIterator(fix16_t mean, uint32_t power)
 			fix16_error_flag = 1;
 			return fix16_zero;
 		}
+		updateIteratorCache();
 	}
 
-	sample_int = iterator_index;
 	iterator_count++;
-	// Centre middle of histogram range on 0.0, so that overflow will be less
-	// likely to occur.
-	sample_int -= (HISTOGRAM_NUM_BINS / 2);
-	scaled_sample = fix16_from_int(sample_int);
-	scaled_sample = fix16_mul(scaled_sample, FIX16_RECIPROCAL_OF(SAMPLE_SCALE_DOWN));
-	scaled_sample = fix16_sub(scaled_sample, mean);
-	r = fix16_one;
-	for (i = 0; i < power; i++)
+	scaled_sample = fix16_sub(cached_scaled_sample, mean);
+	r = scaled_sample;
+	for (i = 1; i < power; i++)
 	{
 		r = fix16_mul(r, scaled_sample);
 	}
@@ -278,9 +295,15 @@ static void sendFix16(fix16_t value)
   */
 void testStatistics(void)
 {
+	uint8_t buffer[4];
+	uint32_t cycles;
 	uint32_t i;
 	uint32_t sample;
 	fix16_t mean;
+	fix16_t variance;
+	fix16_t skewness; // not normalised
+	fix16_t kurtosis; // not normalised
+	fix16_t entropy_estimate;
 
 	while(1)
 	{
@@ -291,12 +314,32 @@ void testStatistics(void)
 			sample |= (streamGetOneByte() << 8);
 			incrementHistogram(sample);
 		}
+
+		SysTick->CTRL = 4; // disable system tick timer, frequency = CPU
+		SysTick->VAL = 0; // clear system tick timer
+		SysTick->LOAD = 0x00FFFFFF; // set timer reload to max
+		SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
+
 		mean = calculateCentralMoment(fix16_zero, 1);
+		variance = calculateCentralMoment(mean, 2);
+		skewness = calculateCentralMoment(mean, 3);
+		kurtosis = calculateCentralMoment(mean, 4);
+		entropy_estimate = estimateEntropy();
+
+		cycles = SysTick->VAL; // read as soon as possible
+		cycles = (0x00FFFFFF - cycles);
+
 		sendFix16(mean);
-		sendFix16(calculateCentralMoment(mean, 2)); // variance
-		sendFix16(calculateCentralMoment(mean, 3)); // skewness
-		sendFix16(calculateCentralMoment(mean, 4)); // kurtosis
-		sendFix16(estimateEntropy());
+		sendFix16(variance);
+		sendFix16(skewness);
+		sendFix16(kurtosis);
+		sendFix16(entropy_estimate);
+		// Tell host how long it took
+		writeU32LittleEndian(buffer, cycles);
+		for (i = 0; i < 4; i++)
+		{
+			streamPutOneByte(buffer[i]);
+		}
 	} // end while(1)
 }
 

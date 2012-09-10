@@ -9,6 +9,10 @@
 // generate_test_vectors.m is a GNU Octave script which can
 // be used to generate those test vectors.
 //
+// This also shows how much time (in clock cycles) was required to calculate
+// the statistics of a histogram with SAMPLE_COUNT samples. This is useful
+// for benchmarking.
+//
 // This file is licensed as described by the file LICENCE.
 
 #include <stdlib.h>
@@ -27,12 +31,12 @@
 #define OUTPUTS_TO_CHECK				5
 
 // The absolute error test: the error must be lower than this.
-// For Q16.16, this is 4 LSB.
-#define ERROR_EPSILON					0.00006103515625
+// For Q16.16, this is 64 LSB.
+#define ERROR_EPSILON					0.0009765625
 // The relative error test: the error divided by expected value must be
 // lower than this. For values close to 0, the relative error can be huge;
 // that's why there is also an absolute error test.
-#define ERROR_FACTOR					0.0001
+#define ERROR_FACTOR					0.004
 
 // The default number of bytes (transmitted or received) in between
 // acknowledgments.
@@ -230,7 +234,19 @@ int equalWithinTolerance(double target, double value)
 int realArraysEqualWithinTolerance(double *target, double *value, uint32_t size)
 {
 	uint32_t i;
+	double difference;
+	double max_difference;
 
+	max_difference = 0;
+	for (i = 0; i < size; i++)
+	{
+		difference = fabs(target[i] - value[i]);
+		if (difference > max_difference)
+		{
+			max_difference = difference;
+		}
+	}
+	printf(" max diff = %g ", max_difference);
 	for (i = 0; i < size; i++)
 	{
 		if (!equalWithinTolerance(target[i], value[i]))
@@ -245,6 +261,7 @@ int realArraysEqualWithinTolerance(double *target, double *value, uint32_t size)
 
 int main(int argc, char **argv)
 {
+	int i;
 	int matches;
 	int succeeded;
 	int failed;
@@ -256,6 +273,7 @@ int main(int argc, char **argv)
 	FILE *f_vectors; // file containing test vectors
 	struct termios options;
 	struct termios old_options;
+	uint8_t cycles_buffer[4];
 
 	if (argc != 2)
 	{
@@ -319,13 +337,19 @@ int main(int argc, char **argv)
 		{
 			*newline_position = '\0';
 		}
-		printf("%s:\n    ", buffer);
+		printf("%s: ", buffer);
 
 		readIntegerArray(f_vectors, input_array, SAMPLE_COUNT);
 		readRealArray(f_vectors, expected_array, OUTPUTS_TO_CHECK);
 		sendIntegerArray(input_array, SAMPLE_COUNT);
 		receiveRealArray(output_array, OUTPUTS_TO_CHECK);
 		matches = realArraysEqualWithinTolerance(expected_array, output_array, OUTPUTS_TO_CHECK);
+		// Get number of cycles required to do all tests.
+		for (i = 0; i < 4; i++)
+		{
+			cycles_buffer[i] = receiveByte();
+		}
+		printf("cycles = %u ", readU32LittleEndian(cycles_buffer));
 		if (matches)
 		{
 			printf("[pass]\n");
