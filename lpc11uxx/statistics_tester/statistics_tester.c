@@ -320,6 +320,8 @@ int main(int argc, char **argv)
 		exit(1);
 	}
 
+	sendByte(0); // set device testing mode (see testStatistics() in statistics.c)
+
 	succeeded = 0;
 	failed = 0;
 	while (!feof(f_vectors))

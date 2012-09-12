@@ -18,6 +18,7 @@
 #include <string.h>
 #include "fix16.h"
 #include "statistics.h"
+#include "adc.h"
 
 #ifdef TEST_STATISTICS
 #include "../endian.h"
@@ -272,6 +273,79 @@ static fix16_t estimateEntropy(void)
 	return sum;
 }
 
+/** This will be zero if the next sample to be returned by
+  * hardwareRandomBytes() is the first sample to be placed in a histogram
+  * bin. This will be non-zero if that next sample is not the first
+  * sample to be placed in a histogram bin. This variable was defined in
+  * that way so that it is initially 0.
+  */
+static int is_not_first_in_histogram;
+/** Number of bytes of the sample buffer that hardwareRandomBytes() has used
+  * up. */
+static uint32_t sample_buffer_consumed;
+
+/** Fill buffer with random bytes from a hardware random number generator.
+  * \param buffer The buffer to fill. This should have enough space for n
+  *               bytes.
+  * \param n The size of the buffer.
+  * \return An estimate of the total number of bits (not bytes) of entropy in
+  *         the buffer.
+  */
+uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
+{
+	int got_to_end;
+	uint32_t i;
+
+	if (!is_not_first_in_histogram)
+	{
+		sample_buffer_consumed = 0;
+		beginFillingADCBuffer();
+		is_not_first_in_histogram = 1;
+	}
+	if (sample_buffer_consumed == 0)
+	{
+		// Need to wait until next sample buffer has been filled.
+		while (!sample_buffer_full)
+		{
+			// do nothing
+		}
+	}
+
+	got_to_end = 0;
+	for (i = 0; i < n; i++)
+	{
+		if (sample_buffer_consumed >= (SAMPLE_BUFFER_SIZE * sizeof(uint16_t)))
+		{
+			got_to_end = 1;
+			break;
+		}
+		if ((sample_buffer_consumed & 1) == 0)
+		{
+			buffer[i] = (uint8_t)adc_sample_buffer[sample_buffer_consumed >> 1];
+		}
+		else
+		{
+			buffer[i] = (uint8_t)(adc_sample_buffer[sample_buffer_consumed >> 1] >> 8);
+		}
+		sample_buffer_consumed++;
+	}
+
+	if (sample_buffer_consumed >= (SAMPLE_BUFFER_SIZE * sizeof(uint16_t)))
+	{
+		// Need to get a new buffer.
+		sample_buffer_consumed = 0;
+		beginFillingADCBuffer();
+	}
+	if (got_to_end)
+	{
+		return 0; // just to be safe
+	}
+	else
+	{
+		return 8;
+	}
+}
+
 #ifdef TEST_STATISTICS
 
 /** Send real number in fixed-point representation to stream.
@@ -289,13 +363,18 @@ static void sendFix16(fix16_t value)
 	}
 }
 
-/** Test statistical testing functions by grabbing input data from the
-  * stream, computing various statistical values and sending them to the
-  * stream. The host can then check the outputs.
+/** Test statistical testing functions. The testing mode is set by the first
+  * byte received from the stream.
+  * - 'R': Send what hardwareRandomBytes() returns.
+  * - Anything else: grab input data from the stream, compute various
+  *   statistical values and send them to the stream. The host can then check
+  *   the output.
   */
 void testStatistics(void)
 {
+	uint8_t mode;
 	uint8_t buffer[4];
+	uint8_t random_bytes[32];
 	uint32_t cycles;
 	uint32_t i;
 	uint32_t sample;
@@ -305,42 +384,59 @@ void testStatistics(void)
 	fix16_t kurtosis; // not normalised
 	fix16_t entropy_estimate;
 
-	while(1)
+	mode = streamGetOneByte();
+	if (mode == 'R')
 	{
-		clearHistogram();
-		for (i = 0; i < SAMPLE_COUNT; i++)
+		while(1)
 		{
-			sample = streamGetOneByte();
-			sample |= (streamGetOneByte() << 8);
-			incrementHistogram(sample);
+			// Spam hardwareRandomBytes() output to stream, so that host can
+			// inspect the raw HWRNG samples.
+			hardwareRandomBytes(random_bytes, sizeof(random_bytes));
+			for (i = 0; i < sizeof(random_bytes); i++)
+			{
+				streamPutOneByte(random_bytes[i]);
+			}
 		}
-
-		SysTick->CTRL = 4; // disable system tick timer, frequency = CPU
-		SysTick->VAL = 0; // clear system tick timer
-		SysTick->LOAD = 0x00FFFFFF; // set timer reload to max
-		SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
-
-		mean = calculateCentralMoment(fix16_zero, 1);
-		variance = calculateCentralMoment(mean, 2);
-		skewness = calculateCentralMoment(mean, 3);
-		kurtosis = calculateCentralMoment(mean, 4);
-		entropy_estimate = estimateEntropy();
-
-		cycles = SysTick->VAL; // read as soon as possible
-		cycles = (0x00FFFFFF - cycles);
-
-		sendFix16(mean);
-		sendFix16(variance);
-		sendFix16(skewness);
-		sendFix16(kurtosis);
-		sendFix16(entropy_estimate);
-		// Tell host how long it took
-		writeU32LittleEndian(buffer, cycles);
-		for (i = 0; i < 4; i++)
+	}
+	else
+	{
+		while(1)
 		{
-			streamPutOneByte(buffer[i]);
-		}
-	} // end while(1)
+			clearHistogram();
+			for (i = 0; i < SAMPLE_COUNT; i++)
+			{
+				sample = streamGetOneByte();
+				sample |= (streamGetOneByte() << 8);
+				incrementHistogram(sample);
+			}
+
+			SysTick->CTRL = 4; // disable system tick timer, frequency = CPU
+			SysTick->VAL = 0; // clear system tick timer
+			SysTick->LOAD = 0x00FFFFFF; // set timer reload to max
+			SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
+
+			mean = calculateCentralMoment(fix16_zero, 1);
+			variance = calculateCentralMoment(mean, 2);
+			skewness = calculateCentralMoment(mean, 3);
+			kurtosis = calculateCentralMoment(mean, 4);
+			entropy_estimate = estimateEntropy();
+
+			cycles = SysTick->VAL; // read as soon as possible
+			cycles = (0x00FFFFFF - cycles);
+
+			sendFix16(mean);
+			sendFix16(variance);
+			sendFix16(skewness);
+			sendFix16(kurtosis);
+			sendFix16(entropy_estimate);
+			// Tell host how long it took
+			writeU32LittleEndian(buffer, cycles);
+			for (i = 0; i < 4; i++)
+			{
+				streamPutOneByte(buffer[i]);
+			}
+		} // end while(1)
+	} // end if (mode == 'R')
 }
 
 #endif // #ifdef TEST_STATISTICS

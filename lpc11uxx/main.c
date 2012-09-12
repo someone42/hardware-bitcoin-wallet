@@ -10,6 +10,7 @@
 #include "serial_fifo.h"
 #include "ssd1306.h"
 #include "user_interface.h"
+#include "adc.h"
 #include "../hwinterface.h"
 #include "../stream_comm.h"
 
@@ -52,9 +53,9 @@ int main(void)
 	initSystemClock();
 	initUsart();
 	initSerialFIFO();
-
 	initSSD1306();
 	initUserInterface();
+	initADC();
 
 	__enable_irq();
 
