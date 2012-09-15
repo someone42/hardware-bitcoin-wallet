@@ -160,14 +160,17 @@ extern void clearOutputsSeen(void);
   */
 extern uint8_t askUser(AskUserCommand command);
 
-/** Fill buffer with random bytes from a hardware random number generator.
-  * \param buffer The buffer to fill. This should have enough space for n
+/** Fill buffer with 32 random bytes from a hardware random number generator.
+  * \param buffer The buffer to fill. This should have enough space for 32
   *               bytes.
-  * \param n The size of the buffer.
   * \return An estimate of the total number of bits (not bytes) of entropy in
-  *         the buffer.
+  *         the buffer on success, or a negative number if the hardware random
+  *         number generator failed in any way. This may also return 0 to tell
+  *         the caller that more samples are needed in order to do any
+  *         meaningful statistical testing. If this returns 0, the caller
+  *         should continue to call this until it returns a non-zero value.
   */
-extern uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n);
+extern int hardwareRandom32Bytes(uint8_t *buffer);
 
 /** Write to non-volatile storage.
   * \param data A pointer to the data to be written.

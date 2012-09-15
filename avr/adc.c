@@ -75,23 +75,23 @@ static uint16_t adcSample(void)
 	return ((uint16_t)sample_hi << 8) | sample_lo; 
 }
 
-/** Fill buffer with random bytes from a hardware random number generator.
-  * \param buffer The buffer to fill. This should have enough space for n
+/** Fill buffer with 32 random bytes from a hardware random number generator.
+  * \param buffer The buffer to fill. This should have enough space for 32
   *               bytes.
-  * \param n The size of the buffer.
   * \return An estimate of the total number of bits (not bytes) of entropy in
   *         the buffer.
   */
-uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
+int hardwareRandom32Bytes(uint8_t *buffer)
 {
+	uint8_t i;
 	uint16_t sample;
 	uint16_t entropy;
 
 	// Just assume each sample has 4 bits of entropy.
 	// A better method would be to estimate it after running some statistical
 	// tests (for example, estimating bias and bandwidth).
-	entropy = (uint16_t)((uint16_t)n << 2);
-	for (; n--; )
+	entropy = 128;
+	for (i = 0; i < 32; i++)
 	{
 		sample = adcSample();
 		// Each sample is 10 bits. XOR the most-significant (MS) 2 bits into
@@ -99,7 +99,7 @@ uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 		// significantly correlated, this shouldn't result in a decrease in
 		// total entropy. Since the MS 2 bits and LS 2 bits are a factor of
 		// 256 apart (in significance), this correlation should be minimal.
-		buffer[n] = (uint8_t)((uint8_t)sample ^ (uint8_t)(sample >> 8));
+		buffer[i] = (uint8_t)((uint8_t)sample ^ (uint8_t)(sample >> 8));
 	}
 	return entropy;
 }

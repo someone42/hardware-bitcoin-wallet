@@ -82,6 +82,10 @@ void ADC_IRQHandler(void)
   * collected, allowing the caller to do something else while samples are
   * collected in the background. #sample_buffer_full can be used to indicate
   * when #adc_sample_buffer is full.
+  *
+  * It is okay to call this while the sample buffer is still being filled up.
+  * In that case, calling this will reset #sample_buffer_current_index so that
+  * the sample buffer will commence filling from the start.
   */
 void beginFillingADCBuffer(void)
 {

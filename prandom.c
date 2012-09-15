@@ -203,6 +203,7 @@ uint8_t initialiseEntropyPool(uint8_t *initial_pool_state)
   */
 static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t use_pool_state)
 {
+	int r;
 	uint16_t total_entropy;
 	uint8_t random_bytes[MAX(32, ENTROPY_POOL_LENGTH)];
 	HashState hs;
@@ -215,8 +216,18 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
 	sha256Begin(&hs);
 	while (total_entropy < (256 * ENTROPY_SAFETY_FACTOR))
 	{
-		total_entropy = (uint16_t)(total_entropy + hardwareRandomBytes(random_bytes, sizeof(random_bytes)));
-		for (i = 0; i < sizeof(random_bytes); i++)
+		r = hardwareRandom32Bytes(random_bytes);
+		if (r < 0)
+		{
+			return 1; // HWRNG failure
+		}
+		// Sometimes hardwareRandom32Bytes() returns 0, which signifies that
+		// more samples are needed in order to do statistical testing.
+		// hardwareRandom32Bytes() assumes it will be repeatedly called until
+		// it returns a non-zero value. If anything in this while loop is
+		// changed, make sure the code still respects this assumption.
+		total_entropy = (uint16_t)(total_entropy + r);
+		for (i = 0; i < 32; i++)
 		{
 			sha256WriteByte(&hs, random_bytes[i]);
 		}
@@ -405,15 +416,14 @@ static int broken_hwrng;
 
 /** The purpose of this "random" byte source is to test the entropy
   * accumulation behaviour of getRandom256().
-  * \param buffer The buffer to fill. This should have enough space for n
+  * \param buffer The buffer to fill. This should have enough space for 32
   *               bytes.
-  * \param n The size of the buffer.
   * \return A stupid estimate of the total number of bits (not bytes) of
   *         entropy in the buffer.
   */
-uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
+int hardwareRandom32Bytes(uint8_t *buffer)
 {
-	memset(buffer, 0, n);
+	memset(buffer, 0, 32);
 	if (!broken_hwrng)
 	{
 		buffer[0] = (uint8_t)rand();

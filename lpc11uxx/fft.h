@@ -20,6 +20,9 @@
   * fft() is capable of doing an FFT of twice this size. When doing a
   * real-valued FFT of twice this size, some post-processing is necessary;
   * see fftPostProcessReal() for more information.
+  *
+  * \warning This must be a power of 2, since fft.c uses a radix-2 FFT
+  *          algorithm.
   */
 #define FFT_SIZE	256
 

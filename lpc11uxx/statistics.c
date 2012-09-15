@@ -21,9 +21,16 @@
 #include "adc.h"
 
 #ifdef TEST_STATISTICS
+#include "ssd1306.h"
 #include "../endian.h"
 #include "../hwinterface.h"
 #include "LPC11Uxx.h"
+
+static void sprintFix16(char *buffer, fix16_t in);
+static void sendString(const char *buffer);
+
+/** Set to non-zero to send statistical properties to stream. */
+static int report_to_stream;
 #endif // #ifdef TEST_STATISTICS
 
 /** The maximum number of counts which can be held in one histogram bin. */
@@ -31,7 +38,7 @@
 
 /** The buffer where histogram counts are stored. The buffer needs to be
   * persistent, because counts are accumulated across many calls to
-  * hardwareRandomBytes(). In order to conserve valuable RAM, the buffer is
+  * hardwareRandom32Bytes(). In order to conserve valuable RAM, the buffer is
   * bit-packed.
   *
   * A histogram is much more space-efficient than storing a buffer of
@@ -42,6 +49,11 @@
   */
 static uint32_t packed_histogram_buffer[((HISTOGRAM_NUM_BINS * BITS_PER_HISTOGRAM_BIN) / 32) + 1];
 
+/** This is normally 0, but it will be set to non-zero if one of the histogram
+  * bins overflowed. */
+static int histogram_overflow;
+/** Number of samples that have been placed in the histogram. */
+static uint32_t samples_in_histogram;
 /** The index (bin number) into the histogram buffer where the histogram
   * iterator is currently at. */
 static uint32_t iterator_index;
@@ -55,10 +67,24 @@ static uint32_t cached_histogram_count;
   * by #iterator_index. This is used to speed up getTermFromIterator(). */
 static fix16_t cached_scaled_sample;
 
+
+/** This will be zero if the next sample to be returned by
+  * hardwareRandom32Bytes() is the first sample to be placed in a histogram
+  * bin. This will be non-zero if that next sample is not the first
+  * sample to be placed in a histogram bin. This variable was defined in
+  * that way so that it is initially 0.
+  */
+static int is_not_first_in_histogram;
+/** Number of samples in the sample buffer that hardwareRandom32Bytes() has
+  * used up. */
+static uint32_t sample_buffer_consumed;
+
 /** Reset all histogram counts to 0. */
 static void clearHistogram(void)
 {
 	memset(packed_histogram_buffer, 0, sizeof(packed_histogram_buffer));
+	samples_in_histogram = 0;
+	histogram_overflow = 0;
 }
 
 /** Gets an entry from the histogram counts buffer.
@@ -114,7 +140,7 @@ static void putHistogram(uint32_t index, uint32_t value)
 	if (value > MAX_HISTOGRAM_VALUE)
 	{
 		// Overflow in one of the bins.
-		fix16_error_flag = 1;
+		histogram_overflow = 1;
 		return;
 	}
 	bit_index = index * BITS_PER_HISTOGRAM_BIN;
@@ -140,6 +166,7 @@ static void putHistogram(uint32_t index, uint32_t value)
 static void incrementHistogram(uint32_t index)
 {
 	putHistogram(index, getHistogram(index) + 1);
+	samples_in_histogram++;
 }
 
 /** This must be called whenever the iterator is active and #iterator_index
@@ -233,7 +260,7 @@ static fix16_t calculateCentralMomentRecursive(fix16_t mean, uint32_t power, uin
 }
 
 /** Examines the histogram and calculates a central moment from it. This does
-  * require the mean to be known. If the mean is not known, if can be
+  * require the mean to be known. If the mean is not known, it can be
   * calculated using this function by passing mean = 0.0 and power = 1.
   * \param mean The mean to calculate the central moment about.
   * \param power Which central moment to calculate (1 = first, 2 = second
@@ -273,31 +300,172 @@ static fix16_t estimateEntropy(void)
 	return sum;
 }
 
-/** This will be zero if the next sample to be returned by
-  * hardwareRandomBytes() is the first sample to be placed in a histogram
-  * bin. This will be non-zero if that next sample is not the first
-  * sample to be placed in a histogram bin. This variable was defined in
-  * that way so that it is initially 0.
+/** Run statistical tests on histogram and report any failures.
+  * This only should be called once the histogram is full.
+  * \return 0 if all tests passed, non-zero if any tests failed.
   */
-static int is_not_first_in_histogram;
-/** Number of bytes of the sample buffer that hardwareRandomBytes() has used
-  * up. */
-static uint32_t sample_buffer_consumed;
+static int histogramTestsFailed(void)
+{
+	int r;
+	fix16_t mean;
+	fix16_t variance;
+	fix16_t kappa3; // non-standardised skewness
+	fix16_t kappa4; // non-standardised kurtosis
+	fix16_t variance_squared;
+	fix16_t three_times_variance_squared;
+	fix16_t variance_cubed;
+	fix16_t kappa3_squared;
+	fix16_t term1;
+#ifdef TEST_STATISTICS
+	int i;
+	int temp_r;
+	char buffer[20];
+#endif // #ifdef TEST_STATISTICS
 
-/** Fill buffer with random bytes from a hardware random number generator.
-  * \param buffer The buffer to fill. This should have enough space for n
+	fix16_error_flag = 0;
+	mean = calculateCentralMoment(fix16_zero, 1);
+	variance = calculateCentralMoment(mean, 2);
+	kappa3 = calculateCentralMoment(mean, 3);
+	kappa4 = calculateCentralMoment(mean, 4);
+
+#ifdef TEST_STATISTICS
+	// Write moments to screen so that they may be inspected in real-time.
+	// If reporting to stream is enabled, they are also written to the stream
+	// so that the host may capture them into a comma-seperated variable file.
+	displayOn();
+	clearDisplay();
+	sprintFix16(buffer, mean);
+	writeStringToDisplay(buffer);
+	if (report_to_stream)
+	{
+		sendString(buffer);
+		sendString(", ");
+	}
+	nextLine();
+	sprintFix16(buffer, variance);
+	writeStringToDisplay(buffer);
+	if (report_to_stream)
+	{
+		sendString(buffer);
+		sendString(", ");
+	}
+	nextLine();
+	sprintFix16(buffer, kappa3);
+	writeStringToDisplay(buffer);
+	if (report_to_stream)
+	{
+		sendString(buffer);
+		sendString(", ");
+	}
+	nextLine();
+	sprintFix16(buffer, kappa4);
+	writeStringToDisplay(buffer);
+	if (report_to_stream)
+	{
+		sendString(buffer);
+	}
+#endif // #ifdef TEST_STATISTICS
+
+	r = 0;
+	// STATTEST_MIN_MEAN and STATTEST_MAX_MEAN are in ADC output numbers.
+	// To be comparable to mean, they need to be scaled and offset, just
+	// as samples are in updateIteratorCache().
+	if (mean <= F16((STATTEST_MIN_MEAN - (HISTOGRAM_NUM_BINS / 2)) / SAMPLE_SCALE_DOWN))
+	{
+		r |= 1; // mean below minimum
+	}
+	if (mean >= F16((STATTEST_MAX_MEAN - (HISTOGRAM_NUM_BINS / 2)) / SAMPLE_SCALE_DOWN)) 
+	{
+		r |= 1; // mean above maximum
+	}
+	if (variance <= F16((STATTEST_MIN_VARIANCE / SAMPLE_SCALE_DOWN) / SAMPLE_SCALE_DOWN))
+	{
+		r |= 2; // variance below minimum
+	}
+	if (variance >= F16((STATTEST_MAX_VARIANCE / SAMPLE_SCALE_DOWN) / SAMPLE_SCALE_DOWN))
+	{
+		r |= 2; // variance below minimum
+	}
+	// kappa3 is supposed to be standardised by dividing by
+	// variance ^ (3/2), but this would involve one division and one square
+	// root. But since skewness = kappa3 / variance ^ (3/2), this implies
+	// that kappa3 ^ 2 = variance ^ 3 * skewness ^ 2.
+	variance_squared = fix16_mul(variance, variance);
+	variance_cubed = fix16_mul(variance_squared, variance);
+	kappa3_squared = fix16_mul(kappa3, kappa3);
+	// Thanks to the squaring of kappa3, only one test is needed.
+	if (kappa3_squared >= fix16_mul(variance_cubed, F16(STATTEST_MAX_SKEWNESS * STATTEST_MAX_SKEWNESS)))
+	{
+		r |= 4; // skewness out of bounds
+	}
+	// kappa4 is supposed to be standardised by dividing by variance ^ 2, but
+	// this would involve division. But since
+	// kurtosis = kappa4 / variance ^ 2 - 3, this implies that
+	// kappa_4 = kurtosis * variance ^ 2 + 3 * variance ^ 2.
+	three_times_variance_squared = fix16_mul(fix16_from_int(3), variance_squared);
+	term1 = fix16_mul(F16(STATTEST_MIN_KURTOSIS), variance_squared);
+	if (kappa4 <= fix16_add(term1, three_times_variance_squared))
+	{
+		r |= 8; // kurtosis below minimum
+	}
+	term1 = fix16_mul(F16(STATTEST_MAX_KURTOSIS), variance_squared);
+	if (kappa4 >= fix16_add(term1, three_times_variance_squared))
+	{
+		r |= 8; // kurtosis above maximum
+	}
+	if (fix16_error_flag || histogram_overflow)
+	{
+		r |= 15; // arithmetic error (probably overflow)
+	}
+
+#ifdef TEST_STATISTICS
+	temp_r = r;
+	writeStringToDisplay(" ");
+	for (i = 0; i < 4; i++)
+	{
+		if ((temp_r & 1) == 0)
+		{
+			writeStringToDisplay("p");
+			if (report_to_stream)
+			{
+				sendString(", pass");
+			}
+		}
+		else
+		{
+			writeStringToDisplay("F");
+			if (report_to_stream)
+			{
+				sendString(", fail");
+			}
+		}
+		temp_r >>= 1;
+	}
+	sendString("\r\n");
+#endif // #ifdef TEST_STATISTICS
+
+	return r;
+}
+
+/** Fill buffer with 32 random bytes from a hardware random number generator.
+  * \param buffer The buffer to fill. This should have enough space for 32
   *               bytes.
-  * \param n The size of the buffer.
   * \return An estimate of the total number of bits (not bytes) of entropy in
   *         the buffer.
   */
-uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
+int hardwareRandom32Bytes(uint8_t *buffer)
 {
-	int got_to_end;
 	uint32_t i;
+	uint32_t sample;
 
 	if (!is_not_first_in_histogram)
 	{
+		clearHistogram();
+		// The histogram is empty. The sample buffer is also assumed to be
+		// empty, since this may be the first call to hardwareRandom32Bytes()
+		// after power-on. Therefore an extra call to beginFillingADCBuffer()
+		// needs to be done to ensure that a full, current sample buffer is
+		// available.
 		sample_buffer_consumed = 0;
 		beginFillingADCBuffer();
 		is_not_first_in_histogram = 1;
@@ -310,43 +478,125 @@ uint16_t hardwareRandomBytes(uint8_t *buffer, uint8_t n)
 			// do nothing
 		}
 	}
+	// From here on, code can assume that a full, current sample buffer is
+	// available.
 
-	got_to_end = 0;
-	for (i = 0; i < n; i++)
+	// The following loop assumes that #SAMPLE_BUFFER_SIZE is a multiple
+	// of 16.
+#if ((SAMPLE_BUFFER_SIZE & 15) != 0)
+#error "SAMPLE_BUFFER_SIZE not a multiple of 16"
+#endif // #if ((SAMPLE_BUFFER_SIZE & 15) != 0)
+	for (i = 0; i < 16; i++)
 	{
-		if (sample_buffer_consumed >= (SAMPLE_BUFFER_SIZE * sizeof(uint16_t)))
-		{
-			got_to_end = 1;
-			break;
-		}
-		if ((sample_buffer_consumed & 1) == 0)
-		{
-			buffer[i] = (uint8_t)adc_sample_buffer[sample_buffer_consumed >> 1];
-		}
-		else
-		{
-			buffer[i] = (uint8_t)(adc_sample_buffer[sample_buffer_consumed >> 1] >> 8);
-		}
+		sample = adc_sample_buffer[sample_buffer_consumed];
+		incrementHistogram(sample);
+		buffer[i * 2] = (uint8_t)sample;
+		buffer[i * 2 + 1] = (uint8_t)(sample >> 8);
 		sample_buffer_consumed++;
 	}
 
-	if (sample_buffer_consumed >= (SAMPLE_BUFFER_SIZE * sizeof(uint16_t)))
+	if (sample_buffer_consumed >= SAMPLE_BUFFER_SIZE)
 	{
-		// Need to get a new buffer.
+		// Sample buffer fully consumed; need to get a new buffer.
 		sample_buffer_consumed = 0;
 		beginFillingADCBuffer();
 	}
-	if (got_to_end)
+
+	if (samples_in_histogram >= SAMPLE_COUNT)
 	{
-		return 0; // just to be safe
+		// Histogram is full. Statistical properties can now be calculated.
+		is_not_first_in_histogram = 0;
+		if (histogramTestsFailed())
+		{
+			return -1; // statistical tests indicate HWRNG failure
+		}
+		// Why return 512 (bits)? This ensures that hardwareRandom32Bytes()
+		// will be called a minimum number of times per getRandom256() call,
+		// assuming an entropy safety factor of 2 in prandom.c.
+		// This is extremely conservative, given any reasonable value of
+		// SAMPLE_COUNT. For example, for a SAMPLE_COUNT of 4096, this
+		// probably underestimates the usable entropy by a factor of about 50.
+		return 512;
 	}
 	else
 	{
-		return 8;
+		// Indicate to caller that more samples are needed in order to do
+		// statistical tests.
+		return 0;
 	}
 }
 
 #ifdef TEST_STATISTICS
+
+/** Quick and dirty conversion of fix16 to string.
+  * \param buffer Character buffer where null-terminated will be written to.
+  *               Must have space for 16 characters.
+  * \param in Number to convert to string.
+  */
+static void sprintFix16(char *buffer, fix16_t in)
+{
+	int suppress_leading_zeroes;
+	int i;
+	int index;
+	uint32_t int_part;
+	uint32_t digit;
+	char temp[5];
+
+	// Check sign.
+	index = 0;
+	if (in < fix16_zero)
+	{
+		in = -in;
+		buffer[index++] = '-';
+	}
+
+	// Convert integer part.
+	int_part = ((uint32_t)in) >> 16;
+	for (i = 0; i < 5; i++)
+	{
+		digit = int_part % 10;
+		int_part = int_part / 10;
+		temp[i] = (char)(digit + '0');
+	}
+	suppress_leading_zeroes = 1;
+	for (i = 0; i < 5; i++)
+	{
+		if (!suppress_leading_zeroes || (temp[4 - i] != '0'))
+		{
+			buffer[index++] = temp[4 - i];
+			suppress_leading_zeroes = 0;
+		}
+	}
+	// If integer part is 0, include one leading zero.
+	if (suppress_leading_zeroes)
+	{
+		buffer[index++] = '0';
+	}
+	buffer[index++] = '.';
+
+	// Convert fractional part.
+	in = (fix16_t)(((uint32_t)in) & 0xffff);
+	for (i = 0; i < 7; i++)
+	{
+		in *= 10;
+		digit = ((uint32_t)in) >> 16;
+		buffer[index++] = (char)(digit + '0');
+		in = (fix16_t)(((uint32_t)in) & 0xffff);
+	}
+
+	buffer[index++] = '\0';
+}
+
+/** Send null-terminated string to stream.
+  * \param buffer The string to send.
+  */
+static void sendString(const char *buffer)
+{
+	for(; *buffer != '\0'; buffer++)
+	{
+		streamPutOneByte(*buffer);
+	}
+}
 
 /** Send real number in fixed-point representation to stream.
   * \param value The number to send.
@@ -365,7 +615,7 @@ static void sendFix16(fix16_t value)
 
 /** Test statistical testing functions. The testing mode is set by the first
   * byte received from the stream.
-  * - 'R': Send what hardwareRandomBytes() returns.
+  * - 'R': Send what hardwareRandom32Bytes() returns.
   * - Anything else: grab input data from the stream, compute various
   *   statistical values and send them to the stream. The host can then check
   *   the output.
@@ -380,24 +630,35 @@ void testStatistics(void)
 	uint32_t sample;
 	fix16_t mean;
 	fix16_t variance;
-	fix16_t skewness; // not normalised
-	fix16_t kurtosis; // not normalised
+	fix16_t kappa3; // non-standardised skewness
+	fix16_t kappa4; // non-standardised kurtosis
 	fix16_t entropy_estimate;
 
 	mode = streamGetOneByte();
-	if (mode == 'R')
+	if ((mode == 'R') || (mode == 'S'))
 	{
+		if (mode == 'S')
+		{
+			report_to_stream = 1;
+		}
+		else
+		{
+			report_to_stream = 0;
+		}
 		while(1)
 		{
-			// Spam hardwareRandomBytes() output to stream, so that host can
-			// inspect the raw HWRNG samples.
-			hardwareRandomBytes(random_bytes, sizeof(random_bytes));
-			for (i = 0; i < sizeof(random_bytes); i++)
+			hardwareRandom32Bytes(random_bytes);
+			if (!report_to_stream)
 			{
-				streamPutOneByte(random_bytes[i]);
+				// Spam hardwareRandom32Bytes() output to stream,
+				// so that host can inspect the raw HWRNG samples.
+				for (i = 0; i < sizeof(random_bytes); i++)
+				{
+					streamPutOneByte(random_bytes[i]);
+				}
 			}
 		}
-	}
+	} // end if ((mode == 'R') || (mode == 'S'))
 	else
 	{
 		while(1)
@@ -417,8 +678,8 @@ void testStatistics(void)
 
 			mean = calculateCentralMoment(fix16_zero, 1);
 			variance = calculateCentralMoment(mean, 2);
-			skewness = calculateCentralMoment(mean, 3);
-			kurtosis = calculateCentralMoment(mean, 4);
+			kappa3 = calculateCentralMoment(mean, 3);
+			kappa4 = calculateCentralMoment(mean, 4);
 			entropy_estimate = estimateEntropy();
 
 			cycles = SysTick->VAL; // read as soon as possible
@@ -426,8 +687,8 @@ void testStatistics(void)
 
 			sendFix16(mean);
 			sendFix16(variance);
-			sendFix16(skewness);
-			sendFix16(kurtosis);
+			sendFix16(kappa3);
+			sendFix16(kappa4);
 			sendFix16(entropy_estimate);
 			// Tell host how long it took
 			writeU32LittleEndian(buffer, cycles);
@@ -436,7 +697,7 @@ void testStatistics(void)
 				streamPutOneByte(buffer[i]);
 			}
 		} // end while(1)
-	} // end if (mode == 'R')
+	} // end else clause of if ((mode == 'R') || (mode == 'S'))
 }
 
 #endif // #ifdef TEST_STATISTICS

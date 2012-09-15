@@ -2,7 +2,7 @@
   *
   * \brief fix16.h from libfixmath.
   *
-  * This file was adapted from fix16.h of libfixmath r78, which can be
+  * This file was adapted from fix16.h of libfixmath r82, which can be
   * obtained from
   * http://code.google.com/p/libfixmath/source/browse/trunk/libfixmath/.
   * The main modifications are:
@@ -55,12 +55,6 @@
  */
 typedef int32_t fix16_t;
 
-static const fix16_t FOUR_DIV_PI  = 0x145F3;            /*!< Fix16 value of 4/PI */
-static const fix16_t _FOUR_DIV_PI2 = 0xFFFF9840;        /*!< Fix16 value of -4/PI² */
-static const fix16_t X4_CORRECTION_COMPONENT = 0x399A;  /*!< Fix16 value of 0.225 */
-static const fix16_t PI_DIV_4 = 0x0000C90F;             /*!< Fix16 value of PI/4 */
-static const fix16_t THREE_PI_DIV_4 = 0x00025B2F;       /*!< Fix16 value of 3PI/4 */
-
 static const fix16_t fix16_maximum  = 0x7FFFFFFF; /*!< the maximum value of fix16_t */
 static const fix16_t fix16_minimum  = 0x80000000; /*!< the minimum value of fix16_t */
 static const fix16_t fix16_overflow = 0x80000000; /*!< the value used to indicate overflows when FIXMATH_NO_OVERFLOW is not specified */
@@ -74,6 +68,17 @@ static const fix16_t fix16_zero = 0x00000000; /*!< fix16_t value of 0 */
  *  rounding and only works for positive numbers.
 */
 #define  FIX16_RECIPROCAL_OF(x)		(0x00010000 / x)
+
+/*! Macro for defining fix16_t constant values.
+   The functions above can't be used from e.g. global variable initializers,
+   and their names are quite long also. This macro is useful for constants
+   springled alongside code, e.g. F16(1.234).
+
+   Note that the argument is evaluated multiple times, and also otherwise
+   you should only use this for constant values. For runtime-conversions,
+   use the functions above.
+*/
+#define F16(x) ((fix16_t)(((x) >= 0) ? ((x) * 65536.0 + 0.5) : ((x) * 65536.0 - 0.5)))
 
 extern uint8_t fix16_error_flag;
 
