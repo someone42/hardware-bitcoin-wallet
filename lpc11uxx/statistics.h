@@ -65,30 +65,30 @@
   * - Offset of 4: maximum total absolute error of ADC.
   */
 #define STATTEST_MAX_MEAN			(1.032 * STATTEST_CENTRAL_MEAN + 65.0 + 4.0)
-/** Nominal variance, in ADC output number. This was measured. */
+/** Nominal variance, in ADC output number squared. This was measured. */
 #define STATTEST_CENTRAL_VARIANCE	1201.7
-/** Minimum acceptable variance, in ADC output number.
+/** Minimum acceptable variance, in ADC output number squared.
   * This differs from #STATTEST_CENTRAL_VARIANCE by the following factors:
-  * - Factor of 0.89: variation in amplitude of Johnson-Nyquist noise due to
-  *   temperature decrease from 293 K to 233 K.
-  * - Factor of 0.888: worst case decrease due to 7 1% tolerance resistors
-  *   with a 60 K temperature change at 100 ppm/K.
+  * - Factor of 0.846: variation in amplitude of Johnson-Nyquist noise due to
+  *   temperature decrease from 293 K to 248 K.
+  * - Factor of 0.817: worst case decrease due to 7 1% tolerance resistors
+  *   with a 45 K temperature change at 100 ppm/K.
   * - Factor of 0.805: 5 sigma statistical fluctuations for N = 4096. This was
   *   measured.
-  * - Factor of 0.994: 0.6% gain error from ADC.
+  * - Factor of 0.988: 0.6% gain error from ADC.
   */
-#define STATTEST_MIN_VARIANCE		(0.89 * 0.888 * 0.805 * 0.994 * STATTEST_CENTRAL_VARIANCE)
-/** Maximum acceptable variance, in ADC output number.
+#define STATTEST_MIN_VARIANCE		(0.846 * 0.817 * 0.805 * 0.988 * STATTEST_CENTRAL_VARIANCE)
+/** Maximum acceptable variance, in ADC output number squared.
   * This differs from #STATTEST_CENTRAL_VARIANCE by the following factors:
-  * - Factor of 1.11: variation in amplitude of Johnson-Nyquist noise due to
-  *   temperature increase from 293 K to 358 K.
-  * - Factor of 1.112: worst case increase due to 7 1% tolerance resistors
-  *   with a 60 K temperature change at 100 ppm/K.
+  * - Factor of 1.154: variation in amplitude of Johnson-Nyquist noise due to
+  *   temperature increase from 293 K to 338 K.
+  * - Factor of 1.224: worst case increase due to 7 1% tolerance resistors
+  *   with a 45 K temperature change at 100 ppm/K.
   * - Factor of 1.195: 5 sigma statistical fluctuations for N = 4096. This was
   *   measured.
-  * - Factor of 1.006: 0.6% gain error from ADC.
+  * - Factor of 1.012: 0.6% gain error from ADC.
   */
-#define STATTEST_MAX_VARIANCE		(1.11 * 1.112 * 1.195 * 1.006 * STATTEST_CENTRAL_VARIANCE)
+#define STATTEST_MAX_VARIANCE		(1.154 * 1.224 * 1.195 * 1.012 * STATTEST_CENTRAL_VARIANCE)
 /** Maximum acceptable skewness (standardised 3rd central moment) in either
   * the positive or negative direction. This is approximately 5 standard
   * deviations (calculated using N = 4096) from the theoretical value of 0.
