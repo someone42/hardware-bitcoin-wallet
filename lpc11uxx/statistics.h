@@ -108,6 +108,56 @@
   * of #STATTEST_MIN_KURTOSIS.
   */
 #define STATTEST_MAX_KURTOSIS		0.65
+/** The bandwidth of the HWRNG is defined as the frequency range over which
+  * the power spectral density remains higher than this threshold, relative
+  * to the peak value. Conventionally, this would be 0.5, corresponding to
+  * 3 dB. However, because statistics.c calculates a power spectral density
+  * estimate, this must be lower than 0.5 to account for statistical
+  * fluctuations.
+  *
+  * Like #PSD_THRESHOLD_REPETITIONS, this is a value which needs to be
+  * determined empirically (in other words, tweak it until you get sensible
+  * results). Too high a value will cause the bandwidth to be
+  * underestimated, too low a value will cause overestimation. As some
+  * guidance, for N = 4096, each bin in the PSD has a standard deviation of
+  * about 1.7 dB (this was measured), so accounting for 5 sigma fluctuations
+  * of a single bin means lowering the 3 dB threshold by about 8.5 dB.
+  */
+#define PSD_BANDWIDTH_THRESHOLD		0.0329
+/** Number of consecutive power spectrum bins which must be below the
+  * threshold (see #PSD_BANDWIDTH_THRESHOLD) before the code in statistics.c
+  * considers a bin as an edge of the HWRNG bandwidth. Making this value
+  * larger has the effect of reducing the impact of statistical fluctuations.
+  *
+  * Like #PSD_BANDWIDTH_THRESHOLD, this is a value which needs to be
+  * determined empirically (in other words, tweak it until you get sensible
+  * results). As some guidance, to have a one in a million
+  * chance of a falsely registered edge, the threshold must be lowered
+  * by approximately inverf(1 - 1 / (500000 ^ (1 / (this)))) * sqrt(2)
+  * standard deviations.
+  */
+#define PSD_THRESHOLD_REPETITIONS	5
+/** The minimum acceptable value for the peak frequency in the power spectrum.
+  * The value is expressed as a fraction of the sampling rate.
+  * This value corresponds to about 500 Hz and was chosen because it is well
+  * below the HWRNG filter's high-pass cutoff.
+  */
+#define PSD_MIN_PEAK				0.0227
+/** The maximum acceptable value for the peak frequency in the power spectrum.
+  * The value is expressed as a fraction of the sampling rate.
+  * This value corresponds to about 9 kHz and was chosen because it is well
+  * above the HWRNG filter's low-pass cutoff.
+  */
+#define PSD_MAX_PEAK				0.408
+/** The minimum acceptable value for the bandwidth of the HWRNG.
+  * The value is expressed as a fraction of the sampling rate.
+  * Note that this should not be lowered to account for statistical
+  * fluctuations, as they're should be taken care of
+  * in the values of #PSD_BANDWIDTH_THRESHOLD and #PSD_THRESHOLD_REPETITIONS.
+  *
+  * The measured 3 dB bandwidth of the current HWRNG is about 1.6 kHz.
+  */
+#define PSD_MIN_BANDWIDTH			0.0726
 
 /**@}*/
 

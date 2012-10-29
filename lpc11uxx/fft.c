@@ -29,7 +29,6 @@
 
 #ifdef TEST_FFT
 #include <string.h>
-#include <math.h>
 #include "../hwinterface.h"
 #include "../endian.h"
 #include "LPC11Uxx.h"
@@ -86,13 +85,6 @@ const uint16_t twiddle_factor_lookup[128] = {
 0xfb15, 0xfbad, 0xfc3b, 0xfcc0, 0xfd3b, 0xfdac, 0xfe13, 0xfe71,
 0xfec4, 0xff0e, 0xff4e, 0xff85, 0xffb1, 0xffd4, 0xffec, 0xfffb
 };
-
-/** At the beginning of a series of computations, this will be set to zero.
-  * If it is set to some non-zero value during the computations, then
-  * something unexpected occurred (eg. arithmetic overflow) and the result
-  * should be considered invalid.
-  */
-uint8_t fix16_error_flag;
 
 /** Add two complex numbers.
   * \param op1 The first operand.

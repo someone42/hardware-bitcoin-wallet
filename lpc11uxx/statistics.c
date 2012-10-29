@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "fix16.h"
+#include "fft.h"
 #include "statistics.h"
 #include "adc.h"
 
@@ -29,7 +30,9 @@
 static void sprintFix16(char *buffer, fix16_t in);
 static void sendString(const char *buffer);
 
-/** Set to non-zero to send statistical properties to stream. */
+/** Set to non-zero to send statistical properties to stream. 1 = moment-based
+  * statistical properties, 2 = power spectral density estimate, 3 = bandwidth
+  * estimate. */
 static int report_to_stream;
 #endif // #ifdef TEST_STATISTICS
 
@@ -48,6 +51,18 @@ static int report_to_stream;
   * times that value occurred.
   */
 static uint32_t packed_histogram_buffer[((HISTOGRAM_NUM_BINS * BITS_PER_HISTOGRAM_BIN) / 32) + 1];
+
+/** An estimate of the power spectral density of the HWRNG. As more samples
+  * are collected, FFT results will be accumulated here. The more samples,
+  * the more accurate the estimate will be.
+  */
+static fix16_t psd_accumulator[FFT_SIZE + 1];
+
+/** This will be non-zero if there was an arithmetic error in the calculation
+  * of power spectral density (see #psd_accumulator). This will be zero if
+  * there haven't been any arithmetic errors so far.
+  */
+static uint8_t psd_accumulator_error;
 
 /** This is normally 0, but it will be set to non-zero if one of the histogram
   * bins overflowed. */
@@ -169,19 +184,27 @@ static void incrementHistogram(uint32_t index)
 	samples_in_histogram++;
 }
 
+/** Apply scaling and an offset to ADC sample values so that overflow will
+  * be less likely to occur in statistical calculations.
+  * \param sample_int The ADC sample number.
+  * \return The scaled sample value.
+  */
+static fix16_t scaleSample(int sample_int)
+{
+	fix16_t r;
+
+	sample_int -= (HISTOGRAM_NUM_BINS / 2); // centre ADC range on 0.0
+	r = fix16_from_int(sample_int);
+	r = fix16_mul(r, FIX16_RECIPROCAL_OF(SAMPLE_SCALE_DOWN));
+	return r;
+}
+
 /** This must be called whenever the iterator is active and #iterator_index
   * changes. */
 static void updateIteratorCache(void)
 {
-	int sample_int;
-
 	cached_histogram_count = getHistogram(iterator_index);
-	sample_int = iterator_index;
-	// Centre middle of histogram range on 0.0, so that overflow will be less
-	// likely to occur.
-	sample_int -= (HISTOGRAM_NUM_BINS / 2);
-	cached_scaled_sample = fix16_from_int(sample_int);
-	cached_scaled_sample = fix16_mul(cached_scaled_sample, FIX16_RECIPROCAL_OF(SAMPLE_SCALE_DOWN));
+	cached_scaled_sample = scaleSample((int)iterator_index);
 }
 
 /** Reset the histogram iterator back to the start. */
@@ -300,6 +323,75 @@ static fix16_t estimateEntropy(void)
 	return sum;
 }
 
+/** Obtains an estimate of the bandwidth of the HWRNG, based on the power
+  * spectrum density estimate (see #psd_accumulator).
+  * \param out_max_bin Pointer to variable which will receive the bin number
+  *                    of the peak value in the power spectrum.
+  * \return The bandwidth, in number of FFT bins.
+  */
+static int estimateBandwidth(int *out_max_bin)
+{
+	int i;
+	fix16_t threshold;
+	int max_bin;
+	int left_bin;
+	int right_bin;
+	int below_counter;
+
+	threshold = fix16_zero;
+	max_bin = 0;
+	for (i = 0; i < (FFT_SIZE + 1); i++)
+	{
+		if (psd_accumulator[i] > threshold)
+		{
+			threshold = psd_accumulator[i];
+			max_bin = i;
+		}
+	}
+	threshold = fix16_mul(threshold, F16(PSD_BANDWIDTH_THRESHOLD));
+
+	// Search for left edge.
+	below_counter = 0;
+	left_bin = 0;
+	for (i = max_bin; i >= 0; i--)
+	{
+		if (psd_accumulator[i] < threshold)
+		{
+			below_counter++;
+		}
+		else
+		{
+			below_counter = 0;
+		}
+		if (below_counter >= PSD_THRESHOLD_REPETITIONS)
+		{
+			left_bin = i + PSD_THRESHOLD_REPETITIONS;
+			break;
+		}
+	}
+	// Search for right edge.
+	below_counter = 0;
+	right_bin = FFT_SIZE;
+	for (i = max_bin; i < (FFT_SIZE + 1); i++)
+	{
+		if (psd_accumulator[i] < threshold)
+		{
+			below_counter++;
+		}
+		else
+		{
+			below_counter = 0;
+		}
+		if (below_counter >= PSD_THRESHOLD_REPETITIONS)
+		{
+			right_bin = i - PSD_THRESHOLD_REPETITIONS;
+			break;
+		}
+	}
+	*out_max_bin = max_bin;
+	return right_bin - left_bin;
+}
+
 /** Run statistical tests on histogram and report any failures.
   * This only should be called once the histogram is full.
   * \return 0 if all tests passed, non-zero if any tests failed.
@@ -316,6 +408,8 @@ static int histogramTestsFailed(void)
 	fix16_t variance_cubed;
 	fix16_t kappa3_squared;
 	fix16_t term1;
+	int bandwidth; // as FFT bin number
+	int max_bin; // as FFT bin number
 #ifdef TEST_STATISTICS
 	int i;
 	int temp_r;
@@ -327,6 +421,7 @@ static int histogramTestsFailed(void)
 	variance = calculateCentralMoment(mean, 2);
 	kappa3 = calculateCentralMoment(mean, 3);
 	kappa4 = calculateCentralMoment(mean, 4);
+	bandwidth = estimateBandwidth(&max_bin);
 
 #ifdef TEST_STATISTICS
 	// Write moments to screen so that they may be inspected in real-time.
@@ -334,35 +429,62 @@ static int histogramTestsFailed(void)
 	// so that the host may capture them into a comma-seperated variable file.
 	displayOn();
 	clearDisplay();
-	sprintFix16(buffer, mean);
-	writeStringToDisplay(buffer);
-	if (report_to_stream)
+	if (report_to_stream != 3)
 	{
+		sprintFix16(buffer, mean);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, variance);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, kappa3);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, kappa4);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+		}
+		if (report_to_stream == 2)
+		{
+			for (i = 0; i < (FFT_SIZE + 1); i++)
+			{
+				sprintFix16(buffer, fix16_from_int(i));
+				sendString(buffer);
+				sendString(", ");
+				sprintFix16(buffer, psd_accumulator[i]);
+				sendString(buffer);
+				sendString("\r\n");
+			}
+		}
+	} // end if (report_to_stream != 3)
+	else
+	{
+		sprintFix16(buffer, fix16_from_int(max_bin));
+		writeStringToDisplay(buffer);
 		sendString(buffer);
 		sendString(", ");
-	}
-	nextLine();
-	sprintFix16(buffer, variance);
-	writeStringToDisplay(buffer);
-	if (report_to_stream)
-	{
+		nextLine();
+		sprintFix16(buffer, fix16_from_int(bandwidth));
+		writeStringToDisplay(buffer);
 		sendString(buffer);
-		sendString(", ");
-	}
-	nextLine();
-	sprintFix16(buffer, kappa3);
-	writeStringToDisplay(buffer);
-	if (report_to_stream)
-	{
-		sendString(buffer);
-		sendString(", ");
-	}
-	nextLine();
-	sprintFix16(buffer, kappa4);
-	writeStringToDisplay(buffer);
-	if (report_to_stream)
-	{
-		sendString(buffer);
+		nextLine();
 	}
 #endif // #ifdef TEST_STATISTICS
 
@@ -417,16 +539,32 @@ static int histogramTestsFailed(void)
 	{
 		r |= 15; // arithmetic error (probably overflow)
 	}
+	if (fix16_from_int(max_bin) < F16(PSD_MIN_PEAK * 2.0 * FFT_SIZE))
+	{
+		r |= 16; // peak in power spectrum is below minimum frequency
+	}
+	if (fix16_from_int(max_bin) > F16(PSD_MAX_PEAK * 2.0 * FFT_SIZE))
+	{
+		r |= 16; // peak in power spectrum is below minimum frequency
+	}
+	if (fix16_from_int(bandwidth) < F16(PSD_MIN_BANDWIDTH * 2.0 * FFT_SIZE))
+	{
+		r |= 32; // bandwidth of HWRNG below minimum
+	}
+	if (psd_accumulator_error)
+	{
+		r |= 48; // arithmetic error (probably overflow)
+	}
 
 #ifdef TEST_STATISTICS
 	temp_r = r;
 	writeStringToDisplay(" ");
-	for (i = 0; i < 4; i++)
+	for (i = 0; i < 6; i++)
 	{
 		if ((temp_r & 1) == 0)
 		{
 			writeStringToDisplay("p");
-			if (report_to_stream)
+			if (report_to_stream == 1)
 			{
 				sendString(", pass");
 			}
@@ -434,7 +572,7 @@ static int histogramTestsFailed(void)
 		else
 		{
 			writeStringToDisplay("F");
-			if (report_to_stream)
+			if (report_to_stream == 1)
 			{
 				sendString(", fail");
 			}
@@ -457,10 +595,21 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 {
 	uint32_t i;
 	uint32_t sample;
+	uint32_t index;
+	fix16_t scaled_sample;
+	fix16_t fft_mean;
+	fix16_t term1;
+	fix16_t term2;
+	fix16_t sum_of_squares;
+	ComplexFixed fft_buffer[FFT_SIZE + 1];
 
 	if (!is_not_first_in_histogram)
 	{
+		// This is the first sample in a series of SAMPLE_COUNT samples. Thus
+		// everything needs to start from a blank state.
 		clearHistogram();
+		memset(psd_accumulator, 0, sizeof(psd_accumulator));
+		psd_accumulator_error = 0;
 		// The histogram is empty. The sample buffer is also assumed to be
 		// empty, since this may be the first call to hardwareRandom32Bytes()
 		// after power-on. Therefore an extra call to beginFillingADCBuffer()
@@ -490,6 +639,7 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	{
 		sample = adc_sample_buffer[sample_buffer_consumed];
 		incrementHistogram(sample);
+		// Fill entropy buffer with ADC sample data.
 		buffer[i * 2] = (uint8_t)sample;
 		buffer[i * 2 + 1] = (uint8_t)(sample >> 8);
 		sample_buffer_consumed++;
@@ -497,9 +647,74 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 
 	if (sample_buffer_consumed >= SAMPLE_BUFFER_SIZE)
 	{
+		// The code below which calculates a FFT and accumulates the result
+		// assumes that SAMPLE_BUFFER_SIZE is FFT_SIZE * 2 (i.e. the sample
+		// buffer is conveniently large enough to perform a double-sized real
+		// FFT on).
+#if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
+#error "SAMPLE_BUFFER_SIZE not twice FFT_SIZE"
+#endif // #if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
+		// Fill FFT buffer with entire contents of ADC sample data.
+		// Real/imaginary interleaving is done to allow a double-size real
+		// FFT to be performed; see fftPostProcessReal() for more details.
+		for (i = 0; i < SAMPLE_BUFFER_SIZE; i++)
+		{
+			index = i >> 1;
+			scaled_sample = scaleSample((int)adc_sample_buffer[i]);
+			if ((i & 1) == 0)
+			{
+				fft_buffer[index].real = scaled_sample;
+			}
+			else
+			{
+				fft_buffer[index].imag = scaled_sample;
+			}
+		}
 		// Sample buffer fully consumed; need to get a new buffer.
 		sample_buffer_consumed = 0;
 		beginFillingADCBuffer();
+		// Before computing the FFT, the mean of the FFT buffer is subtracted
+		// out. This is because we're not interested in the DC component of
+		// the FFT result (testing the sample mean is done elsewhere in this
+		// file). Almost the same thing could be accomplished by ignoring
+		// fft_buffer[0] in the PSD accumulation loop, but pre-subtraction has
+		// better numerical performance.
+		fft_mean = fix16_zero;
+		for (i = 0; i < FFT_SIZE; i++)
+		{
+			fft_mean = fix16_add(fft_mean, fft_buffer[i].real);
+			fft_mean = fix16_add(fft_mean, fft_buffer[i].imag);
+		}
+		fft_mean = fix16_mul(fft_mean, FIX16_RECIPROCAL_OF(SAMPLE_BUFFER_SIZE));
+		for (i = 0; i < FFT_SIZE; i++)
+		{
+			fft_buffer[i].real = fix16_sub(fft_buffer[i].real, fft_mean);
+			fft_buffer[i].imag = fix16_sub(fft_buffer[i].imag, fft_mean);
+		}
+		if (fft(fft_buffer, 0))
+		{
+			psd_accumulator_error = 1;
+		}
+		if (fftPostProcessReal(fft_buffer, 0))
+		{
+			psd_accumulator_error = 1;
+		}
+		fix16_error_flag = 0;
+		for (i = 0; i < (FFT_SIZE + 1); i++)
+		{
+			term1 = fix16_mul(fft_buffer[i].real, fft_buffer[i].real);
+			term2 = fix16_mul(fft_buffer[i].imag, fft_buffer[i].imag);
+			sum_of_squares = fix16_add(term1, term2);
+			// PSD is scaled down according to the number of samples. This
+			// will normalise the result, since total power scales as the
+			// number of samples.
+			sum_of_squares = fix16_mul(sum_of_squares, FIX16_RECIPROCAL_OF(SAMPLE_COUNT / 2));
+			psd_accumulator[i] = fix16_add(psd_accumulator[i], sum_of_squares);
+		}
+		if (fix16_error_flag)
+		{
+			psd_accumulator_error = 1;
+		}
 	}
 
 	if (samples_in_histogram >= SAMPLE_COUNT)
@@ -616,9 +831,12 @@ static void sendFix16(fix16_t value)
 /** Test statistical testing functions. The testing mode is set by the first
   * byte received from the stream.
   * - 'R': Send what hardwareRandom32Bytes() returns.
-  * - Anything else: grab input data from the stream, compute various
-  *   statistical values and send them to the stream. The host can then check
-  *   the output.
+  * - 'S': Send moment-based statistical properties of HWRNG to stream.
+  * - 'P': Send power-spectral density estimate of HWRNG to stream.
+  * - 'B': Send bandwidth estimate off HWRNG to stream.
+  * - Anything which is not an uppercase letter: grab input data from the
+  *   stream, compute various statistical values and send them to the stream.
+  *   The host can then check the output.
   */
 void testStatistics(void)
 {
@@ -635,11 +853,19 @@ void testStatistics(void)
 	fix16_t entropy_estimate;
 
 	mode = streamGetOneByte();
-	if ((mode == 'R') || (mode == 'S'))
+	if ((mode >= 'A') || (mode <= 'Z'))
 	{
 		if (mode == 'S')
 		{
 			report_to_stream = 1;
+		}
+		else if (mode == 'P')
+		{
+			report_to_stream = 2;
+		}
+		else if (mode == 'B')
+		{
+			report_to_stream = 3;
 		}
 		else
 		{
@@ -658,7 +884,7 @@ void testStatistics(void)
 				}
 			}
 		}
-	} // end if ((mode == 'R') || (mode == 'S'))
+	} // end if ((mode >= 'A') || (mode <= 'Z'))
 	else
 	{
 		while(1)
@@ -697,7 +923,7 @@ void testStatistics(void)
 				streamPutOneByte(buffer[i]);
 			}
 		} // end while(1)
-	} // end else clause of if ((mode == 'R') || (mode == 'S'))
+	} // end else clause of if ((mode >= 'A') || (mode <= 'Z'))
 }
 
 #endif // #ifdef TEST_STATISTICS

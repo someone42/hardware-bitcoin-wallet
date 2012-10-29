@@ -29,7 +29,7 @@ OUTPUT_ARCH(arm);
 +=============================================================================+
 */
 
-__stack_size = 3500;
+__stack_size = 2816;
 
 PROVIDE(__stack_size = __stack_size);
 
@@ -42,7 +42,7 @@ PROVIDE(__stack_size = __stack_size);
 MEMORY
 {
 	rom (rx)	: org = 0x00000000, len = 32k
-	ram (rwx)	: org = 0x10000000, len = 8k
+	ram (rwx)	: org = 0x10000000, len = 8128 /* reserve last 64 bytes for IAP */
 }
 
 __rom_start = ORIGIN(rom);

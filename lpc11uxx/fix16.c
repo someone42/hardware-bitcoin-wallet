@@ -24,6 +24,13 @@
 #include "int64.h"
 #endif
 
+/** At the beginning of a series of computations, this will be set to zero.
+  * If it is set to some non-zero value during the computations, then
+  * something unexpected occurred (eg. arithmetic overflow) and the result
+  * should be considered invalid.
+  */
+uint8_t fix16_error_flag;
+
 /* Subtraction and addition with overflow detection.
 */
 fix16_t fix16_add(fix16_t a, fix16_t b)
