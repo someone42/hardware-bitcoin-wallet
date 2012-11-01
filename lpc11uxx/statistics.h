@@ -158,6 +158,37 @@
   * The measured 3 dB bandwidth of the current HWRNG is about 1.6 kHz.
   */
 #define PSD_MIN_BANDWIDTH			0.0726
+/** The lag, in samples, to start applying the autocorrelation threshold
+  * (see #AUTOCORR_THRESHOLD) to.
+  *
+  * For an ideal white noise source, this should be 1, so that every point
+  * (excluding the first, corresponding to lag 0, which will trivially be a
+  * large positive value) in the correlogram will be considered. However, in
+  * reality, filtering of the HWRNG signal will cause low-lag parts of
+  * the correlogram to divert away from 0 significantly. Those parts should be
+  * ignored, as they are artefacts of filtering and not genuine indicators
+  * of HWRNG failure.
+  *
+  * This value was estimated from an ensemble of measured correlograms.
+  */
+#define AUTOCORR_START_LAG			12
+/** The normalised autocorrelation threshold. If the magnitude of any values
+  * in the correlogram exceed this threshold, then the HWRNG is considered
+  * to possess too much autocorrelation (i.e. it is not random).
+  *
+  * This is "normalised" in the following sense: the actual threshold is
+  * this value, multiplied by the variance. This is done because
+  * autocorrelation amplitude scales linearly with signal variance.
+  *
+  * This value was estimated from an ensemble of measured correlograms.
+  */
+#define AUTOCORR_THRESHOLD			1.94
+/** Minimum acceptable entropy estimate (in bits) per sample. This is
+  * approximately 10 standard deviations (calculated using N = 4096) below
+  * the mean entropy estimate for a Gaussian distribution with a standard
+  * deviation of 24. This was calculated using Monte Carlo simulation.
+  */
+#define STATTEST_MIN_ENTROPY		6.43
 
 /**@}*/
 

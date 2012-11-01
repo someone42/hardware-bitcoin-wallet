@@ -67,7 +67,7 @@ static const fix16_t fix16_zero = 0x00000000; /*!< fix16_t value of 0 */
 /*! Generate multiplicative constant for division by x. This does not do
  *  rounding and only works for positive numbers.
 */
-#define  FIX16_RECIPROCAL_OF(x)		(0x00010000 / x)
+#define  FIX16_RECIPROCAL_OF(x)		(0x00010000 / (x))
 
 /*! Macro for defining fix16_t constant values.
    The functions above can't be used from e.g. global variable initializers,

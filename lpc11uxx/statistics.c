@@ -32,7 +32,8 @@ static void sendString(const char *buffer);
 
 /** Set to non-zero to send statistical properties to stream. 1 = moment-based
   * statistical properties, 2 = power spectral density estimate, 3 = bandwidth
-  * estimate. */
+  * estimate, 4 = autocorrelation results, 5 = maximum autocorrelation value
+  * and entropy estimate. */
 static int report_to_stream;
 #endif // #ifdef TEST_STATISTICS
 
@@ -296,6 +297,32 @@ static fix16_t calculateCentralMoment(fix16_t mean, uint32_t power)
 	return calculateCentralMomentRecursive(mean, power, SAMPLE_COUNT);
 }
 
+/** Subtract the mean off every input value in a FFT buffer. Both real and
+  * imaginary components are considered in the calculation of the mean, and
+  * both real and imaginary components are affected by the subtraction. Thus
+  * this function is intended to be used with double-sized real FFTs.
+  * \param fft_buffer The array of FFT input values. This must be large
+  *                   enough to hold #FFT_SIZE complex values.
+  */
+static void subtractMean(ComplexFixed *fft_buffer)
+{
+	uint32_t i;
+	fix16_t fft_mean;
+
+	fft_mean = fix16_zero;
+	for (i = 0; i < FFT_SIZE; i++)
+	{
+		fft_mean = fix16_add(fft_mean, fft_buffer[i].real);
+		fft_mean = fix16_add(fft_mean, fft_buffer[i].imag);
+	}
+	fft_mean = fix16_mul(fft_mean, FIX16_RECIPROCAL_OF(SAMPLE_BUFFER_SIZE));
+	for (i = 0; i < FFT_SIZE; i++)
+	{
+		fft_buffer[i].real = fix16_sub(fft_buffer[i].real, fft_mean);
+		fft_buffer[i].imag = fix16_sub(fft_buffer[i].imag, fft_mean);
+	}
+}
+
 /** Obtains an estimate of the (Shannon) entropy per sample, based on the
   * histogram.
   * \return The value of the estimate.
@@ -392,13 +419,101 @@ static int estimateBandwidth(int *out_max_bin)
 	return right_bin - left_bin;
 }
 
-/** Run statistical tests on histogram and report any failures.
-  * This only should be called once the histogram is full.
-  * \return 0 if all tests passed, non-zero if any tests failed.
+/** Calculate the (cyclic) autocorrelation by using the power spectral density
+  * estimate (#psd_accumulator).
+  * \param fft_buffer The result of the autocorrelation computation will be
+  *                   written here.
+  * \return 0 if the calculation completed successfully, non-zero if there was
+  *         some arithmetic error.
   */
-static int histogramTestsFailed(void)
+static int calculateAutoCorrelation(ComplexFixed *fft_buffer)
 {
 	int r;
+	fix16_t sample;
+	uint32_t i;
+	uint32_t fft_index;
+	uint32_t psd_index;
+
+	psd_index = 0;
+	for (i = 0; i < (FFT_SIZE * 2); i++)
+	{
+		sample = psd_accumulator[psd_index];
+		fft_index = i >> 1;
+		if ((i & 1) == 0)
+		{
+			fft_buffer[fft_index].real = sample;
+		}
+		else
+		{
+			fft_buffer[fft_index].imag = sample;
+		}
+		if (i < FFT_SIZE)
+		{
+			psd_index++;
+		}
+		else
+		{
+			psd_index--;
+		}
+	}
+	r = 0;
+	if (fft(fft_buffer, 1))
+	{
+		r = 1;
+	}
+	if (fftPostProcessReal(fft_buffer, 1))
+	{
+		r = 1;
+	}
+	return r;
+}
+
+/** Find the magnitude of the largest autocorrelation amplitude.
+  * Theoretically, for an infinitely large sample and a perfect noise source,
+  * the autocorrelation amplitude should be 0 everywhere (except for lag = 0).
+  * Thus the maximum magnitude quantifies how non-ideal the HWRNG is.
+  * \param fft_buffer The correlogram, as calculated by
+  *                   calculateAutoCorrelation(). This should have at
+  *                   least #FFT_SIZE + 1 entries.
+  */
+static fix16_t calculateMaximumAutoCorrelation(ComplexFixed *fft_buffer)
+{
+	fix16_t max;
+	fix16_t sample;
+	uint32_t i;
+
+	max = fix16_zero;
+	for (i = AUTOCORR_START_LAG; i < (FFT_SIZE + 1); i++)
+	{
+		sample = fft_buffer[i].real;
+		if (sample < fix16_zero)
+		{
+			sample = -sample;
+		}
+		if (sample > max)
+		{
+			max = sample;
+		}
+	}
+	return max;
+}
+
+/** Run statistical tests on histogram and report any failures.
+  * This only should be called once the histogram is full.
+  * \param fft_buffer An array to use in FFT computations. This must have
+  *                   enough space for #FFT_SIZE + 1 entries. The reason why
+  *                   the caller must specify an array (instead of the more
+  *                   usual case of the callee declaring another local
+  *                   variable) is that the buffer is quite large. This
+  *                   interface allows this function to re-use a FFT buffer.
+  * \return 0 if all tests passed, non-zero if any tests failed.
+  */
+static int histogramTestsFailed(ComplexFixed *fft_buffer)
+{
+	int r;
+	int moment_error;
+	int autocorrelation_error;
+	int entropy_error;
 	fix16_t mean;
 	fix16_t variance;
 	fix16_t kappa3; // non-standardised skewness
@@ -410,6 +525,8 @@ static int histogramTestsFailed(void)
 	fix16_t term1;
 	int bandwidth; // as FFT bin number
 	int max_bin; // as FFT bin number
+	fix16_t max_autocorrelation;
+	fix16_t entropy_estimate;
 #ifdef TEST_STATISTICS
 	int i;
 	int temp_r;
@@ -421,7 +538,15 @@ static int histogramTestsFailed(void)
 	variance = calculateCentralMoment(mean, 2);
 	kappa3 = calculateCentralMoment(mean, 3);
 	kappa4 = calculateCentralMoment(mean, 4);
+	moment_error = fix16_error_flag;
+	fix16_error_flag = 0;
 	bandwidth = estimateBandwidth(&max_bin);
+	fix16_error_flag = 0;
+	autocorrelation_error = calculateAutoCorrelation(fft_buffer);
+	max_autocorrelation = calculateMaximumAutoCorrelation(fft_buffer);
+	fix16_error_flag = 0;
+	entropy_estimate = estimateEntropy();
+	entropy_error = fix16_error_flag;
 
 #ifdef TEST_STATISTICS
 	// Write moments to screen so that they may be inspected in real-time.
@@ -429,7 +554,49 @@ static int histogramTestsFailed(void)
 	// so that the host may capture them into a comma-seperated variable file.
 	displayOn();
 	clearDisplay();
-	if (report_to_stream != 3)
+	if (report_to_stream == 3)
+	{
+		sprintFix16(buffer, fix16_from_int(max_bin));
+		writeStringToDisplay(buffer);
+		sendString(buffer);
+		sendString(", ");
+		nextLine();
+		sprintFix16(buffer, fix16_from_int(bandwidth));
+		writeStringToDisplay(buffer);
+		sendString(buffer);
+		nextLine();
+	}
+	else if (report_to_stream == 4)
+	{
+		for (i = 0; i < (FFT_SIZE + 1); i++)
+		{
+			sprintFix16(buffer, fix16_from_int(i));
+			sendString(buffer);
+			sendString(", ");
+			sprintFix16(buffer, fft_buffer[i].real);
+			sendString(buffer);
+			sendString(", ");
+			sprintFix16(buffer, fft_buffer[i].imag);
+			sendString(buffer);
+			sendString("\r\n");
+		}
+	}
+	else if (report_to_stream == 5)
+	{
+		sprintFix16(buffer, variance);
+		writeStringToDisplay(buffer);
+		nextLine();
+		sprintFix16(buffer, max_autocorrelation);
+		writeStringToDisplay(buffer);
+		sendString(buffer);
+		sendString(", ");
+		nextLine();
+		sprintFix16(buffer, entropy_estimate);
+		writeStringToDisplay(buffer);
+		sendString(buffer);
+		nextLine();
+	}
+	else
 	{
 		sprintFix16(buffer, mean);
 		writeStringToDisplay(buffer);
@@ -473,19 +640,8 @@ static int histogramTestsFailed(void)
 				sendString("\r\n");
 			}
 		}
-	} // end if (report_to_stream != 3)
-	else
-	{
-		sprintFix16(buffer, fix16_from_int(max_bin));
-		writeStringToDisplay(buffer);
-		sendString(buffer);
-		sendString(", ");
-		nextLine();
-		sprintFix16(buffer, fix16_from_int(bandwidth));
-		writeStringToDisplay(buffer);
-		sendString(buffer);
-		nextLine();
-	}
+	} // end if (report_to_stream == 3)
+	
 #endif // #ifdef TEST_STATISTICS
 
 	r = 0;
@@ -535,7 +691,7 @@ static int histogramTestsFailed(void)
 	{
 		r |= 8; // kurtosis above maximum
 	}
-	if (fix16_error_flag || histogram_overflow)
+	if (moment_error || histogram_overflow)
 	{
 		r |= 15; // arithmetic error (probably overflow)
 	}
@@ -555,11 +711,27 @@ static int histogramTestsFailed(void)
 	{
 		r |= 48; // arithmetic error (probably overflow)
 	}
+	if (max_autocorrelation > fix16_mul(variance, F16(AUTOCORR_THRESHOLD)))
+	{
+		r |= 64; // maximum autocorrelation amplitude above maximum
+	}
+	if (autocorrelation_error)
+	{
+		r |= 64; // arithmetic error (probably overflow)
+	}
+	if (entropy_estimate < F16(STATTEST_MIN_ENTROPY))
+	{
+		r |= 128; // entropy per sample below minimum
+	}
+	if (entropy_error)
+	{
+		r |= 128; // arithmetic error (probably overflow)
+	}
 
 #ifdef TEST_STATISTICS
 	temp_r = r;
 	writeStringToDisplay(" ");
-	for (i = 0; i < 6; i++)
+	for (i = 0; i < 8; i++)
 	{
 		if ((temp_r & 1) == 0)
 		{
@@ -579,7 +751,10 @@ static int histogramTestsFailed(void)
 		}
 		temp_r >>= 1;
 	}
-	sendString("\r\n");
+	if (report_to_stream != 0)
+	{
+		sendString("\r\n");
+	}
 #endif // #ifdef TEST_STATISTICS
 
 	return r;
@@ -597,7 +772,6 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	uint32_t sample;
 	uint32_t index;
 	fix16_t scaled_sample;
-	fix16_t fft_mean;
 	fix16_t term1;
 	fix16_t term2;
 	fix16_t sum_of_squares;
@@ -677,20 +851,9 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 		// out. This is because we're not interested in the DC component of
 		// the FFT result (testing the sample mean is done elsewhere in this
 		// file). Almost the same thing could be accomplished by ignoring
-		// fft_buffer[0] in the PSD accumulation loop, but pre-subtraction has
-		// better numerical performance.
-		fft_mean = fix16_zero;
-		for (i = 0; i < FFT_SIZE; i++)
-		{
-			fft_mean = fix16_add(fft_mean, fft_buffer[i].real);
-			fft_mean = fix16_add(fft_mean, fft_buffer[i].imag);
-		}
-		fft_mean = fix16_mul(fft_mean, FIX16_RECIPROCAL_OF(SAMPLE_BUFFER_SIZE));
-		for (i = 0; i < FFT_SIZE; i++)
-		{
-			fft_buffer[i].real = fix16_sub(fft_buffer[i].real, fft_mean);
-			fft_buffer[i].imag = fix16_sub(fft_buffer[i].imag, fft_mean);
-		}
+		// fft_buffer[0] in the PSD accumulation loop, but pre-subtraction
+		// reduces the chance of overflow
+		subtractMean(fft_buffer);
 		if (fft(fft_buffer, 0))
 		{
 			psd_accumulator_error = 1;
@@ -702,13 +865,20 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 		fix16_error_flag = 0;
 		for (i = 0; i < (FFT_SIZE + 1); i++)
 		{
-			term1 = fix16_mul(fft_buffer[i].real, fft_buffer[i].real);
-			term2 = fix16_mul(fft_buffer[i].imag, fft_buffer[i].imag);
+			term1 = fix16_mul(fft_buffer[i].real, FIX16_RECIPROCAL_OF(8));
+			term1 = fix16_mul(term1, term1);
+			term2 = fix16_mul(fft_buffer[i].imag, FIX16_RECIPROCAL_OF(8));
+			term2 = fix16_mul(term2, term2);
 			sum_of_squares = fix16_add(term1, term2);
 			// PSD is scaled down according to the number of samples. This
 			// will normalise the result, since total power scales as the
 			// number of samples.
-			sum_of_squares = fix16_mul(sum_of_squares, FIX16_RECIPROCAL_OF(SAMPLE_COUNT / 2));
+			// Since FIX16_RECIPROCAL_OF expects an integer, SAMPLE_COUNT must
+			// be >= 512.
+#if SAMPLE_COUNT < 512
+#error "SAMPLE_COUNT too small (it's < 512)"
+#endif // #if SAMPLE_COUNT < 512
+			sum_of_squares = fix16_mul(sum_of_squares, FIX16_RECIPROCAL_OF(SAMPLE_COUNT / 512));
 			psd_accumulator[i] = fix16_add(psd_accumulator[i], sum_of_squares);
 		}
 		if (fix16_error_flag)
@@ -721,7 +891,7 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	{
 		// Histogram is full. Statistical properties can now be calculated.
 		is_not_first_in_histogram = 0;
-		if (histogramTestsFailed())
+		if (histogramTestsFailed(fft_buffer))
 		{
 			return -1; // statistical tests indicate HWRNG failure
 		}
@@ -834,6 +1004,9 @@ static void sendFix16(fix16_t value)
   * - 'S': Send moment-based statistical properties of HWRNG to stream.
   * - 'P': Send power-spectral density estimate of HWRNG to stream.
   * - 'B': Send bandwidth estimate off HWRNG to stream.
+  * - 'A': Send results of autocorrelation computation to stream.
+  * - 'E': Send maximum autocorrelation amplitude and entropy esimate to
+  *        stream.
   * - Anything which is not an uppercase letter: grab input data from the
   *   stream, compute various statistical values and send them to the stream.
   *   The host can then check the output.
@@ -866,6 +1039,14 @@ void testStatistics(void)
 		else if (mode == 'B')
 		{
 			report_to_stream = 3;
+		}
+		else if (mode == 'A')
+		{
+			report_to_stream = 4;
+		}
+		else if (mode == 'E')
+		{
+			report_to_stream = 5;
 		}
 		else
 		{
