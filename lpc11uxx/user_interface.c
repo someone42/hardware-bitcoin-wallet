@@ -27,7 +27,7 @@
   * for approval from the user. This incidentally sets the maximum
   * number of outputs per transaction that parseTransaction() can deal with.
   */
-#define MAX_OUTPUTS		20
+#define MAX_OUTPUTS		16
 
 /** Storage for the text of transaction output amounts. */
 static char list_amount[MAX_OUTPUTS][TEXT_AMOUNT_LENGTH];

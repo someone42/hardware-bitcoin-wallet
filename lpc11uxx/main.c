@@ -5,6 +5,7 @@
   * This file is licensed as described by the file LICENCE.
   */
 
+#include <stdint.h>
 #include "LPC11Uxx.h"
 #include "usart.h"
 #include "serial_fifo.h"
@@ -46,10 +47,27 @@ static void initSystemClock(void)
 	LPC_SYSCON->SYSAHBCLKDIV = 1; // set system clock divider = 1
 }
 
+#ifdef CHECK_STACK_USAGE
+#include "../endian.h"
+extern void *__stack_start;
+extern void *__stack_end;
+#endif // #ifdef CHECK_STACK_USAGE
+
 /** Entry point. This is the first thing which is called after startup code.
   * This never returns. */
 int main(void)
 {
+#ifdef CHECK_STACK_USAGE
+	uint32_t i;
+	int j;
+	uint8_t buffer[4];
+
+	// Mark out stack with 0xcc.
+	for (i = (uint32_t)&__stack_start; i < (((uint32_t)&i) - 256); i++)
+	{
+		*((uint8_t *)i) = 0xcc;
+	}
+#endif // #ifdef CHECK_STACK_USAGE
 	initSystemClock();
 	initUsart();
 	initSerialFIFO();
@@ -75,6 +93,22 @@ int main(void)
 	do
 	{
 		processPacket();
+#ifdef CHECK_STACK_USAGE
+		// Find out how much stack space was used by looking for changes to
+		// the 0xcc marker.
+		for (i = (uint32_t)&__stack_start; i < (((uint32_t)&i) - 256); i++)
+		{
+			if (*((uint8_t *)i) != 0xcc)
+			{
+				writeU32LittleEndian(buffer, ((uint32_t)&__stack_end) - i);
+				for (j = 0; j < 4; j++)
+				{
+					streamPutOneByte(buffer[j]);
+				}
+				break;
+			}
+		}
+#endif // #ifdef CHECK_STACK_USAGE
 	} while (1);
 #endif // #ifdef TEST_FFT
 }

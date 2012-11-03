@@ -42,10 +42,23 @@
 /** Initial value for acknowledge counters. */
 #define INITIAL_ACKNOWLEDGE		16
 
-/** Storage for the transmit buffer. */
-static volatile uint8_t transmit_buffer_storage[TRANSMIT_BUFFER_SIZE];
-/** Storage for the receive buffer. */
-static volatile uint8_t receive_buffer_storage[RECEIVE_BUFFER_SIZE];
+/** End address of USB RAM. Transmit and receive buffers are stored in
+  * USB RAM (instead of main RAM) to conserve main RAM. There is no security
+  * risk (even in the case of a severe hardware or software bug which allows
+  * the host to access USB RAM arbitrarily) in storing the buffers in USB RAM,
+  * since everything that goes in the transmit/receive buffers also travels
+  * over the USB link.
+  */
+#define USBRAM_END			((volatile uint8_t *)0x20004800)
+
+/** Storage for the transmit buffer.
+  * \warning This is stored in USB RAM. See #USBRAM_START for more details.
+  */
+static volatile uint8_t *transmit_buffer_storage = USBRAM_END - RECEIVE_BUFFER_SIZE - TRANSMIT_BUFFER_SIZE;
+/** Storage for the receive buffer.
+  * \warning This is stored in USB RAM. See #USBRAM_START for more details.
+  */
+static volatile uint8_t *receive_buffer_storage = USBRAM_END - RECEIVE_BUFFER_SIZE;
 /** The transmit buffer. */
 volatile CircularBuffer transmit_buffer;
 /** The receive buffer. */
@@ -60,10 +73,16 @@ static uint32_t transmit_acknowledge;
 
 /** Initialise #transmit_buffer and #receive_buffer.
   * \warning This must be called after sanitising RAM, otherwise the storage
-  *          pointers won't be set correctly.
+  *          pointers won't be set correctly and buffers in USBRAM won't be
+  *          cleared.
   */
 void initSerialFIFO(void)
 {
+	LPC_SYSCON->SYSAHBCLKCTRL |= 0x08000000; // enable clock to USBRAM
+	memset((void *)transmit_buffer_storage, 0xff, TRANSMIT_BUFFER_SIZE); // just to be sure
+	memset((void *)receive_buffer_storage, 0xff, RECEIVE_BUFFER_SIZE); // just to be sure
+	memset((void *)transmit_buffer_storage, 0, TRANSMIT_BUFFER_SIZE);
+	memset((void *)receive_buffer_storage, 0, RECEIVE_BUFFER_SIZE);
 	transmit_buffer.next = 0;
 	transmit_buffer.remaining = 0;
 	transmit_buffer.size = TRANSMIT_BUFFER_SIZE;

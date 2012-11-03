@@ -14,6 +14,7 @@
   * This file is licensed as described by the file LICENCE.
   */
 
+#include "../common.h"
 #include <stdint.h>
 #include <string.h>
 #include "fix16.h"
@@ -27,8 +28,19 @@
 #include "../hwinterface.h"
 #include "LPC11Uxx.h"
 
-static void sprintFix16(char *buffer, fix16_t in);
-static void sendString(const char *buffer);
+static void reportStatistics(uint32_t tests_failed);
+static void reportFftResults(ComplexFixed *fft_buffer);
+
+// These are copies of some variables in histogramTestsFailed() and
+// fftTestsFailed() which are reported by reportStatistics().
+static fix16_t most_recent_mean;
+static fix16_t most_recent_variance;
+static fix16_t most_recent_kappa3;
+static fix16_t most_recent_kappa4;
+static int most_recent_max_bin;
+static int most_recent_bandwidth;
+static fix16_t most_recent_max_autocorrelation;
+static fix16_t most_recent_entropy_estimate;
 
 /** Set to non-zero to send statistical properties to stream. 1 = moment-based
   * statistical properties, 2 = power spectral density estimate, 3 = bandwidth
@@ -476,7 +488,7 @@ static int calculateAutoCorrelation(ComplexFixed *fft_buffer)
   *                   calculateAutoCorrelation(). This should have at
   *                   least #FFT_SIZE + 1 entries.
   */
-static fix16_t calculateMaximumAutoCorrelation(ComplexFixed *fft_buffer)
+static fix16_t findMaximumAutoCorrelation(ComplexFixed *fft_buffer)
 {
 	fix16_t max;
 	fix16_t sample;
@@ -498,24 +510,20 @@ static fix16_t calculateMaximumAutoCorrelation(ComplexFixed *fft_buffer)
 	return max;
 }
 
-/** Run statistical tests on histogram and report any failures.
+/** Run histogram-based statistical tests on HWRNG signal and report any
+  * failures.
   * This only should be called once the histogram is full.
-  * \param fft_buffer An array to use in FFT computations. This must have
-  *                   enough space for #FFT_SIZE + 1 entries. The reason why
-  *                   the caller must specify an array (instead of the more
-  *                   usual case of the callee declaring another local
-  *                   variable) is that the buffer is quite large. This
-  *                   interface allows this function to re-use a FFT buffer.
+  * \param variance After it is calculated, the variance will be written here
+  *                 (it's needed so that fftTestsFailed() can do some
+  *                 normalisation).
   * \return 0 if all tests passed, non-zero if any tests failed.
   */
-static int histogramTestsFailed(ComplexFixed *fft_buffer)
+static NOINLINE uint32_t histogramTestsFailed(fix16_t *variance)
 {
-	int r;
+	uint32_t tests_failed;
 	int moment_error;
-	int autocorrelation_error;
 	int entropy_error;
 	fix16_t mean;
-	fix16_t variance;
 	fix16_t kappa3; // non-standardised skewness
 	fix16_t kappa4; // non-standardised kurtosis
 	fix16_t variance_squared;
@@ -523,158 +531,57 @@ static int histogramTestsFailed(ComplexFixed *fft_buffer)
 	fix16_t variance_cubed;
 	fix16_t kappa3_squared;
 	fix16_t term1;
-	int bandwidth; // as FFT bin number
-	int max_bin; // as FFT bin number
-	fix16_t max_autocorrelation;
 	fix16_t entropy_estimate;
-#ifdef TEST_STATISTICS
-	int i;
-	int temp_r;
-	char buffer[20];
-#endif // #ifdef TEST_STATISTICS
 
 	fix16_error_flag = 0;
 	mean = calculateCentralMoment(fix16_zero, 1);
-	variance = calculateCentralMoment(mean, 2);
+	*variance = calculateCentralMoment(mean, 2);
 	kappa3 = calculateCentralMoment(mean, 3);
 	kappa4 = calculateCentralMoment(mean, 4);
 	moment_error = fix16_error_flag;
-	fix16_error_flag = 0;
-	bandwidth = estimateBandwidth(&max_bin);
-	fix16_error_flag = 0;
-	autocorrelation_error = calculateAutoCorrelation(fft_buffer);
-	max_autocorrelation = calculateMaximumAutoCorrelation(fft_buffer);
 	fix16_error_flag = 0;
 	entropy_estimate = estimateEntropy();
 	entropy_error = fix16_error_flag;
 
 #ifdef TEST_STATISTICS
-	// Write moments to screen so that they may be inspected in real-time.
-	// If reporting to stream is enabled, they are also written to the stream
-	// so that the host may capture them into a comma-seperated variable file.
-	displayOn();
-	clearDisplay();
-	if (report_to_stream == 3)
-	{
-		sprintFix16(buffer, fix16_from_int(max_bin));
-		writeStringToDisplay(buffer);
-		sendString(buffer);
-		sendString(", ");
-		nextLine();
-		sprintFix16(buffer, fix16_from_int(bandwidth));
-		writeStringToDisplay(buffer);
-		sendString(buffer);
-		nextLine();
-	}
-	else if (report_to_stream == 4)
-	{
-		for (i = 0; i < (FFT_SIZE + 1); i++)
-		{
-			sprintFix16(buffer, fix16_from_int(i));
-			sendString(buffer);
-			sendString(", ");
-			sprintFix16(buffer, fft_buffer[i].real);
-			sendString(buffer);
-			sendString(", ");
-			sprintFix16(buffer, fft_buffer[i].imag);
-			sendString(buffer);
-			sendString("\r\n");
-		}
-	}
-	else if (report_to_stream == 5)
-	{
-		sprintFix16(buffer, variance);
-		writeStringToDisplay(buffer);
-		nextLine();
-		sprintFix16(buffer, max_autocorrelation);
-		writeStringToDisplay(buffer);
-		sendString(buffer);
-		sendString(", ");
-		nextLine();
-		sprintFix16(buffer, entropy_estimate);
-		writeStringToDisplay(buffer);
-		sendString(buffer);
-		nextLine();
-	}
-	else
-	{
-		sprintFix16(buffer, mean);
-		writeStringToDisplay(buffer);
-		if (report_to_stream == 1)
-		{
-			sendString(buffer);
-			sendString(", ");
-		}
-		nextLine();
-		sprintFix16(buffer, variance);
-		writeStringToDisplay(buffer);
-		if (report_to_stream == 1)
-		{
-			sendString(buffer);
-			sendString(", ");
-		}
-		nextLine();
-		sprintFix16(buffer, kappa3);
-		writeStringToDisplay(buffer);
-		if (report_to_stream == 1)
-		{
-			sendString(buffer);
-			sendString(", ");
-		}
-		nextLine();
-		sprintFix16(buffer, kappa4);
-		writeStringToDisplay(buffer);
-		if (report_to_stream == 1)
-		{
-			sendString(buffer);
-		}
-		if (report_to_stream == 2)
-		{
-			for (i = 0; i < (FFT_SIZE + 1); i++)
-			{
-				sprintFix16(buffer, fix16_from_int(i));
-				sendString(buffer);
-				sendString(", ");
-				sprintFix16(buffer, psd_accumulator[i]);
-				sendString(buffer);
-				sendString("\r\n");
-			}
-		}
-	} // end if (report_to_stream == 3)
-	
+	most_recent_mean = mean;
+	most_recent_variance = *variance;
+	most_recent_kappa3 = kappa3;
+	most_recent_kappa4 = kappa4;
+	most_recent_entropy_estimate = entropy_estimate;
 #endif // #ifdef TEST_STATISTICS
 
-	r = 0;
+	tests_failed = 0;
 	// STATTEST_MIN_MEAN and STATTEST_MAX_MEAN are in ADC output numbers.
 	// To be comparable to mean, they need to be scaled and offset, just
 	// as samples are in updateIteratorCache().
 	if (mean <= F16((STATTEST_MIN_MEAN - (HISTOGRAM_NUM_BINS / 2)) / SAMPLE_SCALE_DOWN))
 	{
-		r |= 1; // mean below minimum
+		tests_failed |= 1; // mean below minimum
 	}
 	if (mean >= F16((STATTEST_MAX_MEAN - (HISTOGRAM_NUM_BINS / 2)) / SAMPLE_SCALE_DOWN)) 
 	{
-		r |= 1; // mean above maximum
+		tests_failed |= 1; // mean above maximum
 	}
-	if (variance <= F16((STATTEST_MIN_VARIANCE / SAMPLE_SCALE_DOWN) / SAMPLE_SCALE_DOWN))
+	if (*variance <= F16((STATTEST_MIN_VARIANCE / SAMPLE_SCALE_DOWN) / SAMPLE_SCALE_DOWN))
 	{
-		r |= 2; // variance below minimum
+		tests_failed |= 2; // variance below minimum
 	}
-	if (variance >= F16((STATTEST_MAX_VARIANCE / SAMPLE_SCALE_DOWN) / SAMPLE_SCALE_DOWN))
+	if (*variance >= F16((STATTEST_MAX_VARIANCE / SAMPLE_SCALE_DOWN) / SAMPLE_SCALE_DOWN))
 	{
-		r |= 2; // variance below minimum
+		tests_failed |= 2; // variance below minimum
 	}
 	// kappa3 is supposed to be standardised by dividing by
 	// variance ^ (3/2), but this would involve one division and one square
 	// root. But since skewness = kappa3 / variance ^ (3/2), this implies
 	// that kappa3 ^ 2 = variance ^ 3 * skewness ^ 2.
-	variance_squared = fix16_mul(variance, variance);
-	variance_cubed = fix16_mul(variance_squared, variance);
+	variance_squared = fix16_mul(*variance, *variance);
+	variance_cubed = fix16_mul(variance_squared, *variance);
 	kappa3_squared = fix16_mul(kappa3, kappa3);
 	// Thanks to the squaring of kappa3, only one test is needed.
 	if (kappa3_squared >= fix16_mul(variance_cubed, F16(STATTEST_MAX_SKEWNESS * STATTEST_MAX_SKEWNESS)))
 	{
-		r |= 4; // skewness out of bounds
+		tests_failed |= 4; // skewness out of bounds
 	}
 	// kappa4 is supposed to be standardised by dividing by variance ^ 2, but
 	// this would involve division. But since
@@ -684,80 +591,168 @@ static int histogramTestsFailed(ComplexFixed *fft_buffer)
 	term1 = fix16_mul(F16(STATTEST_MIN_KURTOSIS), variance_squared);
 	if (kappa4 <= fix16_add(term1, three_times_variance_squared))
 	{
-		r |= 8; // kurtosis below minimum
+		tests_failed |= 8; // kurtosis below minimum
 	}
 	term1 = fix16_mul(F16(STATTEST_MAX_KURTOSIS), variance_squared);
 	if (kappa4 >= fix16_add(term1, three_times_variance_squared))
 	{
-		r |= 8; // kurtosis above maximum
+		tests_failed |= 8; // kurtosis above maximum
 	}
 	if (moment_error || histogram_overflow)
 	{
-		r |= 15; // arithmetic error (probably overflow)
-	}
-	if (fix16_from_int(max_bin) < F16(PSD_MIN_PEAK * 2.0 * FFT_SIZE))
-	{
-		r |= 16; // peak in power spectrum is below minimum frequency
-	}
-	if (fix16_from_int(max_bin) > F16(PSD_MAX_PEAK * 2.0 * FFT_SIZE))
-	{
-		r |= 16; // peak in power spectrum is below minimum frequency
-	}
-	if (fix16_from_int(bandwidth) < F16(PSD_MIN_BANDWIDTH * 2.0 * FFT_SIZE))
-	{
-		r |= 32; // bandwidth of HWRNG below minimum
-	}
-	if (psd_accumulator_error)
-	{
-		r |= 48; // arithmetic error (probably overflow)
-	}
-	if (max_autocorrelation > fix16_mul(variance, F16(AUTOCORR_THRESHOLD)))
-	{
-		r |= 64; // maximum autocorrelation amplitude above maximum
-	}
-	if (autocorrelation_error)
-	{
-		r |= 64; // arithmetic error (probably overflow)
+		tests_failed |= 15; // arithmetic error (probably overflow)
 	}
 	if (entropy_estimate < F16(STATTEST_MIN_ENTROPY))
 	{
-		r |= 128; // entropy per sample below minimum
+		tests_failed |= 128; // entropy per sample below minimum
 	}
 	if (entropy_error)
 	{
-		r |= 128; // arithmetic error (probably overflow)
+		tests_failed |= 128; // arithmetic error (probably overflow)
 	}
 
+	return tests_failed;
+}
+
+/** Run FFT-based statistical tests on HWRNG signal and report any failures.
+  * This only should be called once the power spectral density accumulator
+  * (see #psd_accumulator) has accumulated enough samples.
+  * \param variance The variance, as calculated by histogramTestsFailed().
+  * \return 0 if all tests passed, non-zero if any tests failed.
+  */
+static NOINLINE uint32_t fftTestsFailed(fix16_t variance)
+{
+	uint32_t tests_failed;
+	int autocorrelation_error;
+	int bandwidth; // as FFT bin number
+	int max_bin; // as FFT bin number
+	fix16_t max_autocorrelation;
+	ComplexFixed fft_buffer[FFT_SIZE + 1];
+
+	fix16_error_flag = 0;
+	bandwidth = estimateBandwidth(&max_bin);
+	fix16_error_flag = 0;
+	autocorrelation_error = calculateAutoCorrelation(fft_buffer);
+	max_autocorrelation = findMaximumAutoCorrelation(fft_buffer);
+
 #ifdef TEST_STATISTICS
-	temp_r = r;
-	writeStringToDisplay(" ");
-	for (i = 0; i < 8; i++)
+	if (report_to_stream == 4)
 	{
-		if ((temp_r & 1) == 0)
+		// Report autocorrelation results.
+		reportFftResults(fft_buffer);
+	}
+	most_recent_max_bin = max_bin;
+	most_recent_bandwidth = bandwidth;
+	most_recent_max_autocorrelation = max_autocorrelation;
+#endif // #ifdef TEST_STATISTICS
+
+	tests_failed = 0;
+	if (fix16_from_int(max_bin) < F16(PSD_MIN_PEAK * 2.0 * FFT_SIZE))
+	{
+		tests_failed |= 16; // peak in power spectrum is below minimum frequency
+	}
+	if (fix16_from_int(max_bin) > F16(PSD_MAX_PEAK * 2.0 * FFT_SIZE))
+	{
+		tests_failed |= 16; // peak in power spectrum is below minimum frequency
+	}
+	if (fix16_from_int(bandwidth) < F16(PSD_MIN_BANDWIDTH * 2.0 * FFT_SIZE))
+	{
+		tests_failed |= 32; // bandwidth of HWRNG below minimum
+	}
+	if (psd_accumulator_error)
+	{
+		tests_failed |= 48; // arithmetic error (probably overflow)
+	}
+	if (max_autocorrelation > fix16_mul(variance, F16(AUTOCORR_THRESHOLD)))
+	{
+		tests_failed |= 64; // maximum autocorrelation amplitude above maximum
+	}
+	if (autocorrelation_error)
+	{
+		tests_failed |= 64; // arithmetic error (probably overflow)
+	}
+	return tests_failed;
+}
+
+/** Calculate (an estimate of) the power spectral density of the HWRNG. The
+  * result will be accumulated in #psd_accumulator.
+  * \param source_buffer An array of samples from the ADC which is connected
+  *                      to the HWRNG. This must have #SAMPLE_BUFFER_SIZE
+  *                      entries in it.
+  */
+static void NOINLINE accumulatePowerSpectralDensity(volatile uint16_t *source_buffer)
+{
+	uint32_t i;
+	uint32_t index;
+	fix16_t scaled_sample;
+	fix16_t term1;
+	fix16_t term2;
+	fix16_t sum_of_squares;
+	ComplexFixed fft_buffer[FFT_SIZE + 1];
+
+	// The code below which calculates a FFT and accumulates the result
+	// assumes that SAMPLE_BUFFER_SIZE is FFT_SIZE * 2 (i.e. the sample
+	// buffer is conveniently large enough to perform a double-sized real
+	// FFT on).
+#if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
+#error "SAMPLE_BUFFER_SIZE not twice FFT_SIZE"
+#endif // #if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
+	// Fill FFT buffer with entire contents of ADC sample data.
+	// Real/imaginary interleaving is done to allow a double-size real
+	// FFT to be performed; see fftPostProcessReal() for more details.
+	for (i = 0; i < SAMPLE_BUFFER_SIZE; i++)
+	{
+		index = i >> 1;
+		scaled_sample = scaleSample((int)source_buffer[i]);
+		if ((i & 1) == 0)
 		{
-			writeStringToDisplay("p");
-			if (report_to_stream == 1)
-			{
-				sendString(", pass");
-			}
+			fft_buffer[index].real = scaled_sample;
 		}
 		else
 		{
-			writeStringToDisplay("F");
-			if (report_to_stream == 1)
-			{
-				sendString(", fail");
-			}
+			fft_buffer[index].imag = scaled_sample;
 		}
-		temp_r >>= 1;
 	}
-	if (report_to_stream != 0)
-	{
-		sendString("\r\n");
-	}
-#endif // #ifdef TEST_STATISTICS
 
-	return r;
+	// Before computing the FFT, the mean of the FFT buffer is subtracted
+	// out. This is because we're not interested in the DC component of
+	// the FFT result (testing the sample mean is done elsewhere in this
+	// file). Almost the same thing could be accomplished by ignoring
+	// fft_buffer[0] in the PSD accumulation loop, but pre-subtraction
+	// reduces the chance of overflow
+	subtractMean(fft_buffer);
+	if (fft(fft_buffer, 0))
+	{
+		psd_accumulator_error = 1;
+	}
+	if (fftPostProcessReal(fft_buffer, 0))
+	{
+		psd_accumulator_error = 1;
+	}
+	fix16_error_flag = 0;
+	for (i = 0; i < (FFT_SIZE + 1); i++)
+	{
+		// Rescale terms to make overflow less likely when squaring them.
+		term1 = fix16_mul(fft_buffer[i].real, FIX16_RECIPROCAL_OF(8));
+		term1 = fix16_mul(term1, term1);
+		term2 = fix16_mul(fft_buffer[i].imag, FIX16_RECIPROCAL_OF(8));
+		term2 = fix16_mul(term2, term2);
+		sum_of_squares = fix16_add(term1, term2);
+		// PSD is scaled down according to the number of samples. This
+		// will normalise the result, since total power scales as the
+		// number of samples.
+		// Since FIX16_RECIPROCAL_OF expects an integer, SAMPLE_COUNT must
+		// be >= 512.
+#if SAMPLE_COUNT < 512
+#error "SAMPLE_COUNT too small (it's < 512)"
+#endif // #if SAMPLE_COUNT < 512
+		sum_of_squares = fix16_mul(sum_of_squares, FIX16_RECIPROCAL_OF(SAMPLE_COUNT / 512));
+		psd_accumulator[i] = fix16_add(psd_accumulator[i], sum_of_squares);
+	}
+	if (fix16_error_flag)
+	{
+		psd_accumulator_error = 1;
+	}
 }
 
 /** Fill buffer with 32 random bytes from a hardware random number generator.
@@ -770,12 +765,8 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 {
 	uint32_t i;
 	uint32_t sample;
-	uint32_t index;
-	fix16_t scaled_sample;
-	fix16_t term1;
-	fix16_t term2;
-	fix16_t sum_of_squares;
-	ComplexFixed fft_buffer[FFT_SIZE + 1];
+	uint32_t tests_failed;
+	fix16_t variance;
 
 	if (!is_not_first_in_histogram)
 	{
@@ -821,77 +812,22 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 
 	if (sample_buffer_consumed >= SAMPLE_BUFFER_SIZE)
 	{
-		// The code below which calculates a FFT and accumulates the result
-		// assumes that SAMPLE_BUFFER_SIZE is FFT_SIZE * 2 (i.e. the sample
-		// buffer is conveniently large enough to perform a double-sized real
-		// FFT on).
-#if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
-#error "SAMPLE_BUFFER_SIZE not twice FFT_SIZE"
-#endif // #if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
-		// Fill FFT buffer with entire contents of ADC sample data.
-		// Real/imaginary interleaving is done to allow a double-size real
-		// FFT to be performed; see fftPostProcessReal() for more details.
-		for (i = 0; i < SAMPLE_BUFFER_SIZE; i++)
-		{
-			index = i >> 1;
-			scaled_sample = scaleSample((int)adc_sample_buffer[i]);
-			if ((i & 1) == 0)
-			{
-				fft_buffer[index].real = scaled_sample;
-			}
-			else
-			{
-				fft_buffer[index].imag = scaled_sample;
-			}
-		}
+		accumulatePowerSpectralDensity(adc_sample_buffer);
 		// Sample buffer fully consumed; need to get a new buffer.
 		sample_buffer_consumed = 0;
 		beginFillingADCBuffer();
-		// Before computing the FFT, the mean of the FFT buffer is subtracted
-		// out. This is because we're not interested in the DC component of
-		// the FFT result (testing the sample mean is done elsewhere in this
-		// file). Almost the same thing could be accomplished by ignoring
-		// fft_buffer[0] in the PSD accumulation loop, but pre-subtraction
-		// reduces the chance of overflow
-		subtractMean(fft_buffer);
-		if (fft(fft_buffer, 0))
-		{
-			psd_accumulator_error = 1;
-		}
-		if (fftPostProcessReal(fft_buffer, 0))
-		{
-			psd_accumulator_error = 1;
-		}
-		fix16_error_flag = 0;
-		for (i = 0; i < (FFT_SIZE + 1); i++)
-		{
-			term1 = fix16_mul(fft_buffer[i].real, FIX16_RECIPROCAL_OF(8));
-			term1 = fix16_mul(term1, term1);
-			term2 = fix16_mul(fft_buffer[i].imag, FIX16_RECIPROCAL_OF(8));
-			term2 = fix16_mul(term2, term2);
-			sum_of_squares = fix16_add(term1, term2);
-			// PSD is scaled down according to the number of samples. This
-			// will normalise the result, since total power scales as the
-			// number of samples.
-			// Since FIX16_RECIPROCAL_OF expects an integer, SAMPLE_COUNT must
-			// be >= 512.
-#if SAMPLE_COUNT < 512
-#error "SAMPLE_COUNT too small (it's < 512)"
-#endif // #if SAMPLE_COUNT < 512
-			sum_of_squares = fix16_mul(sum_of_squares, FIX16_RECIPROCAL_OF(SAMPLE_COUNT / 512));
-			psd_accumulator[i] = fix16_add(psd_accumulator[i], sum_of_squares);
-		}
-		if (fix16_error_flag)
-		{
-			psd_accumulator_error = 1;
-		}
 	}
 
 	if (samples_in_histogram >= SAMPLE_COUNT)
 	{
 		// Histogram is full. Statistical properties can now be calculated.
 		is_not_first_in_histogram = 0;
-		if (histogramTestsFailed(fft_buffer))
+		tests_failed = histogramTestsFailed(&variance);
+		tests_failed |= fftTestsFailed(variance);
+#ifdef TEST_STATISTICS
+		reportStatistics(tests_failed);
+#endif // #ifdef TEST_STATISTICS
+		if (tests_failed != 0)
 		{
 			return -1; // statistical tests indicate HWRNG failure
 		}
@@ -980,6 +916,162 @@ static void sendString(const char *buffer)
 	for(; *buffer != '\0'; buffer++)
 	{
 		streamPutOneByte(*buffer);
+	}
+}
+
+/** Write contents of FFT buffer to stream so that the host may capture FFT
+  * results into a comma-seperated variable file.
+  * \param fft_buffer The FFT buffer whose contents will be dumped onto the
+  *                   stream. This must have #FFT_SIZE + 1 entries.
+  */
+static void reportFftResults(ComplexFixed *fft_buffer)
+{
+	uint32_t i;
+	char buffer[20];
+
+	for (i = 0; i < (FFT_SIZE + 1); i++)
+	{
+		sprintFix16(buffer, fix16_from_int(i));
+		sendString(buffer);
+		sendString(", ");
+		sprintFix16(buffer, fft_buffer[i].real);
+		sendString(buffer);
+		sendString(", ");
+		sprintFix16(buffer, fft_buffer[i].imag);
+		sendString(buffer);
+		sendString("\r\n");
+	}
+}
+
+/** Write statistical properties to screen so that they may be inspected in
+  * real-time. Because there are too many properties to fit on-screen,
+  * there are various testing modes which will write different properties.
+  * If reporting to stream is enabled, the properties are also written to the
+  * stream so that the host may capture them into a comma-seperated variable
+  * file.
+  * \param tests_failed Indicates which tests failed. 0 means that no tests
+  *                     failed. Non-zero means that at least one test failed.
+  *                     The bit position of each bit that is set expresses
+  *                     which test failed.
+  */
+static void reportStatistics(uint32_t tests_failed)
+{
+	int i;
+	char buffer[20];
+
+	displayOn();
+	clearDisplay();
+
+	if ((report_to_stream == 2) || (report_to_stream == 1) || (report_to_stream == 0))
+	{
+		// Report moment-based properties.
+		sprintFix16(buffer, most_recent_mean);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, most_recent_variance);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, most_recent_kappa3);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, most_recent_kappa4);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 1)
+		{
+			sendString(buffer);
+		}
+	} // end if ((report_to_stream == 2) || (report_to_stream == 1) || (report_to_stream == 0))
+
+	if (report_to_stream == 2)
+	{
+		// Report power spectral density estimate.
+		for (i = 0; i < (FFT_SIZE + 1); i++)
+		{
+			sprintFix16(buffer, fix16_from_int(i));
+			sendString(buffer);
+			sendString(", ");
+			sprintFix16(buffer, psd_accumulator[i]);
+			sendString(buffer);
+			sendString("\r\n");
+		}
+	}
+
+	if (report_to_stream == 3)
+	{
+		// Report peak frequency and signal bandwidth estimate.
+		sprintFix16(buffer, fix16_from_int(most_recent_max_bin));
+		writeStringToDisplay(buffer);
+		sendString(buffer);
+		sendString(", ");
+		nextLine();
+		sprintFix16(buffer, fix16_from_int(most_recent_bandwidth));
+		writeStringToDisplay(buffer);
+		sendString(buffer);
+		nextLine();
+	}
+
+	if ((report_to_stream == 4) || (report_to_stream == 5))
+	{
+		// Report maximum autocorrelation value and entropy estimate.
+		sprintFix16(buffer, most_recent_variance);
+		writeStringToDisplay(buffer);
+		nextLine();
+		sprintFix16(buffer, most_recent_max_autocorrelation);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 5)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
+		nextLine();
+		sprintFix16(buffer, most_recent_entropy_estimate);
+		writeStringToDisplay(buffer);
+		if (report_to_stream == 5)
+		{
+			sendString(buffer);
+		}
+		nextLine();
+	}
+
+	writeStringToDisplay(" ");
+	for (i = 0; i < 8; i++)
+	{
+		if ((tests_failed & 1) == 0)
+		{
+			writeStringToDisplay("p");
+			if (report_to_stream == 1)
+			{
+				sendString(", pass");
+			}
+		}
+		else
+		{
+			writeStringToDisplay("F");
+			if (report_to_stream == 1)
+			{
+				sendString(", fail");
+			}
+		}
+		tests_failed >>= 1;
+	}
+	if (report_to_stream != 0)
+	{
+		sendString("\r\n");
 	}
 }
 

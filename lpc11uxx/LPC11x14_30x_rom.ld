@@ -29,7 +29,7 @@ OUTPUT_ARCH(arm);
 +=============================================================================+
 */
 
-__stack_size = 2816;
+__stack_size = 3268;
 
 PROVIDE(__stack_size = __stack_size);
 
