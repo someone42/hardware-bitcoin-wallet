@@ -16,10 +16,10 @@
 #include "../stream_comm.h"
 
 #ifdef TEST_FFT
-#include "fft.h"
+#include "test_fft.h"
 #endif // #ifdef TEST_FFT
 #ifdef TEST_STATISTICS
-#include "statistics.h"
+#include "hwrng.h"
 #endif // #ifdef TEST_STATISTICS
 
 /** Upon reset, the LPC11Uxx clock source is its IRC oscillator. This

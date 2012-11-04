@@ -45,7 +45,7 @@
 # endif
 #endif
 
-#include <stdint.h>
+#include "common.h"
 
 /*! Represent real numbers using the signed Q16.16 fixed-point representation.
  *  Numbers are stored in a signed 32 bit integer, where the least significant

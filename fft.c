@@ -2,37 +2,31 @@
   *
   * \brief Performs a Fast Fourier Transform (FFT).
   *
-  * The ability to do a FFT is useful when testing the hardware random number
+  * The ability to do a FFT is useful when testing a hardware random number
   * generator. The FFT and its inverse can be used to calculate the power
   * spectral density and autocorrelation of the generator's signal.
   *
   * Some implementation details:
-  * - Real numbers are represented using fixed-point, because it's much
-  *   faster, results in smaller code and is more reliable (don't have
-  *   to worry about potentially buggy floating-point emulation).
+  * - Real numbers are represented using fixed-point, because in typical
+  *   embedded systems it's much faster, results in smaller code and is more
+  *   reliable (don't have to worry about potentially buggy floating-point
+  *   emulation).
   * - The FFT size is fixed by #FFT_SIZE. If the FFT size is changed, some
   *   parts of this file will also need to be modified.
   * - The use of lookup tables is minimised, resulting in smaller code at
   *   the expense of slightly slower speed.
   * - The aim was for the code to be fast enough so that the LPC11Uxx (running
-  *   at 48 Mhz) be capable of performing size 512 real FFTs on a 22050 Hz
-  *   bandwidth signal in real-time.
+  *   at 48 Mhz) microcontrollers be capable of performing size 512 real FFTs
+  *   on a 22050 Hz bandwidth signal in real-time.
   * - Another aim was to have code size (including required fixed-point
-  *   functions) be below 2 kilobytes.
+  *   functions) be below 2 kilobytes on ARM Cortex-M0 microcontrollers.
   *
   * This file is licensed as described by the file LICENCE.
   */
 
-#include <stdint.h>
+#include "common.h"
 #include "fix16.h"
 #include "fft.h"
-
-#ifdef TEST_FFT
-#include <string.h>
-#include "../hwinterface.h"
-#include "../endian.h"
-#include "LPC11Uxx.h"
-#endif // #ifdef TEST_FFT
 
 /** 3rd level of #R_DEF0 definition. */
 #define R_DEF3(x)	x,			x + 8
@@ -406,137 +400,4 @@ int fftPostProcessReal(ComplexFixed *data, int is_inverse)
 	}
 }
 
-#ifdef TEST_FFT
 
-/** Receive real number in fixed-point representation from stream.
-  * \return The received number.
-  */
-static fix16_t receiveFix16(void)
-{
-	uint8_t buffer[4];
-	int j;
-
-	for (j = 0; j < 4; j++)
-	{
-		buffer[j] = streamGetOneByte();
-	}
-	// The platform-dependent cast below will work correctly on LPC11Uxx,
-	// since it uses a two's complement representation of signed integers.
-	return (fix16_t)readU32LittleEndian(buffer);
-}
-
-/** Send real number in fixed-point representation to stream.
-  * \param value The number to send.
-  */
-static void sendFix16(fix16_t value)
-{
-	uint8_t buffer[4];
-	int j;
-
-	writeU32LittleEndian(buffer, (uint32_t)value);
-	for (j = 0; j < 4; j++)
-	{
-		streamPutOneByte(buffer[j]);
-	}
-}
-
-/** Test fft() and fftPostProcessReal() by grabbing input data from the
-  * stream, computing its FFT and sending it to the stream. The host can
-  * then check the output of the FFT.
-  *
-  * Previously, test cases were stored in this file and this function did
-  * all the checking. However, that proved to be infeasible; all
-  * microcontrollers in the LPC11Uxx series don't contain enough flash to
-  * store a comprehensive set of test cases.
-  */
-void testFFT(void)
-{
-	ComplexFixed data[FFT_SIZE + 1];
-	uint32_t i;
-	uint32_t size;
-	uint32_t cycles;
-	int test_number;
-	int is_inverse;
-	int failed;
-	uint8_t buffer[4];
-
-	while(1)
-	{
-		// Order of tests:
-		// 0 = forward, normal-sized
-		// 1 = inverse, normal-sized
-		// 2 = forward, double-sized
-		// 3 = inverse, double-sized
-		for (test_number = 0; test_number < 4; test_number++)
-		{
-			// Read input data.
-			// TODO: comments about how interleaving done by host.
-			for (i = 0; i < FFT_SIZE; i++)
-			{
-				data[i].real = receiveFix16();
-				data[i].imag = receiveFix16();
-			}
-
-			// Perform the FFT and measure how long it takes.
-			SysTick->CTRL = 4; // disable system tick timer, frequency = CPU
-			SysTick->VAL = 0; // clear system tick timer
-			SysTick->LOAD = 0x00FFFFFF; // set timer reload to max
-			SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
-			if ((test_number == 1) || (test_number == 3))
-			{
-				is_inverse = 1;
-			}
-			else
-			{
-				is_inverse = 0;
-			}
-			failed = fft(data, is_inverse);
-			if (test_number >= 2)
-			{
-				if (!failed)
-				{
-					failed = fftPostProcessReal(data, is_inverse);
-				}
-			}
-			cycles = SysTick->VAL; // read as soon as possible
-			cycles = (0x00FFFFFF - cycles);
-
-			// Send output data.
-			if (test_number >= 2)
-			{
-				size = FFT_SIZE + 1;
-			}
-			else
-			{
-				size = FFT_SIZE;
-			}
-			if (failed)
-			{
-				// Failure is marked by output consisting of nothing but
-				// fix16_overflow. It's probably impossible for a successful
-				// FFT to produce this result.
-				for (i = 0; i < size; i++)
-				{
-					sendFix16(fix16_overflow);
-					sendFix16(fix16_overflow);
-				}
-			}
-			else
-			{
-				for (i = 0; i < size; i++)
-				{
-					sendFix16(data[i].real);
-					sendFix16(data[i].imag);
-				}
-			}
-			// Tell host how long it took
-			writeU32LittleEndian(buffer, cycles);
-			for (i = 0; i < 4; i++)
-			{
-				streamPutOneByte(buffer[i]);
-			}
-		} // end for (test_number = 0; test_number < 4; test_number++)
-	} // end while(1)
-}
-
-#endif // #ifdef TEST_FFT

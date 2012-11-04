@@ -2,6 +2,8 @@
   *
   * \brief fix16.c from libfixmath.
   *
+  * This file implements some fixed-point calculation primitives.
+  *
   * This file was adapted from fix16.c and fix16_exp.c of libfixmath r78,
   * which can be obtained from
   * http://code.google.com/p/libfixmath/source/browse/trunk/libfixmath/.
@@ -19,6 +21,7 @@
   * This file is licensed as described by the file LIBFIXMATH_LICENCE.
   */
 
+#include "common.h"
 #include "fix16.h"
 #ifndef FIXMATH_NO_64BIT
 #include "int64.h"
@@ -125,6 +128,8 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 #if defined(FIXMATH_NO_64BIT) && !defined(FIXMATH_OPTIMIZE_8BIT)
 fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 {
+	uint32_t product_lo_tmp;
+	fix16_t result;
 	// Each argument is divided to 16-bit parts.
 	//					AB
 	//			*	 CD
@@ -165,7 +170,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	// achieves proper rounding to result-1, except in the corner
 	// case of negative numbers and lowest word = 0x8000.
 	// To handle that, we also have to subtract 1 for negative numbers.
-	uint32_t product_lo_tmp = product_lo;
+	product_lo_tmp = product_lo;
 	product_lo -= 0x8000;
 	product_lo -= (uint32_t)product_hi >> 31;
 	if (product_lo > product_lo_tmp)
@@ -175,7 +180,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	// as dividing by 0x10000. For example if product = -1, result will
 	// also be -1 and not 0. This is compensated by adding +1 to the result
 	// and compensating this in turn in the rounding above.
-	fix16_t result = (product_hi << 16) | (product_lo >> 16);
+	result = (product_hi << 16) | (product_lo >> 16);
 	result += 1;
 	return result;
 #endif
@@ -284,7 +289,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 /**
  * Divides x by 2 and returns the result, rounding if appropriate.
  */
-static inline fix16_t fix16_rs(fix16_t x)
+static fix16_t fix16_rs(fix16_t x)
 {
 	#ifdef FIXMATH_NO_ROUNDING
 	return (x >> 1);
@@ -310,7 +315,7 @@ static inline fix16_t fix16_rs(fix16_t x)
 fix16_t fix16_log2(fix16_t x)
 {
 	fix16_t result = 0;
-	uint_fast8_t i;
+	unsigned int i;
 
 	// Note that a negative x gives a non-real result.
 	// If x == 0, the limit of log2(x)  as x -> 0 = -infinity.

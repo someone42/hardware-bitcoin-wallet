@@ -5,10 +5,10 @@
   * This file is licensed as described by the file LICENCE.
   */
 
-#ifndef LPC11UXX_FFT_H_INCLUDED
-#define LPC11UXX_FFT_H_INCLUDED
+#ifndef FFT_H_INCLUDED
+#define FFT_H_INCLUDED
 
-#include <stdint.h>
+#include "common.h"
 #include "fix16.h"
 
 /** The size of the FFT that fft() processes. If this value is changed, then
@@ -38,8 +38,5 @@ typedef struct ComplexFixed_struct
 
 extern int fft(ComplexFixed *data, int is_inverse);
 extern int fftPostProcessReal(ComplexFixed *data, int is_inverse);
-#ifdef TEST_FFT
-extern void testFFT(void);
-#endif // #ifdef TEST_FFT
 
-#endif // #ifndef LPC11UXX_FFT_H_INCLUDED
+#endif // #ifndef FFT_H_INCLUDED

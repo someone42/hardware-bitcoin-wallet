@@ -8,7 +8,7 @@
 #ifndef LPC11UXX_ADC_H_INCLUDED
 #define LPC11UXX_ADC_H_INCLUDED
 
-#include "fft.h" // for FFT_SIZE
+#include "../fft.h" // for FFT_SIZE
 
 /** Size of #sample_buffer, in number of samples.
   * \warning This must be a multiple of 16, or else hardwareRandom32Bytes()
