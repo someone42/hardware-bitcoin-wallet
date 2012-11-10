@@ -611,8 +611,15 @@ void processPacket(void)
 		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
 		{
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
-			wallet_return = changeEncryptionKey(buffer);
-			translateWalletError(wallet_return, 0, NULL);
+			if (askUser(ASKUSER_CHANGE_KEY))
+			{
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
+			}
+			else
+			{
+				wallet_return = changeEncryptionKey(buffer);
+				translateWalletError(wallet_return, 0, NULL);
+			}
 		}
 		break;
 

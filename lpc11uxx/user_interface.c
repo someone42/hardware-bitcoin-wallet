@@ -305,6 +305,12 @@ uint8_t askUser(AskUserCommand command)
 		writeStringToDisplayWordWrap("Delete current wallet and restore from a backup?");
 		r = waitForButtonPress();
 	}
+	else if (command == ASKUSER_CHANGE_KEY)
+	{
+		waitForNoButtonPress();
+		writeStringToDisplayWordWrap("Change the encryption key of the current wallet?");
+		r = waitForButtonPress();
+	}
 	else
 	{
 		waitForNoButtonPress();

@@ -533,9 +533,9 @@ static char str_format_line0[] PROGMEM = "Do you want to";
 /** Second line of #ASKUSER_FORMAT prompt. */
 static char str_format_line1[] PROGMEM = "delete everything?";
 /** First line of #ASKUSER_CHANGE_NAME prompt. */
-static char str_change_line0[] PROGMEM = "Change the name";
+static char str_change_name_line0[] PROGMEM = "Change the name";
 /** Second line of #ASKUSER_CHANGE_NAME prompt. */
-static char str_change_line1[] PROGMEM = "of your wallet?";
+static char str_change_name_line1[] PROGMEM = "of your wallet?";
 /** First line of #ASKUSER_BACKUP_WALLET prompt. */
 static char str_backup_line0[] PROGMEM = "Do you want to do";
 /** Second line of #ASKUSER_BACKUP_WALLET prompt. */
@@ -544,6 +544,10 @@ static char str_backup_line1[] PROGMEM = "a wallet backup?";
 static char str_restore_line0[] PROGMEM = "Restore wallet";
 /** Second line of #ASKUSER_RESTORE_WALLET prompt. */
 static char str_restore_line1[] PROGMEM = "from backup?";
+/** First line of #ASKUSER_CHANGE_KEY prompt. */
+static char str_change_key_line0[] PROGMEM = "Change the key";
+/** Second line of #ASKUSER_CHANGE_KEY prompt. */
+static char str_change_key_line1[] PROGMEM = "of your wallet?";
 /** First line of unknown prompt. */
 static char str_unknown_line0[] PROGMEM = "Unknown command in askUser()";
 /** Second line of unknown prompt. */
@@ -627,9 +631,9 @@ uint8_t askUser(AskUserCommand command)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_change_line0, 1);
+		writeString(str_change_name_line0, 1);
 		gotoStartOfLine(1);
-		writeString(str_change_line1, 1);
+		writeString(str_change_name_line1, 1);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_BACKUP_WALLET)
@@ -648,6 +652,15 @@ uint8_t askUser(AskUserCommand command)
 		writeString(str_restore_line0, 1);
 		gotoStartOfLine(1);
 		writeString(str_restore_line1, 1);
+		r = waitForButtonPress();
+	}
+	else if (command == ASKUSER_CHANGE_KEY)
+	{
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_change_key_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_change_key_line1, 1);
 		r = waitForButtonPress();
 	}
 	else
