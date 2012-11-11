@@ -26,6 +26,8 @@ typedef unsigned short uint16_t;
 typedef unsigned long uint32_t;
 /** Signed 32 bit integer. */
 typedef signed long int32_t;
+/** Unsigned 64 bit integer. */
+typedef unsigned __int64 uint64_t;
 
 #else
 
@@ -43,6 +45,10 @@ typedef signed long int32_t;
   * \warning Do not use this if the evaluation of a and b has side effects.
   */
 #define MAX(a, b)			(((a) > (b))? (a) : (b))
+/** Get minimum of a and b.
+  * \warning Do not use this if the evaluation of a and b has side effects.
+  */
+#define MIN(a, b)			(((a) < (b))? (a) : (b))
 
 /** In certain situations, inlining can cause an overall increase in stack
   * space. For example, let foo() use 100 bytes of stack space, bar() 104 bytes

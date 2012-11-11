@@ -19,12 +19,12 @@
 # This file is licensed as described by the file LICENCE.
 
 # List C source files here.
-SRC = aes.c baseconv.c bignum256.c ecdsa.c endian.c hash.c prandom.c \
-ripemd160.c sha256.c stream_comm.c test_helpers.c transaction.c wallet.c \
-xex.c
+SRC = aes.c baseconv.c bignum256.c ecdsa.c endian.c fft.c fix16.c hash.c \
+hmac_sha512.c prandom.c ripemd160.c sha256.c statistics.c stream_comm.c \
+test_helpers.c transaction.c wallet.c xex.c
 
 # List file names (without .c extension) which have unit tests.
-TESTLIST = aes baseconv bignum256 ecdsa prandom ripemd160 sha256 \
+TESTLIST = aes baseconv bignum256 ecdsa hmac_sha512 prandom ripemd160 sha256 \
 stream_comm transaction wallet xex
 
 # Define programs and commands.
@@ -34,8 +34,8 @@ REMOVEDIR = rm -rf
 
 # Define flags for C compiler.
 GENDEPFLAGS = -MMD -MP -MF .dep/$(@F).d
-CCFLAGS = -DTEST -ggdb -O0 -Wall -Wstrict-prototypes -Wundef \
--Wunreachable-code -Wsign-compare -Wextra -Wconversion -std=gnu99 \
+CCFLAGS = -DTEST -DFIXMATH_NO_64BIT -ggdb -O0 -Wall -Wstrict-prototypes \
+-Wundef -Wunreachable-code -Wsign-compare -Wextra -Wconversion -std=gnu99 \
 $(GENDEPFLAGS)
 
 # Define extra libraries to include.

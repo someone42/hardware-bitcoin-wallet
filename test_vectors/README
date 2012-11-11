@@ -6,3 +6,4 @@ AES test vectors: http://csrc.nist.gov/groups/STM/cavp/#01
 ECDSA test vectors: OpenSSL 0.9.8h, command: openssl ecparam -name secp256k1 -outform DER -out out.der -genkey
 SHA-256 test vectors: http://csrc.nist.gov/groups/STM/cavp/index.html#03
 AES-XTS test vectors: http://csrc.nist.gov/groups/STM/cavp/#08
+HMAC-SHA512 test vectors: http://csrc.nist.gov/groups/STM/cavp/#07

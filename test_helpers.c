@@ -34,7 +34,8 @@ void skipWhiteSpace(FILE *f)
 	do
 	{
 		one_char = fgetc(f);
-	} while ((one_char == ' ') || (one_char == '\t') || (one_char == '\n') || (one_char == '\r'));
+	} while (((one_char == ' ') || (one_char == '\t') || (one_char == '\n') || (one_char == '\r'))
+		&& !feof(f));
 	ungetc(one_char, f);
 }
 
@@ -49,7 +50,7 @@ void skipLine(FILE *f)
 	do
 	{
 		one_char = fgetc(f);
-	} while (one_char != '\n');
+	} while ((one_char != '\n') && !feof(f));
 }
 
 /** Display a multi-precision integer of arbitrary size as a hex string.
