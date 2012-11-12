@@ -1,29 +1,60 @@
-Everything is:
+The host and device communicate over a pipeline-like interface which has the
+following characteristics:
+- It is byte-oriented; packets are a multiple of 8 bits in size.
+- Transmission is reliable; there are no bit errors.
+- Transmission is sequential; bytes arrive in the order they were sent.
+
+One obvious candidate for an implementation of such an interface is a USB
+serial port.
+
+The host and device communicate in pseudo-half-duplex by sending packets to
+each other in an alternating fashion. Initially, the host sends a packet.
+When the device has received the entire packet, it eventually responds by
+sending a packet back to the host. When the device is sending a packet, the
+host is not allowed to send another packet until it has completely received
+the device's packet.
+
+The format of each packet is:
 | <type>    | <length> |  <value>
 |  1 byte   | 4 bytes  | n bytes
 
-<type> is the command type
-<length> is the little-endian length in bytes of <value>
-<length> and <value> are the "payload" for a command
-<type>, <length> and <value> are a "packet"
+<type> is the command type, which ranges from 0x00 to 0xFF.
+<length> is the little-endian length in bytes of <value>.
+<length> and <value> are the "payload" for a command.
 
-commands:
+As an example, the packet "09 04 00 00 00 E8 03 00 00" has:
+<type> = 0x09, which corresponds to "get address and public key".
+<length> = 0x00000004, indicating that <value> has a length of 4 bytes.
+<value> = 0x000003E8, an address handle of 1000.
+Therefore, this packet instructs the device to obtain the address and public
+key of address handle 1000 in the current wallet.
+
+
+
+Defined commands:
 
 0x00: ping
 length can be anything
 value can be anything
+Response: 01
+Comments: The device will accept anything in the payload, but will ignore it.
+This command is useful for testing the existence of a conformant device.
 
 0x01: acknowledge ping
 length can be anything
 value can be anything
+Comments: The host must be prepared to deal with anything in the payload, but
+it will typically be an ASCII string describing the device.
 
 0x02: return success
-length is 0 (if nothing is returned)
-...unless something is returned
+length is dependent on the previous packet
+value is dependent on the previous packet
+Comments: This is one of the packets the device will typically respond with.
 
 0x03: return failure
-length can be anything
+length is the length of the error message
 value is an error message
+Comments: This is one of the packets the device will typically respond with.
 
 0x04: create new wallet
 length is 77
@@ -32,14 +63,18 @@ next 1 byte of value specifies whether (non-zero) or not (zero) to create a hidd
 next 32 bytes of value are the encryption key (use all 00s if there isn't any)
 last 40 bytes of value are the wallet name (pad with spaces)
 Response: 02 (length 0) or 03
+Comments: This command requires user approval. This will overwrite any
+existing wallet. This does not require a wallet to be loaded. Upon success,
+this will also load the newly created wallet.
 
 0x05: create new address in wallet
 length is 0
-Response: 02 (with 4-byte address handle followed by address and pubkey) or 03
+Response: 02 (with 4 byte address handle followed by address and pubkey) or 03
+Comments: This command requires user approval.
 
 0x06: get number of addresses
 length is 0
-Response: 02 (with little-endian 32-bit number) or 03
+Response: 02 (with little-endian 32 bit number) or 03
 
 0x09: get address and public key
 length is 4
@@ -47,11 +82,11 @@ value is address handle
 Response: 02 (with address followed by pubkey) or 03
 
 0x0A: sign transaction
-length is 4 + <transaction data size>
-value is address handle then transaction data
-In order to calculate transaction fees, the transaction data of all input
-transactions is required in addition to the transaction data of the spending
-transaction. The full transaction data part of the payload should look like
+length is 4 + <total transaction data size>
+value is address handle of the signing address, then transaction data
+In order to calculate transaction fees, the serialised input transactions are
+required in addition to the serialised spending transaction. The transaction
+data part of the payload should look like
 this:
 0x01 | <previous output number 1> | <input transaction 1> |
 0x01 | <previous output number 2> | <input transaction 2> |
@@ -59,12 +94,13 @@ this:
 0x01 | <previous output number n> | <input transaction n> |
 0x00 | <spending transaction>
 where "|" denotes concatenation and <previous output number> is a
-little-endian 32-bit number which specifies which output (within the
+little-endian 32 bit number which specifies which output (within the
 respective input transaction) the spending transaction spends.
 All input transactions should be in their unmodified form. The spending
 transaction should be modified for signing, with input scripts replaced
-appropriately and a 4-byte hash type tag appended.
+appropriately and a 4 byte hash type tag appended.
 Response: 02 (with signature) or 03
+Comments: This command requires user approval.
 
 0x0B: load (unlock) wallet
 length is 36
@@ -79,28 +115,34 @@ Response: 02 (length 0) or 03
 0x0D: format storage
 length is 32
 value is the initial persistent entropy pool state - this should be truly
-  random with close to 256 bits of entropy
+random with close to 256 bits of entropy
 Response: 02 (length 0) or 03
+Comments: This command requires user approval. This command does not require
+a wallet to be loaded.
 
 0x0E: change wallet encryption key
 length is 32
 value is the new encryption key (use all 00s if there isn't any)
 Response: 02 (length 0) or 03
+Comments: This command requires user approval.
 
 0x0F: change wallet name
 length is 40
 value is the new wallet name
 Response: 02 (length 0) or 03
+Comments: This command requires user approval.
 
 0x10: list wallets
 length is 0
 Response: 02 (with list of: 4 byte version followed by 40 byte name) or 03
+Comments: This command does not require a wallet to be loaded.
 
 0x11: backup wallet
 length is 2
 first byte specifies whether encryption is to be done (non-zero = yes, zero = no)
 second byte specifies the platform-specific device to send backup seed to
 Response: 02 (length 0) or 03
+Comments: This command requires user approval.
 
 0x12: restore wallet
 length is 141
@@ -110,10 +152,43 @@ next 32 bytes of value are the encryption key (use all 00s if there isn't any)
 next 40 bytes of value are the wallet name (pad with spaces)
 last 64 bytes of value are the (unencrypted) deterministic address generator seed
 Response: 02 (length 0) or 03
+Comments: This command requires user approval. This command can also be used to
+import an externally-generated wallet.
 
-Flow control (for AVR only):
+
+
+Flow control:
+
+There may be situations where the host sends data faster than the device can
+deal with it. To prevent unintentional buffer overrun situations, a simple
+flow control protocol is used.
 
 Every n bytes, wait for an acknowledge from the other side. An acknowledge
-is 0xFF followed by a little-endian u32 with number of bytes you can send
-before the next acknowledge (i.e. "n").
-Initial n is 16
+is 0xFF followed by a little-endian 32 bit integer with number of bytes you
+can send before the next acknowledge (i.e. the next "n"). Initial n is 16.
+Note that acknowledgements can be sent by the device or host even if they
+haven't fully received a packet from the other side; acknowledgements are
+considered "out of band".
+
+An example:
+1. The host wants to send 13 bytes. It does not need acknowledgement.
+2. The device wants to send 5 bytes. It does not need acknowledgement.
+3. The host wants to send 100 bytes. It sends 3 of them and waits for
+acknowledgement.
+4. The device acknowledges with "FF 40 00 00 00", telling the host that it
+can send another 64 bytes before acknowledgement.
+5. The host sends another 64 bytes of that 100 byte packet. Now it has to wait
+for acknowledgement again.
+6. The device acknowledges with "FF 40 00 00 00", telling the host that it
+can send another 64 bytes before acknowledgement.
+7. The host sends the remaining 33 bytes of that 100 byte packet.
+8. The device wants to send 10000 bytes. It sends 11 of them and waits for
+acknowledgement.
+9. The host acknowledges with "FF 00 00 01 00", telling the device that it
+can send another 65536 bytes before acknowledgement.
+10. The device sends the remaining 9989 bytes of that 10000 byte packet.
+
+The example is somewhat clearer if you only look at things from the host or
+device's sending perspective. For example, reading only 2, 8, 9, 10 reveals
+how the device only initially needs to wait for acknowledgement after it has
+sent a total of 16 bytes.
