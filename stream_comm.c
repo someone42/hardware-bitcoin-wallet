@@ -228,8 +228,7 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 
 /** Validate and sign a transaction. This basically calls
   * parseTransactionAndAsk() and signTransactionByAddressHandle() in sequence.
-  * Why do that? For the same reason generateDeterministic256() was split into
-  * two parts - more efficient use of stack space.
+  * Why do that? For more efficient use of stack space.
   *
   * This function will always consume transaction_length bytes from the input
   * stream, except when a stream read error occurs.

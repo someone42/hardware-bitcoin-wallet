@@ -26,6 +26,7 @@
 
 #include "common.h"
 #include "endian.h"
+#include "hmac_sha512.h"
 
 #if defined(AVR) && defined(__GNUC__)
 #define LOOKUP_QWORD(x)		(my_pgm_read_qword_near(&(x)))
@@ -265,7 +266,7 @@ static void sha512WriteByte(HashState64 *hs64, const uint8_t byte)
 /** Finalise the hashing of a message by writing appropriate padding and
   * length bytes, then write the hash value into a byte array.
   * \param out A byte array where the final SHA-512 hash value will be written
-  *            into. This must have space for 64 bytes.
+  *            into. This must have space for #SHA512_HASH_LENGTH bytes.
   * \param hs64 The 64 bit hash state to act on.
   */
 static void sha512Finish(uint8_t *out, HashState64 *hs64)
@@ -305,7 +306,7 @@ static void sha512Finish(uint8_t *out, HashState64 *hs64)
   * The code in here is based on the description in section 5
   * ("HMAC SPECIFICATION") of FIPS PUB 198.
   * \param out A byte array where the HMAC-SHA512 hash value will be written.
-  *            This must have space for 64 bytes.
+  *            This must have space for #SHA512_HASH_LENGTH bytes.
   * \param key A byte array containing the key to use in the HMAC-SHA512
   *            calculation. The key can be of any length.
   * \param key_length The length, in bytes, of the key.
@@ -316,7 +317,7 @@ static void sha512Finish(uint8_t *out, HashState64 *hs64)
 void hmacSha512(uint8_t *out, const uint8_t *key, const unsigned int key_length, const uint8_t *text, const unsigned int text_length)
 {
 	unsigned int i;
-	uint8_t hash[64];
+	uint8_t hash[SHA512_HASH_LENGTH];
 	uint8_t padded_key[128];
 	HashState64 hs64;
 
@@ -380,7 +381,7 @@ static void scanTestVectors(char *filename)
 	uint8_t *key;
 	uint8_t *message;
 	uint8_t *expected_result;
-	uint8_t actual_result[64];
+	uint8_t actual_result[SHA512_HASH_LENGTH];
 	char buffer[2048];
 
 	f = fopen(filename, "r");

@@ -277,7 +277,7 @@ static void setFieldToP(void)
 
 /** Set field parameters to be those defined by the prime number n which
   * is used in secp256k1. */
-static void setFieldToN(void)
+void setFieldToN(void)
 {
 	bigSetField(secp256k1_n, secp256k1_complement_n, sizeof(secp256k1_complement_n));
 }

@@ -13,19 +13,25 @@
 
 #ifdef TEST
 #include <stdlib.h>
+#include <assert.h>
 #endif // #ifdef TEST
 
 #ifdef TEST_PRANDOM
 #include <stdio.h>
 #include "test_helpers.h"
 #include "wallet.h"
+
 #endif // #ifdef TEST_PRANDOM
 
 #include "common.h"
 #include "aes.h"
 #include "sha256.h"
 #include "ripemd160.h"
+#include "hmac_sha512.h"
+#include "endian.h"
+#include "ecdsa.h"
 #include "bignum256.h"
+#include "transaction.h" // for swapEndian256()
 #include "prandom.h"
 #include "hwinterface.h"
 #include "storage_common.h"
@@ -36,6 +42,54 @@
 #ifndef NULL
 #define NULL ((void *)0) 
 #endif // #ifndef NULL
+
+/** The parent public key for the BIP 0032 deterministic key generator (see
+  * generateDeterministic256()). The contents of this variable are only valid
+  * if #parent_public_key_valid is non-zero.
+  *
+  * generateDeterministic256() could calculate the parent public key each time
+  * a new deterministic key is requested. However, that would slow down
+  * deterministic key generation significantly, as point multiplication would
+  * be required each time a key was requested. So this variable functions as
+  * a cache.
+  * \warning The x and y components are stored in little-endian format.
+  */
+static PointAffine cached_parent_public_key;
+/** Specifies whether the contents of #parent_public_key are valid or not.
+  * Non-zero means valid, zero means not valid. */
+static uint8_t cached_parent_public_key_valid;
+
+#ifdef TEST_PRANDOM
+/** Hack to allow test to access derived chain code. This is needed for the
+  * sipa test cases. */
+static uint8_t test_chain_code[32];
+#endif // #ifdef TEST_PRANDOM
+
+/** Set the parent public key for the deterministic key generator (see
+  * generateDeterministic256()). This function will speed up subsequent calls
+  * to generateDeterministic256(), by allowing it to use a cached parent
+  * public key.
+  * \param parent_private_key The parent private key, from which the parent
+  *                           public key will be derived. Note that this
+  *                           should be in little-endian format.
+  */
+static void setParentPublicKeyFromPrivateKey(BigNum256 parent_private_key)
+{
+	setToG(&cached_parent_public_key);
+	pointMultiply(&cached_parent_public_key, parent_private_key);
+	cached_parent_public_key_valid = 1;
+}
+
+/** Clear the parent public key cache (see #parent_private_key). This should
+  * be called whenever a wallet is unloaded, so that subsequent calls to
+  * generateDeterministic256() don't result in addresses from the old wallet.
+  */
+void clearParentPublicKeyCache(void)
+{
+	memset(&cached_parent_public_key, 0xff, sizeof(cached_parent_public_key)); // just to be sure
+	memset(&cached_parent_public_key, 0, sizeof(cached_parent_public_key));
+	cached_parent_public_key_valid = 0;
+}
 
 /** Calculate the entropy pool checksum of an entropy pool state.
   * Without integrity checks, an attacker with access to the persistent
@@ -305,87 +359,72 @@ uint8_t getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state)
 	return getRandom256Internal(n, pool_state, 1);
 }
 
-/** First part of deterministic 256 bit number generation.
-  * See comments to generateDeterministic256() for details.
-  * It was split into two parts to most efficiently use stack space.
-  * \param hash See generateDeterministic256().
-  * \param seed See generateDeterministic256().
-  * \param num See generateDeterministic256().
-  */
-static NOINLINE void generateDeterministic256Part1(uint8_t *hash, uint8_t *seed, uint32_t num)
-{
-	uint8_t i;
-	HashState hs;
-
-	sha256Begin(&hs);
-	for (i = 32; i < 64; i++)
-	{
-		sha256WriteByte(&hs, seed[i]);
-	}
-	// num is written in 64 bit big-endian format.
-	for (i = 0; i < 4; i++)
-	{
-		sha256WriteByte(&hs, 0);
-	}
-	sha256WriteByte(&hs, (uint8_t)(num >> 24));
-	sha256WriteByte(&hs, (uint8_t)(num >> 16));
-	sha256WriteByte(&hs, (uint8_t)(num >> 8));
-	sha256WriteByte(&hs, (uint8_t)num);
-	sha256Finish(&hs);
-	writeHashToByteArray(hash, &hs, 1);
-}
-
-/** Second part of deterministic 256 bit number generation.
-  * See comments to generateDeterministic256() for details.
-  * It was split into two parts to most efficiently use stack space.
-  * \param out See generateDeterministic256().
-  * \param hash See generateDeterministic256().
-  * \param seed See generateDeterministic256().
-  */
-static NOINLINE void generateDeterministic256Part2(BigNum256 out, uint8_t *hash, uint8_t *seed)
-{
-	uint8_t expanded_key[EXPANDED_KEY_SIZE];
-
-	aesExpandKey(expanded_key, &(seed[0]));
-	aesEncrypt(&(out[0]), &(hash[0]), expanded_key);
-	aesExpandKey(expanded_key, &(seed[16]));
-	aesEncrypt(&(out[16]), &(hash[16]), expanded_key);
-}
-
 /** Use a combination of cryptographic primitives to deterministically
   * generate a new 256 bit number.
   *
-  * The process is: the last 256 bits of the seed are appended with the
-  * counter (the counter is written in 64 bit big-endian format) and hashed
-  * using SHA-256. The first and second 128 bits of the seed are used as keys
-  * to encrypt the first and second halves (respectively) of the resulting
-  * hash using AES. The final result is the two encrypted halves.
+  * The generator uses the algorithm described in
+  * https://en.bitcoin.it/wiki/BIP_0032, accessed 12-November-2012 under the
+  * "Specification" header. The generator generates uncompressed keys.
   *
-  * If having a 512 bit seed is deemed "too big" for an application:
-  * - The first and second 128 bits can be the same, meaning that the
-  *   encryption key for the two halves is the same.
-  * - The last 256 bits of the seed can have up to 128 bits set to 0.
-  *
-  * Implementing both of these options would reduce the entropy in the seed
-  * to 256 bits, which should still be enough. But if possible, it is better
-  * to be safe than sorry and use a seed with the full 512 bits of entropy.
-  * Why use a hash in addition to a block cipher? Defense in depth - the
-  * plaintext to AES is then unknown to an attacker.
-  * Note that since out is little-endian, the first encrypted half of the hash
-  * goes into the least-significant 128 bits while the second encrypted
-  * half goes into the most-significant 128 bits.
   * \param out The generated 256 bit number will be written here.
   * \param seed Should point to a byte array of length #SEED_LENGTH containing
-  *             the seed for the pseudo-random number generator.
+  *             the seed for the pseudo-random number generator. While the
+  *             seed can be considered as an arbitrary array of bytes, the
+  *             bytes of the array also admit the following interpretation:
+  *             the first 32 bytes are the parent private key in big-endian
+  *             format, and the next 32 bytes are the chain code (endian
+  *             independent).
   * \param num A counter which determines which number the pseudo-random
   *            number generator will output.
+  * \return 0 upon success, non-zero if the specified seed is not valid (will
+  *         produce degenerate private keys).
   */
-void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num)
+uint8_t generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint32_t num)
 {
-	uint8_t hash[32];
+	BigNum256 i_l;
+	uint8_t k_par[32];
+	uint8_t hash[SHA512_HASH_LENGTH];
+	uint8_t hmac_message[69]; // 04 (1 byte) + x (32 bytes) + y (32 bytes) + num (4 bytes)
 
-	generateDeterministic256Part1(hash, seed, num);
-	generateDeterministic256Part2(out, hash, seed);
+	setFieldToN();
+	memcpy(k_par, seed, 32);
+	swapEndian256(k_par); // since seed is big-endian
+	bigModulo(k_par, k_par); // just in case
+	// k_par cannot be 0. If it is zero, then the output of this generator
+	// will always be 0.
+	if (bigIsZero(k_par))
+	{
+		return 1; // invalid seed
+	}
+	if (!cached_parent_public_key_valid)
+	{
+		setParentPublicKeyFromPrivateKey(k_par);
+	}
+	// BIP 0032 specifies that the public key should be represented in a way
+	// that is compatible with "SEC 1: Elliptic Curve Cryptography" by
+	// Certicom research, obtained 15-August-2011 from:
+	// http://www.secg.org/collateral/sec1_final.pdf section 2.3 ("Data Types
+	// and Conversions"). The gist of it is: 0x04, followed by x, then y in
+	// big-endian format.
+	hmac_message[0] = 0x04;
+	memcpy(&(hmac_message[1]), cached_parent_public_key.x, 32);
+	swapEndian256(&(hmac_message[1]));
+	memcpy(&(hmac_message[33]), cached_parent_public_key.y, 32);
+	swapEndian256(&(hmac_message[33]));
+	writeU32BigEndian(&(hmac_message[65]), num);
+	hmacSha512(hash, &(seed[32]), 32, hmac_message, sizeof(hmac_message));
+
+	setFieldToN();
+	i_l = (BigNum256)hash;
+	swapEndian256(i_l); // since hash is big-endian
+	bigModulo(i_l, i_l); // just in case
+	bigMultiply(out, i_l, k_par);
+
+#ifdef TEST_PRANDOM
+	memcpy(test_chain_code, &(hash[32]), sizeof(test_chain_code));
+#endif // #ifdef TEST_PRANDOM
+
+	return 0; // success
 }
 
 #ifdef TEST
@@ -435,6 +474,145 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 
 #ifdef TEST_PRANDOM
 
+/** The master private key and chain code of one of sipa's BIP 0032 test
+  * vectors, obtained from
+  * https://github.com/sipa/bitcoin/blob/edbdc5313c02dc82104cfb6017ce3427bf323071/src/test/detwallet_tests.cpp
+  * on 13-November-2012. This is
+  * sha512(0x0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef).
+  */
+const uint8_t sipa_test_master_seed[64] = {
+0xb5, 0x82, 0x9c, 0xe3, 0xcc, 0xf1, 0xd8, 0xed, 0xd5, 0xda, 0x11, 0x32, 0xd4,
+0x62, 0x71, 0xb0, 0x16, 0x9f, 0x58, 0xb6, 0x41, 0x4f, 0xd2, 0x63, 0xd3, 0xc9,
+0x8d, 0xa6, 0x27, 0x17, 0x0f, 0x5e, 0x13, 0xcb, 0x19, 0x4e, 0xf4, 0x64, 0xe3,
+0xd3, 0x96, 0x85, 0x47, 0xe0, 0x43, 0xf8, 0xca, 0xf1, 0x9e, 0x78, 0xdb, 0x5b,
+0x66, 0x93, 0xba, 0x86, 0x7b, 0x1a, 0x61, 0x3b, 0x9c, 0x33, 0x7c, 0xf0};
+
+/** Number of test cases in #sipa_test_public_keys. */
+#define SIPA_TEST_ADDRESSES		8
+
+/** Dervied public keys of one of sipa's BIP 0032 test vectors
+  * (see #sipa_test_master_seed). These are the public keys which result from
+  * repeatedly applying the child key derivation function with n = 0x12345678.
+  */
+const uint8_t sipa_test_public_keys[SIPA_TEST_ADDRESSES][65] = {
+{0x04, 0x65, 0x23, 0x2f, 0x8c, 0x57, 0x94, 0x7d, 0x0b, 0xee, 0x67, 0x18, 0x76,
+0x03, 0xec, 0xb4, 0x35, 0x90, 0x2f, 0x56, 0x9b, 0x71, 0xf5, 0xc5, 0xb3, 0x1f,
+0xda, 0xd4, 0x2f, 0x2b, 0x60, 0xfe, 0xa3, 0xbb, 0xe7, 0x83, 0xb7, 0xe6, 0x26,
+0x99, 0x13, 0xfc, 0x37, 0x21, 0x31, 0x0e, 0x7e, 0x09, 0x83, 0x57, 0x7c, 0x00,
+0xe3, 0x8f, 0xa5, 0x91, 0xd8, 0x8f, 0x07, 0x5c, 0xc7, 0xe6, 0x66, 0x4e, 0x47},
+{0x04, 0x0c, 0xb5, 0x75, 0x82, 0xe3, 0x7f, 0x42, 0x63, 0x5c, 0xf2, 0xb9, 0xee,
+0x21, 0xe7, 0xc1, 0x20, 0xea, 0x56, 0x29, 0x20, 0x8d, 0x02, 0xf5, 0xf7, 0x22,
+0xbe, 0x06, 0x84, 0xe8, 0xc4, 0x50, 0xdd, 0x84, 0xfa, 0x4b, 0x45, 0x31, 0xf9,
+0x84, 0x53, 0xee, 0x05, 0x6f, 0x84, 0xec, 0xd3, 0x94, 0xa4, 0xae, 0x27, 0xf9,
+0x10, 0x0f, 0x6b, 0xb0, 0xe5, 0xea, 0x35, 0xba, 0xf8, 0xd2, 0x13, 0x5d, 0x4b},
+{0x04, 0x94, 0x37, 0x56, 0xa7, 0x87, 0x4e, 0x79, 0xb8, 0x40, 0x38, 0x3b, 0xa9,
+0xf2, 0xfc, 0x37, 0xd9, 0x3e, 0xd9, 0x83, 0x7f, 0x4e, 0x1f, 0xcc, 0x17, 0x32,
+0xac, 0x65, 0x92, 0xf4, 0x19, 0x4d, 0x87, 0x9a, 0x02, 0xbb, 0xae, 0xb2, 0x00,
+0x18, 0xc9, 0xc2, 0x3c, 0x6d, 0x04, 0x5d, 0x99, 0x48, 0x8b, 0x44, 0x4c, 0xb4,
+0x4a, 0x42, 0x4c, 0x35, 0xec, 0x47, 0xa7, 0x56, 0x41, 0xa1, 0xa1, 0x71, 0x0d},
+{0x04, 0xe2, 0xdb, 0x6b, 0x4a, 0x01, 0xf9, 0xa0, 0x2f, 0x54, 0x6f, 0xad, 0x07,
+0xb4, 0x25, 0x4a, 0x2c, 0x46, 0x6c, 0xea, 0x48, 0xb6, 0x7b, 0xb3, 0xd9, 0xda,
+0x4a, 0x91, 0xc8, 0xaa, 0xbf, 0x38, 0x1a, 0x78, 0x0b, 0x4f, 0x2a, 0x55, 0xc3,
+0x97, 0x44, 0x32, 0xc1, 0x59, 0x39, 0x6f, 0x50, 0x0f, 0x4a, 0x7c, 0xb3, 0x1f,
+0x26, 0x01, 0x7c, 0x45, 0x41, 0x4e, 0xdb, 0xa6, 0x8a, 0x58, 0x9f, 0x87, 0xc6},
+{0x04, 0x23, 0x2f, 0x63, 0x0b, 0xe0, 0x15, 0x30, 0x2f, 0x57, 0x07, 0x8b, 0x5d,
+0x44, 0x8d, 0x55, 0x65, 0xc7, 0xea, 0x1b, 0x8a, 0x2d, 0x9b, 0xea, 0x4e, 0xff,
+0xee, 0x42, 0xa8, 0xe2, 0x10, 0xc3, 0x96, 0x5e, 0x01, 0x32, 0x7f, 0xf2, 0xe1,
+0x85, 0x44, 0x94, 0xa6, 0x8d, 0x37, 0x05, 0xd0, 0x01, 0x7a, 0x49, 0x74, 0xe2,
+0x7c, 0x26, 0x0b, 0x64, 0x85, 0xbc, 0xd1, 0x66, 0x53, 0x49, 0x29, 0xb7, 0xc5},
+{0x04, 0x02, 0x4e, 0xe3, 0x78, 0xd4, 0xfe, 0xdb, 0x3e, 0xf0, 0x21, 0xac, 0xaf,
+0xaf, 0x5a, 0xf4, 0x59, 0x54, 0x33, 0x54, 0xd4, 0x4e, 0x88, 0xa7, 0x83, 0xb5,
+0x5c, 0x0b, 0xe9, 0x6c, 0x43, 0x92, 0x2a, 0xd2, 0x46, 0x5c, 0xa6, 0x08, 0xcb,
+0x35, 0x20, 0x35, 0x1a, 0x1b, 0x3f, 0xe5, 0xbb, 0xce, 0x60, 0xf4, 0xc6, 0xa6,
+0x55, 0x06, 0x47, 0xd8, 0x93, 0xbd, 0xfb, 0x5a, 0xcf, 0x94, 0xea, 0xa6, 0xe0},
+{0x04, 0x73, 0x73, 0xf6, 0xc5, 0x66, 0x72, 0xa0, 0x1b, 0xd2, 0x27, 0xb5, 0xb0,
+0x88, 0xdb, 0xf2, 0x00, 0x73, 0x5a, 0xd8, 0x51, 0xad, 0xad, 0xec, 0x4f, 0x9d,
+0x3b, 0x4f, 0xd8, 0x33, 0xbe, 0xad, 0x67, 0x1e, 0x88, 0x56, 0x61, 0x0f, 0x8f,
+0xca, 0xe9, 0xd6, 0x4e, 0x04, 0xf3, 0xfd, 0x04, 0xc8, 0x48, 0x26, 0xf9, 0xa1,
+0x93, 0xf4, 0xa5, 0x8a, 0x3b, 0x17, 0x8c, 0xe1, 0x80, 0xf9, 0xeb, 0x42, 0xa1},
+{0x04, 0x17, 0x9e, 0x3a, 0x57, 0x63, 0xb0, 0xcd, 0x1b, 0x0e, 0x4f, 0xa2, 0xed,
+0xb0, 0x77, 0xfb, 0x12, 0xcc, 0x3d, 0x84, 0xac, 0xa8, 0x9f, 0x99, 0x51, 0xb5,
+0xc6, 0x18, 0x3a, 0xee, 0xb7, 0xa3, 0xe8, 0xe1, 0x16, 0xb9, 0x4e, 0x94, 0xc9,
+0x8d, 0x07, 0xbb, 0x11, 0x8d, 0x3a, 0x54, 0xb1, 0xc5, 0x72, 0x82, 0xf5, 0xea,
+0x2f, 0xf6, 0x80, 0x46, 0x1c, 0x85, 0x7d, 0xd3, 0x74, 0xe6, 0x08, 0xf1, 0xf3}};
+
+/** Use a combination of cryptographic primitives to deterministically
+  * generate a new public key.
+  *
+  * The generator uses the algorithm described in
+  * https://en.bitcoin.it/wiki/BIP_0032, accessed 12-November-2012 under the
+  * "Specification" header. The generator generates uncompressed keys.
+  *
+  * \param out_public_key The generated public key will be written here.
+  * \param in_parent_public_key The parent public key, referred to as K_par in
+  *                             the article above.
+  * \param chain_code Should point to a byte array of length 32 containing
+  *                   the BIP 0032 chain code.
+  * \param num A counter which determines which number the pseudo-random
+  *            number generator will output.
+  */
+static void generateDeterministicPublicKey(PointAffine *out_public_key, PointAffine *in_parent_public_key, const uint8_t *chain_code, const uint32_t num)
+{
+	uint8_t hash[SHA512_HASH_LENGTH];
+	uint8_t hmac_message[69]; // 04 (1 byte) + x (32 bytes) + y (32 bytes) + num (4 bytes)
+	BigNum256 i_l;
+
+	hmac_message[0] = 0x04;
+	memcpy(&(hmac_message[1]), in_parent_public_key->x, 32);
+	swapEndian256(&(hmac_message[1]));
+	memcpy(&(hmac_message[33]), in_parent_public_key->y, 32);
+	swapEndian256(&(hmac_message[33]));
+	writeU32BigEndian(&(hmac_message[65]), num);
+	hmacSha512(hash, chain_code, 32, hmac_message, sizeof(hmac_message));
+	setFieldToN();
+	i_l = (BigNum256)hash;
+	swapEndian256(i_l); // since hash is big-endian
+	bigModulo(i_l, i_l); // just in case
+	memcpy(out_public_key, in_parent_public_key, sizeof(PointAffine));
+	pointMultiply(out_public_key, i_l);
+}
+
+/** Test whether deterministic key generator is a type-2 generator. This means
+  * that CKD(x, n) * G = CKD'(x * G, n) i.e. public keys can be derived
+  * without knowing the parent private key.
+  * \param seed generateDeterministic256().
+  * \param num See generateDeterministic256().
+  */
+static void type2DeterministicTest(uint8_t *seed, uint32_t num)
+{
+	uint8_t private_key[32];
+	PointAffine compare_public_key;
+	PointAffine other_parent_public_key;
+	PointAffine public_key;
+
+	// Calculate CKD(x, n) * G.
+	clearParentPublicKeyCache(); // ensure public key cache has been cleared
+	assert(generateDeterministic256(private_key, seed, num) == 0);
+	setToG(&compare_public_key);
+	pointMultiply(&compare_public_key, private_key);
+	// Calculate CKD'(x * G, n).
+	memcpy(private_key, seed, 32);
+	swapEndian256(private_key);
+	setToG(&other_parent_public_key);
+	pointMultiply(&other_parent_public_key, private_key);
+	generateDeterministicPublicKey(&public_key, &other_parent_public_key, &(seed[32]), num);
+	// Compare them.
+	if (memcmp(&compare_public_key, &public_key, sizeof(PointAffine)))
+	{
+		printf("Determinstic key generator is not type-2, num = %u\n", num);
+		printf("Parent private key: ");
+		printBigEndian16(seed);
+		printf("\nChain code: ");
+		printBigEndian16(&(seed[32]));
+		printf("\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+}
+
 /** A proper test suite for randomness would be quite big, so this test
   * spits out samples into random.dat, where they can be analysed using
   * an external program.
@@ -457,6 +635,8 @@ int main(int argc, char **argv)
 	uint8_t one_byte_corrupted;
 	uint8_t generated_using_nv[1024];
 	uint8_t generated_using_ram[1024];
+	uint8_t public_key_binary[65];
+	PointAffine public_key;
 
 	initTests(__FILE__);
 
@@ -469,9 +649,10 @@ int main(int argc, char **argv)
 	abort = 0;
 	for (i = 0; i < SEED_LENGTH; i++)
 	{
-		memset(seed, 0, SEED_LENGTH);
+		memset(seed, 42, SEED_LENGTH); // seed cannot be all 0
 		seed[i] = 1;
-		generateDeterministic256(keys[i], seed, 0);
+		clearParentPublicKeyCache(); // ensure public key cache has been cleared
+		assert(generateDeterministic256(keys[i], seed, 0) == 0);
 		for (j = 0; j < i; j++)
 		{
 			if (bigCompare(keys[i], keys[j]) == BIGCMP_EQUAL)
@@ -496,9 +677,10 @@ int main(int argc, char **argv)
 	}
 
 	// Check that generateDeterministic256() isn't ignoring num.
-	memset(seed, 0, SEED_LENGTH);
+	memset(seed, 42, SEED_LENGTH); // seed cannot be all 0
 	seed[0] = 1;
-	generateDeterministic256(key2, seed, 1);
+	clearParentPublicKeyCache(); // ensure public key cache has been cleared
+	assert(generateDeterministic256(key2, seed, 1) == 0);
 	abort = 0;
 	for (j = 0; j < SEED_LENGTH; j++)
 	{
@@ -519,7 +701,8 @@ int main(int argc, char **argv)
 	}
 
 	// Check that generateDeterministic256() is actually deterministic.
-	generateDeterministic256(key2, seed, 0);
+	clearParentPublicKeyCache(); // ensure public key cache has been cleared
+	assert(generateDeterministic256(key2, seed, 0) == 0);
 	if (bigCompare(key2, keys[0]) != BIGCMP_EQUAL)
 	{
 		printf("generateDeterministic256() is not deterministic\n");
@@ -528,6 +711,61 @@ int main(int argc, char **argv)
 	else
 	{
 		reportSuccess();
+	}
+
+	// Check that generateDeterministic256() generates BIP 0032 private keys
+	// correctly.
+	memcpy(seed, sipa_test_master_seed, SEED_LENGTH);
+	for (i = 1; i < SIPA_TEST_ADDRESSES; i++)
+	{
+		clearParentPublicKeyCache(); // ensure public key cache has been cleared
+		assert(generateDeterministic256(key2, seed, (uint32_t)0x12345678) == 0);
+		// generateDeterministic256() generates private keys, but the test
+		// vectors include only derived public keys, so the generated private
+		// keys need to be converted into public keys.
+		setToG(&public_key);
+		pointMultiply(&public_key, key2);
+		swapEndian256(public_key.x);
+		swapEndian256(public_key.y);
+		// Compare generated public keys with test vectors.
+		public_key_binary[0] = 0x04;
+		memcpy(&(public_key_binary[1]), public_key.x, 32);
+		memcpy(&(public_key_binary[33]), public_key.y, 32);
+		if (public_key.is_point_at_infinity
+			|| memcmp(public_key_binary, sipa_test_public_keys[i], sizeof(public_key_binary)))
+		{
+			printf("generateDeterministic256() failed sipa test %d\n", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+		// Get derived seed.
+		memcpy(seed, key2, 32);
+		swapEndian256(seed);
+		memcpy(&(seed[32]), test_chain_code, sizeof(test_chain_code));
+	}
+
+	// Check that generateDeterministic256() functions as a type-2
+	// deterministic wallet i.e. CKD(x, n) * G = CKD'(x * G, n).
+	for (i = 0; i < 2; i++)
+	{
+		// Try two different seeds.
+		if (i == 0)
+		{
+			memset(seed, 42, SEED_LENGTH);
+			seed[2] = 1;
+		}
+		else
+		{
+			memcpy(seed, sipa_test_master_seed, SEED_LENGTH);
+		}
+		type2DeterministicTest(seed, 0);
+		type2DeterministicTest(seed, 1);
+		type2DeterministicTest(seed, 0xfffffffe);
+		type2DeterministicTest(seed, 4095);
+		type2DeterministicTest(seed, 0xffffffff);
 	}
 
 	// Test if setEntropyPool() works.

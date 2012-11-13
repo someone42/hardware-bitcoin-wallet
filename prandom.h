@@ -37,12 +37,13 @@
 #error POOL_CHECKSUM_LENGTH is too big
 #endif
 
+extern void clearParentPublicKeyCache(void);
 extern uint8_t setEntropyPool(uint8_t *in_pool_state);
 extern uint8_t getEntropyPool(uint8_t *out_pool_state);
 extern uint8_t initialiseEntropyPool(uint8_t *initial_pool_state);
 extern uint8_t getRandom256(BigNum256 n);
 extern uint8_t getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state);
-extern void generateDeterministic256(BigNum256 out, uint8_t *seed, uint32_t num);
+extern uint8_t generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint32_t num);
 #ifdef TEST
 extern void initialiseDefaultEntropyPool(void);
 extern void corruptEntropyPool(void);

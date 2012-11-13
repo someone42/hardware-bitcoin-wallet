@@ -30,6 +30,7 @@ typedef struct PointAffineStruct
 	uint8_t is_point_at_infinity;
 } PointAffine;
 
+extern void setFieldToN(void);
 extern void setToG(PointAffine *p);
 extern void pointMultiply(PointAffine *p, BigNum256 k);
 extern uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k);

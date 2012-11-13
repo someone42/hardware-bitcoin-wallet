@@ -230,7 +230,7 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
   */
 WalletErrors initWallet(uint32_t wallet_spec)
 {
-	uint8_t buffer[32];
+	uint8_t buffer[MAX(32, SEED_LENGTH)];
 	uint8_t hash[32];
 	uint32_t version;
 
@@ -307,6 +307,7 @@ WalletErrors initWallet(uint32_t wallet_spec)
   */
 WalletErrors uninitWallet(void)
 {
+	clearParentPublicKeyCache();
 	wallet_loaded = 0;
 	is_hidden_wallet = 0;
 	base_nv_address = 0;
@@ -872,7 +873,12 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 		last_error = WALLET_READ_ERROR;
 		return last_error;
 	}
-	generateDeterministic256(out, seed, ah);
+	if (generateDeterministic256(out, seed, ah))
+	{
+		// This should never happen.
+		last_error = WALLET_RNG_FAILURE;
+		return last_error;
+	}
 	last_error = WALLET_NO_ERROR;
 	return last_error;
 }
