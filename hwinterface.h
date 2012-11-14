@@ -46,7 +46,9 @@ typedef enum AskUserCommandEnum
 	/** Restore wallet from backup? */
 	ASKUSER_RESTORE_WALLET		=	7,
 	/** Do you want to change the encryption key of a wallet? */
-	ASKUSER_CHANGE_KEY			=	8
+	ASKUSER_CHANGE_KEY			=	8,
+	/** Do you want to give the host access to the master public key? */
+	ASKUSER_GET_MASTER_KEY		=	9
 } AskUserCommand;
 
 /** Values for getString() function which specify which set of strings

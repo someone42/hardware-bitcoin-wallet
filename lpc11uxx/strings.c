@@ -14,7 +14,7 @@
  * @{
  */
 /** Version string. */
-static const char str_MISCSTR_VERSION[] = "Hardware Bitcoin Wallet for LPC11Uxx v0.3";
+static const char str_MISCSTR_VERSION[] = "Hardware Bitcoin Wallet for LPC11Uxx v0.4";
 /** Permission denied (user pressed cancel) string. */
 static const char str_MISCSTR_PERMISSION_DENIED[] = "Permission denied by user";
 /** String specifying that processPacket() didn't like the format or

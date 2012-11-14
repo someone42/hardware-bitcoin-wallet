@@ -36,15 +36,9 @@ Defined commands:
 0x00: ping
 length can be anything
 value can be anything
-Response: 01
+Response: 02 (with ASCII version string)
 Comments: The device will accept anything in the payload, but will ignore it.
 This command is useful for testing the existence of a conformant device.
-
-0x01: acknowledge ping
-length can be anything
-value can be anything
-Comments: The host must be prepared to deal with anything in the payload, but
-it will typically be an ASCII string describing the device.
 
 0x02: return success
 length is dependent on the previous packet
@@ -134,7 +128,7 @@ Comments: This command requires user approval.
 
 0x10: list wallets
 length is 0
-Response: 02 (with list of: 4 byte version followed by 40 byte name) or 03
+Response: 02 (with list of: 4 byte version followed by 40 byte name and 16 byte wallet UUID) or 03
 Comments: This command does not require a wallet to be loaded.
 
 0x11: backup wallet
@@ -154,6 +148,24 @@ last 64 bytes of value are the (unencrypted) deterministic address generator see
 Response: 02 (length 0) or 03
 Comments: This command requires user approval. This command can also be used to
 import an externally-generated wallet.
+
+0x13: get device UUID
+length is 0
+Response: 02 (with 16 byte device UUID) or 03
+
+0x14: get entropy
+length is 4
+value is a little-endian 32 bit integer specifying how many bytes of entropy to get
+Response: 02 (with specified bytes of entropy + 1 validness byte) or 03
+Comments: The validness byte is appended to the bytes of entropy and is 0x00 if
+the RNG system failed in any way, or 0x01 if all the bytes of entropy are
+considered good. The host should not attempt to use any of the bytes of entropy
+if the validness byte is 0x00.
+
+0x15: get master public key
+length is 0
+Response: 02 (with pubkey followed by chain code) or 03
+Comments: This command requires user approval.
 
 
 

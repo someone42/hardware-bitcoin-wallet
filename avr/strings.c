@@ -20,7 +20,7 @@
  * @{
  */
 /** Version string. */
-static const char str_MISCSTR_VERSION[] PROGMEM = "Hardware Bitcoin Wallet for AVR v0.2";
+static const char str_MISCSTR_VERSION[] PROGMEM = "Hardware Bitcoin Wallet for AVR v0.4";
 /** Permission denied (user pressed cancel) string. */
 static const char str_MISCSTR_PERMISSION_DENIED[] PROGMEM = "Permission denied by user";
 /** String specifying that processPacket() didn't like the format or

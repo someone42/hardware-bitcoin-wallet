@@ -116,7 +116,7 @@ static int suppress_set_entropy_pool;
  *
  * Wallets are stored as sequential records in non-volatile
  * storage. Each record is #WALLET_RECORD_LENGTH bytes. If the wallet is
- * encrypted, the first 48 bytes are unencrypted and the last 112 bytes
+ * encrypted, the first 64 bytes are unencrypted and the last 112 bytes
  * are encrypted.
  * The contents of each record:
  * - 4 bytes: little endian version
@@ -126,6 +126,7 @@ static int suppress_set_entropy_pool;
  *  - 0x00000003: encrypted wallet, host provides key
  * - 4 bytes: reserved
  * - 40 bytes: name of wallet (padded with spaces)
+ * - 16 bytes: wallet UUID
  * - 4 bytes: little endian number of addresses
  * - 8 bytes: random data
  * - 4 bytes: reserved
@@ -139,24 +140,26 @@ static int suppress_set_entropy_pool;
   * \warning This must also be a multiple of 16, since the block size of
   *          AES is 128 bits.
   */
-#define OFFSET_ENCRYPT_START	48
+#define OFFSET_ENCRYPT_START	64
 /** Offset within a record where version is. */
 #define OFFSET_VERSION			0
 /** Offset within a record where first reserved area is. */
 #define OFFSET_RESERVED1		4
 /** Offset within a record where name is. */
 #define OFFSET_NAME				8
+/** Offset within a record where wallet UUID is. */
+#define OFFSET_WALLET_UUID		48
 /** Offset within a record where number of addresses is. */
-#define OFFSET_NUM_ADDRESSES	48
+#define OFFSET_NUM_ADDRESSES	64
 /** Offset within a record where some random data is. */
-#define OFFSET_NONCE1			52
+#define OFFSET_NONCE1			68
 /** Offset within a record where second reserved area is. */
-#define OFFSET_RESERVED2		60
+#define OFFSET_RESERVED2		76
 /** Offset within a record where deterministic private key generator seed
   * is. */
-#define OFFSET_SEED				64
+#define OFFSET_SEED				80
 /** Offset within a record where some wallet checksum is. */
-#define OFFSET_CHECKSUM			128
+#define OFFSET_CHECKSUM			144
 /** Version number which means "nothing here". */
 #define VERSION_NOTHING_THERE	0x00000000
 /** Version number which means "wallet is not encrypted".
@@ -198,7 +201,7 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
 		}
 		if (i < WALLET_RECORD_LENGTH)
 		{
-			// "The first 48 bytes are unencrypted, the last 112 bytes are
+			// "The first 64 bytes are unencrypted, the last 112 bytes are
 			// encrypted."
 			if (i < OFFSET_ENCRYPT_START)
 			{
@@ -230,7 +233,7 @@ static NonVolatileReturn calculateWalletChecksum(uint8_t *hash)
   */
 WalletErrors initWallet(uint32_t wallet_spec)
 {
-	uint8_t buffer[MAX(32, SEED_LENGTH)];
+	uint8_t buffer[32];
 	uint8_t hash[32];
 	uint32_t version;
 
@@ -349,6 +352,9 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 	// 4 pass format: all 0s, all 1s, random, random. This ensures that
 	// every bit is cleared at least once, set at least once and ends up
 	// in an unpredictable state.
+	// It is crucial that the last pass is random for two reasons:
+	// 1. A new device UUID is written, if necessary.
+	// 2. Hidden wallets are actually plausibly deniable.
 	for (pass = 0; pass < 4; pass++)
 	{
 		address = start;
@@ -424,6 +430,10 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 
 	if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
 	{
+		// If the selected area includes the device UUID, then a new device
+		// UUID needs to be written. But if the selected area includes the
+		// device UUID, then it will be overwritten with random data in the
+		// above loop. Thus no additional work is needed.
 		// Write VERSION_NOTHING_THERE to all possible locations of the
 		// version field. This ensures that a wallet won't accidentally
 		// (1 in 2 ^ 31 chance) be recognised as a valid wallet by
@@ -625,6 +635,17 @@ WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, ui
 			last_error = WALLET_WRITE_ERROR;
 			return last_error;
 		}
+		// Write wallet UUID.
+		if (getRandom256(buffer))
+		{
+			last_error = WALLET_RNG_FAILURE;
+			return last_error;
+		}
+		if (nonVolatileWrite(buffer, base_nv_address + OFFSET_WALLET_UUID, UUID_LENGTH) != NV_NO_ERROR)
+		{
+			last_error = WALLET_WRITE_ERROR;
+			return last_error;
+		}
 	}
 	// Write number of addresses.
 	writeU32LittleEndian(buffer, 0);
@@ -813,6 +834,42 @@ WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_publi
 	writeHashToByteArray(buffer, &hs, 1);
 	memcpy(out_address, buffer, 20);
 
+	last_error = WALLET_NO_ERROR;
+	return last_error;
+}
+
+/** Get the master public key of the currently loaded wallet. Every public key
+  * (and address) in a wallet can be derived from the master public key and
+  * chain code. However, even with posession of the master public key, all
+  * private keys are still secret.
+  * \param out_public_key The master public key will be written here.
+  * \param out_chain_code The chain code will be written here. This must be a
+  *                       byte array with space for 32 bytes.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
+WalletErrors getMasterPublicKey(PointAffine *out_public_key, uint8_t *out_chain_code)
+{
+	uint8_t seed[SEED_LENGTH];
+	BigNum256 k_par;
+
+	if (!wallet_loaded)
+	{
+		last_error = WALLET_NOT_THERE;
+		return last_error;
+	}
+	if (encryptedNonVolatileRead(seed, base_nv_address + OFFSET_SEED, SEED_LENGTH) != NV_NO_ERROR)
+	{
+		last_error = WALLET_READ_ERROR;
+		return last_error;
+	}
+	memcpy(out_chain_code, &(seed[32]), 32);
+	k_par = (BigNum256)seed;
+	swapEndian256(k_par); // since seed is big-endian
+	setFieldToN();
+	bigModulo(k_par, k_par); // just in case
+	setToG(out_public_key);
+	pointMultiply(out_public_key, k_par);
 	last_error = WALLET_NO_ERROR;
 	return last_error;
 }
@@ -1009,11 +1066,14 @@ WalletErrors changeWalletName(uint8_t *new_name)
   * \param out_name The (space-padded) name of the wallet will be written
   *                 to here (if everything goes well). This should be a
   *                 byte array with enough space to store #NAME_LENGTH bytes.
+  * \param out_uuid The wallet UUID will be written to here (if everything
+  *                 goes well). This should be a byte array with enough space
+  *                 to store #UUID_LENGTH bytes.
   * \param wallet_spec The wallet number of the wallet to query.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred.
   */
-WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint32_t wallet_spec)
+WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint8_t *out_uuid, uint32_t wallet_spec)
 {
 	uint32_t local_base_nv_address;
 
@@ -1033,6 +1093,11 @@ WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint32_t wal
 		return last_error;
 	}
 	if (nonVolatileRead(out_name, local_base_nv_address + OFFSET_NAME, NAME_LENGTH) != NV_NO_ERROR)
+	{
+		last_error = WALLET_READ_ERROR;
+		return last_error;
+	}
+	if (nonVolatileRead(out_uuid, local_base_nv_address + OFFSET_WALLET_UUID, UUID_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -1448,6 +1513,7 @@ static void checkFunctionsReturnWalletNotThere(void)
   */
 static void checkWalletSpecFunctions(uint32_t wallet_spec, int should_succeed)
 {
+	uint8_t wallet_uuid[UUID_LENGTH];
 	uint8_t name[NAME_LENGTH];
 	uint8_t version[4];
 	WalletErrors wallet_return;
@@ -1499,7 +1565,7 @@ static void checkWalletSpecFunctions(uint32_t wallet_spec, int should_succeed)
 	}
 
 	uninitWallet();
-	wallet_return = getWalletInfo(version, name, wallet_spec);
+	wallet_return = getWalletInfo(version, name, wallet_uuid, wallet_spec);
 	if (should_succeed && (wallet_return != WALLET_NO_ERROR))
 	{
 		printf("getWalletInfo() failed with wallet number %u when it should have succeeded\n", wallet_spec);
@@ -1547,12 +1613,15 @@ int main(void)
 	uint8_t name[NAME_LENGTH];
 	uint8_t name2[NAME_LENGTH];
 	uint8_t compare_name[NAME_LENGTH];
+	uint8_t wallet_uuid[UUID_LENGTH];
+	uint8_t wallet_uuid2[UUID_LENGTH];
 	uint8_t encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t new_encryption_key[WALLET_ENCRYPTION_KEY_LENGTH];
 	uint8_t version[4];
 	uint8_t seed1[SEED_LENGTH];
 	uint8_t seed2[SEED_LENGTH];
 	uint8_t encrypted_seed[SEED_LENGTH];
+	uint8_t chain_code[32];
 	uint8_t unencrypted_part[OFFSET_ENCRYPT_START];
 	uint8_t compare_unencrypted_part[OFFSET_ENCRYPT_START];
 	uint8_t *address_buffer;
@@ -1564,7 +1633,9 @@ int main(void)
 	uint32_t stupidly_calculated_num_wallets;
 	AddressHandle *handles_buffer;
 	AddressHandle ah;
+	PointAffine master_public_key;
 	PointAffine public_key;
+	PointAffine compare_public_key;
 	PointAffine *public_key_buffer;
 	int abort;
 	int is_zero;
@@ -1601,7 +1672,7 @@ int main(void)
 	}
 
 	// Check that the version field is "wallet not there".
-	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, wallet_uuid, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1667,7 +1738,7 @@ int main(void)
 	}
 
 	// Check that the version field is "unencrypted wallet".
-	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, wallet_uuid, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -2149,7 +2220,7 @@ int main(void)
 	}
 
 	// Check that the version field is "encrypted wallet".
-	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, wallet_uuid, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -2181,7 +2252,7 @@ int main(void)
 
 	// Check that getWalletInfo() still works after unloading wallet.
 	uninitWallet();
-	if (getWalletInfo(version, temp, 0) == WALLET_NO_ERROR)
+	if (getWalletInfo(version, temp, wallet_uuid, 0) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -2224,7 +2295,7 @@ int main(void)
 		printf("changeWalletName() couldn't change name\n");
 		reportFailure();
 	}
-	getWalletInfo(version, temp, 0);
+	getWalletInfo(version, temp, wallet_uuid, 0);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		reportSuccess();
@@ -2238,7 +2309,7 @@ int main(void)
 	// Check that name change is preserved when unloading and loading a
 	// wallet.
 	uninitWallet();
-	getWalletInfo(version, temp, 0);
+	getWalletInfo(version, temp, wallet_uuid, 0);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		reportSuccess();
@@ -2260,7 +2331,7 @@ int main(void)
 		printf("initWallet() failed after name change\n");
 		reportFailure();
 	}
-	getWalletInfo(version, temp, 0);
+	getWalletInfo(version, temp, wallet_uuid, 0);
 	if (!memcmp(temp, name, NAME_LENGTH))
 	{
 		reportSuccess();
@@ -2663,7 +2734,7 @@ int main(void)
 	}
 
 	// Check getWalletInfo() returns the name that was set for both wallets.
-	getWalletInfo(version, compare_name, 0);
+	getWalletInfo(version, compare_name, wallet_uuid, 0);
 	if (memcmp(name, compare_name, NAME_LENGTH))
 	{
 		printf("Wallet 0's name got mangled\n");
@@ -2673,7 +2744,7 @@ int main(void)
 	{
 		reportSuccess();
 	}
-	getWalletInfo(version, compare_name, 1);
+	getWalletInfo(version, compare_name, wallet_uuid, 1);
 	if (memcmp(name2, compare_name, NAME_LENGTH))
 	{
 		printf("Wallet 1's name got mangled\n");
@@ -3030,10 +3101,103 @@ int main(void)
 	uninitWallet();
 	newWallet(0, name, 0, NULL, 0);
 	newWallet(0, name, 0, NULL, 1);
-	getWalletInfo(version, temp, 0);
+	getWalletInfo(version, temp, wallet_uuid, 0);
 	if (readU32LittleEndian(version) != VERSION_NOTHING_THERE)
 	{
 		printf("Hidden wallet's version field is not VERSION_NOTHING_THERE\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Create two wallets. Their UUIDs should not be the same.
+	uninitWallet();
+	newWallet(0, name, 0, NULL, 0);
+	newWallet(0, name, 0, NULL, 1);
+	getWalletInfo(version, temp, wallet_uuid, 0);
+	getWalletInfo(version, temp, wallet_uuid2, 1);
+	if (!memcmp(wallet_uuid, wallet_uuid2, UUID_LENGTH))
+	{
+		printf("Wallet UUIDs not unique\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Overwrite wallet 0. The UUID should change.
+	uninitWallet();
+	memset(encryption_key, 42, WALLET_ENCRYPTION_KEY_LENGTH);
+	setEncryptionKey(encryption_key);
+	newWallet(0, name, 0, NULL, 0);
+	getWalletInfo(version, temp, wallet_uuid2, 0);
+	if (!memcmp(wallet_uuid, wallet_uuid2, UUID_LENGTH))
+	{
+		printf("Wallet UUIDs aren't changing on overwrite\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Perform a few operations on the wallet. The wallet UUID shouldn't change.
+	uninitWallet();
+	getWalletInfo(version, temp, wallet_uuid, 0);
+	initWallet(0);
+	memset(new_encryption_key, 0, WALLET_ENCRYPTION_KEY_LENGTH);
+	changeEncryptionKey(new_encryption_key);
+	makeNewAddress(address1, &public_key);
+	changeWalletName(name2);
+	uninitWallet();
+	setEncryptionKey(new_encryption_key);
+	initWallet(0);
+	getWalletInfo(version, temp, wallet_uuid2, 0);
+	if (memcmp(wallet_uuid, wallet_uuid2, UUID_LENGTH))
+	{
+		printf("Wallet UUIDs changing when the wallet is used\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check that getMasterPublicKey() works.
+	uninitWallet();
+	newWallet(0, name, 0, NULL, 0);
+	initWallet(0);
+	if (getMasterPublicKey(&master_public_key, chain_code) != WALLET_NO_ERROR)
+	{
+		printf("getMasterPublicKey() fails in the simplest case\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check that wallet public keys can be derived from the public key and
+	// chain code that getMasterPublicKey() returned.
+	generateDeterministicPublicKey(&public_key, &master_public_key, chain_code, 1);
+	makeNewAddress(address1, &compare_public_key);
+	if (memcmp(&public_key, &compare_public_key, sizeof(PointAffine)))
+	{
+		printf("Address 1 can't be derived from master public key\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	generateDeterministicPublicKey(&public_key, &master_public_key, chain_code, 2);
+	makeNewAddress(address1, &compare_public_key);
+	if (memcmp(&public_key, &compare_public_key, sizeof(PointAffine)))
+	{
+		printf("Address 2 can't be derived from master public key\n");
 		reportFailure();
 	}
 	else

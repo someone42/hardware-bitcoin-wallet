@@ -35,6 +35,7 @@
 #include "prandom.h"
 #include "xex.h"
 #include "ecdsa.h"
+#include "storage_common.h"
 
 /** Because stdlib.h might not be included, NULL might be undefined. NULL
   * is only used as a placeholder pointer for translateWalletError() if
@@ -334,6 +335,7 @@ static NOINLINE void listWallets(void)
 {
 	uint8_t version[4];
 	uint8_t name[NAME_LENGTH];
+	uint8_t wallet_uuid[UUID_LENGTH];
 	uint8_t buffer[4];
 	uint32_t i;
 	uint32_t num_wallets;
@@ -348,19 +350,21 @@ static NOINLINE void listWallets(void)
 	else
 	{
 		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
-		writeU32LittleEndian(buffer, (4 + NAME_LENGTH) * num_wallets); // length
+		writeU32LittleEndian(buffer, (4 + NAME_LENGTH + UUID_LENGTH) * num_wallets); // length
 		writeBytesToStream(buffer, 4);
 		for (i = 0; i < num_wallets; i++)
 		{
-			if (getWalletInfo(version, name, i) != WALLET_NO_ERROR)
+			if (getWalletInfo(version, name, wallet_uuid, i) != WALLET_NO_ERROR)
 			{
 				// It's too late to return an error message, since the host
 				// now expects a full payload, so just send all 00s.
 				memset(version, 0, 4);
 				memset(name, 0, NAME_LENGTH);
+				memset(wallet_uuid, 0, UUID_LENGTH);
 			}
 			writeBytesToStream(version, 4);
 			writeBytesToStream(name, NAME_LENGTH);
+			writeBytesToStream(wallet_uuid, UUID_LENGTH);
 		} // end for (i = 0; i < num_wallets; i++)
 	} // end if (num_wallets == 0)
 }
@@ -379,6 +383,9 @@ static NOINLINE void restoreWallet(uint32_t wallet_spec, uint8_t make_hidden)
 
 	getBytesFromStream(name, NAME_LENGTH);
 	getBytesFromStream(seed, SEED_LENGTH);
+	// askUser() has to be called here (and not processPacket()) because name
+	// and seed must be read from the stream before we're allowed to send
+	// anything.
 	if (askUser(ASKUSER_RESTORE_WALLET))
 	{
 		writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
@@ -388,6 +395,66 @@ static NOINLINE void restoreWallet(uint32_t wallet_spec, uint8_t make_hidden)
 		wallet_return = newWallet(wallet_spec, name, 1, seed, make_hidden);
 		translateWalletError(wallet_return, 0, NULL);
 	}
+}
+
+/** Return bytes of entropy from the random number generation system.
+  * \param num_bytes Number of bytes of entropy to send to stream.
+  */
+static NOINLINE void getBytesOfEntropy(uint32_t num_bytes)
+{
+	uint8_t validness_byte;
+	uint32_t random_bytes_index;
+	uint8_t random_buffer[32];
+	uint8_t buffer[4];
+
+	if (num_bytes > 0x7FFFFFFF)
+	{
+		// Huge num_bytes. Probably a transmission error.
+		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
+	}
+	else
+	{
+		validness_byte = 1;
+		random_bytes_index = 0;
+		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
+		writeU32LittleEndian(buffer, (uint32_t)(num_bytes + 1)); // length
+		writeBytesToStream(buffer, 4);
+		while (num_bytes--)
+		{
+			if (random_bytes_index == 0)
+			{
+				if (getRandom256(random_buffer))
+				{
+					validness_byte = 0;
+					// Set the buffer to all 00s so:
+					// 1. The contents of RAM aren't leaked.
+					// 2. It's obvious that the RNG is broken.
+					memset(random_buffer, 0, sizeof(random_buffer));
+				}
+			}
+			streamPutOneByte(random_buffer[random_bytes_index]);
+			random_bytes_index = (uint32_t)((random_bytes_index + 1) & 31);
+		}
+		streamPutOneByte(validness_byte);
+	}
+}
+
+/** Obtain master public key and chain code, then send it over the stream. */
+static NOINLINE void getAndSendMasterPublicKey(void)
+{
+	WalletErrors wallet_return;
+	PointAffine master_public_key;
+	uint8_t chain_code[32];
+	uint8_t buffer[97]; // 0x04 (1 byte) + x (32 bytes) + y (32 bytes) + chain code (32 bytes)
+
+	wallet_return = getMasterPublicKey(&master_public_key, chain_code);
+	buffer[0] = 0x04;
+	memcpy(&(buffer[1]), master_public_key.x, 32);
+	swapEndian256(&(buffer[1]));
+	memcpy(&(buffer[33]), master_public_key.y, 32);
+	swapEndian256(&(buffer[33]));
+	memcpy(&(buffer[65]), chain_code, 32);
+	translateWalletError(wallet_return, sizeof(buffer), buffer);
 }
 
 /** Read but ignore #payload_length bytes from input stream. This will also
@@ -446,10 +513,11 @@ void processPacket(void)
 	// in a couple of places to obtain 32 bit values. This is guaranteed by
 	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
 	// right mind would use encryption with smaller than 32 bit keys.
-	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, ENTROPY_POOL_LENGTH))];
+	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, MAX(ENTROPY_POOL_LENGTH, UUID_LENGTH)))];
 	uint8_t make_hidden;
 	uint32_t wallet_spec;
 	uint32_t num_addresses;
+	uint32_t num_bytes;
 	AddressHandle ah;
 	WalletErrors wallet_return;
 
@@ -473,11 +541,11 @@ void processPacket(void)
 		// Ping request.
 		// Just throw away the data and then send response.
 		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_VERSION, PACKET_TYPE_PING_REPLY);
+		writeString(STRINGSET_MISC, MISCSTR_VERSION, PACKET_TYPE_SUCCESS);
 		break;
 
-	// Commands PACKET_TYPE_PING_REPLY, PACKET_TYPE_SUCCESS and
-	// PACKET_TYPE_FAILURE should never be received; they are only sent.
+	// Commands PACKET_TYPE_SUCCESS and PACKET_TYPE_FAILURE should never be
+	// received; they are only sent.
 
 	case PACKET_TYPE_NEW_WALLET:
 		// Create new wallet.
@@ -674,6 +742,47 @@ void processPacket(void)
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
 			restoreWallet(wallet_spec, make_hidden);
+		}
+		break;
+
+	case PACKET_TYPE_GET_DEVICE_UUID:
+		// Get device UUID.
+		if (!expectLength(0))
+		{
+			if (nonVolatileRead(buffer, ADDRESS_DEVICE_UUID, UUID_LENGTH) == NV_NO_ERROR)
+			{
+				wallet_return = WALLET_NO_ERROR;
+			}
+			else
+			{
+				wallet_return = WALLET_READ_ERROR;
+			}
+			translateWalletError(wallet_return, UUID_LENGTH, buffer);
+		}
+		break;
+
+	case PACKET_TYPE_GET_ENTROPY:
+		// Get an arbitrary number of bytes of entropy.
+		if (!expectLength(4))
+		{
+			getBytesFromStream(buffer, 4);
+			num_bytes = readU32LittleEndian(buffer);
+			getBytesOfEntropy(num_bytes);
+		}
+		break;
+
+	case PACKET_TYPE_GET_MASTER_KEY:
+		// Get master public key and chain code.
+		if (!expectLength(0))
+		{
+			if (askUser(ASKUSER_GET_MASTER_KEY))
+			{
+				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
+			}
+			else
+			{
+				getAndSendMasterPublicKey();
+			}
 		}
 		break;
 
@@ -925,6 +1034,12 @@ uint8_t askUser(AskUserCommand command)
 	case ASKUSER_RESTORE_WALLET:
 		printf("Restore wallet from backup? ");
 		break;
+	case ASKUSER_CHANGE_KEY:
+		printf("Change wallet encryption key? ");
+		break;
+	case ASKUSER_GET_MASTER_KEY:
+		printf("Reveal master public key? ");
+		break;
 	default:
 		assert(0);
 		// GCC is smart enough to realise that the following line will never
@@ -1119,6 +1234,34 @@ static const uint8_t test_stream_restore_wallet[] = {
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
 0x12, 0x34, 0xde, 0xad, 0xfe, 0xed, 0xde, 0xf0};
 
+/** Test stream data for: get device UUID. */
+static const uint8_t test_stream_get_device_uuid[] = {
+0x13, 0x00, 0x00, 0x00, 0x00};
+
+/** Test stream data for: get 0 bytes of entropy. */
+static const uint8_t test_stream_get_entropy0[] = {
+0x14, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+/** Test stream data for: get 1 byte of entropy. */
+static const uint8_t test_stream_get_entropy1[] = {
+0x14, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+
+/** Test stream data for: get 32 bytes of entropy. */
+static const uint8_t test_stream_get_entropy32[] = {
+0x14, 0x04, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00};
+
+/** Test stream data for: get 100 bytes of entropy. */
+static const uint8_t test_stream_get_entropy100[] = {
+0x14, 0x04, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00};
+
+/** Ping (get version). */
+static const uint8_t test_stream_ping[] = {
+0x00, 0x00, 0x00, 0x00, 0x00};
+
+/** Get master public key. */
+static const uint8_t test_get_master_public_key[] = {
+0x15, 0x00, 0x00, 0x00, 0x00};
+
 /** Test response of processPacket() for a given test stream.
   * \param test_stream The test stream data to use.
   * \param size The length of the test stream, in bytes.
@@ -1183,6 +1326,20 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_backup_wallet);
 	printf("Restoring a wallet...\n");
 	SEND_ONE_TEST_STREAM(test_stream_restore_wallet);
+	printf("Getting device UUID...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_device_uuid);
+	printf("Getting 0 bytes of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy0);
+	printf("Getting 1 byte of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy1);
+	printf("Getting 32 bytes of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy32);
+	printf("Getting 100 bytes of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy100);
+	printf("Pinging...\n");
+	SEND_ONE_TEST_STREAM(test_stream_ping);
+	printf("Getting master public key...\n");
+	SEND_ONE_TEST_STREAM(test_get_master_public_key);
 
 	finishTests();
 	exit(0);

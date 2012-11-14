@@ -64,11 +64,12 @@ extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
 extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, uint8_t *seed, uint8_t make_hidden);
 extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);
 extern WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah);
+extern WalletErrors getMasterPublicKey(PointAffine *out_public_key, uint8_t *out_chain_code);
 extern uint32_t getNumAddresses(void);
 extern WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah);
 extern WalletErrors changeEncryptionKey(uint8_t *new_key);
 extern WalletErrors changeWalletName(uint8_t *new_name);
-extern WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint32_t wallet_spec);
+extern WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint8_t *out_uuid, uint32_t wallet_spec);
 extern WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device);
 extern uint32_t getNumberOfWallets(void);
 

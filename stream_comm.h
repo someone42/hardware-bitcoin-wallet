@@ -21,8 +21,6 @@
  */
 /** Request a response from the wallet. */
 #define PACKET_TYPE_PING				0x00
-/** Reply to #PACKET_TYPE_PING. */
-#define PACKET_TYPE_PING_REPLY			0x01
 /** Packet signifying successful completion of an operation. */
 #define PACKET_TYPE_SUCCESS				0x02
 /** Packet signifying failure of an operation. */
@@ -53,6 +51,12 @@
 #define PACKET_TYPE_BACKUP_WALLET		0x11
 /** Restore wallet from a backup. */
 #define PACKET_TYPE_RESTORE_WALLET		0x12
+/** Get device UUID. */
+#define PACKET_TYPE_GET_DEVICE_UUID		0x13
+/** Get bytes of entropy. */
+#define PACKET_TYPE_GET_ENTROPY			0x14
+/** Get master public key. */
+#define PACKET_TYPE_GET_MASTER_KEY		0x15
 /**@}*/
 
 extern void processPacket(void);

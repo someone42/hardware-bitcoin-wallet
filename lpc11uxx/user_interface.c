@@ -311,6 +311,12 @@ uint8_t askUser(AskUserCommand command)
 		writeStringToDisplayWordWrap("Change the encryption key of the current wallet?");
 		r = waitForButtonPress();
 	}
+	else if (command == ASKUSER_GET_MASTER_KEY)
+	{
+		waitForNoButtonPress();
+		writeStringToDisplayWordWrap("Reveal master public key to host?");
+		r = waitForButtonPress();
+	}
 	else
 	{
 		waitForNoButtonPress();

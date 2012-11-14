@@ -12,6 +12,10 @@
 #include "bignum256.h"
 #include "storage_common.h"
 
+#ifdef TEST
+#include "ecdsa.h"
+#endif // #ifdef TEST
+
 /** Length, in bytes, of the seed that generateDeterministic256() requires.
   * \warning This must be a multiple of 16 in order for backupWallet() to work
   *          properly.
@@ -47,6 +51,7 @@ extern uint8_t generateDeterministic256(BigNum256 out, const uint8_t *seed, cons
 #ifdef TEST
 extern void initialiseDefaultEntropyPool(void);
 extern void corruptEntropyPool(void);
+extern void generateDeterministicPublicKey(PointAffine *out_public_key, PointAffine *in_parent_public_key, const uint8_t *chain_code, const uint32_t num);
 #endif // #ifdef TEST
 
 #endif // #ifndef PRANDOM_H_INCLUDED

@@ -45,7 +45,7 @@
 
 /** The parent public key for the BIP 0032 deterministic key generator (see
   * generateDeterministic256()). The contents of this variable are only valid
-  * if #parent_public_key_valid is non-zero.
+  * if #cached_parent_public_key_valid is non-zero.
   *
   * generateDeterministic256() could calculate the parent public key each time
   * a new deterministic key is requested. However, that would slow down
@@ -472,6 +472,46 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 
 #endif // #ifdef TEST
 
+#if defined(TEST_PRANDOM) || defined(TEST_WALLET)
+
+/** Use a combination of cryptographic primitives to deterministically
+  * generate a new public key.
+  *
+  * The generator uses the algorithm described in
+  * https://en.bitcoin.it/wiki/BIP_0032, accessed 12-November-2012 under the
+  * "Specification" header. The generator generates uncompressed keys.
+  *
+  * \param out_public_key The generated public key will be written here.
+  * \param in_parent_public_key The parent public key, referred to as K_par in
+  *                             the article above.
+  * \param chain_code Should point to a byte array of length 32 containing
+  *                   the BIP 0032 chain code.
+  * \param num A counter which determines which number the pseudo-random
+  *            number generator will output.
+  */
+void generateDeterministicPublicKey(PointAffine *out_public_key, PointAffine *in_parent_public_key, const uint8_t *chain_code, const uint32_t num)
+{
+	uint8_t hash[SHA512_HASH_LENGTH];
+	uint8_t hmac_message[69]; // 04 (1 byte) + x (32 bytes) + y (32 bytes) + num (4 bytes)
+	BigNum256 i_l;
+
+	hmac_message[0] = 0x04;
+	memcpy(&(hmac_message[1]), in_parent_public_key->x, 32);
+	swapEndian256(&(hmac_message[1]));
+	memcpy(&(hmac_message[33]), in_parent_public_key->y, 32);
+	swapEndian256(&(hmac_message[33]));
+	writeU32BigEndian(&(hmac_message[65]), num);
+	hmacSha512(hash, chain_code, 32, hmac_message, sizeof(hmac_message));
+	setFieldToN();
+	i_l = (BigNum256)hash;
+	swapEndian256(i_l); // since hash is big-endian
+	bigModulo(i_l, i_l); // just in case
+	memcpy(out_public_key, in_parent_public_key, sizeof(PointAffine));
+	pointMultiply(out_public_key, i_l);
+}
+
+#endif // #if defined(TEST_PRANDOM) || defined(TEST_WALLET)
+
 #ifdef TEST_PRANDOM
 
 /** The master private key and chain code of one of sipa's BIP 0032 test
@@ -535,42 +575,6 @@ const uint8_t sipa_test_public_keys[SIPA_TEST_ADDRESSES][65] = {
 0xc6, 0x18, 0x3a, 0xee, 0xb7, 0xa3, 0xe8, 0xe1, 0x16, 0xb9, 0x4e, 0x94, 0xc9,
 0x8d, 0x07, 0xbb, 0x11, 0x8d, 0x3a, 0x54, 0xb1, 0xc5, 0x72, 0x82, 0xf5, 0xea,
 0x2f, 0xf6, 0x80, 0x46, 0x1c, 0x85, 0x7d, 0xd3, 0x74, 0xe6, 0x08, 0xf1, 0xf3}};
-
-/** Use a combination of cryptographic primitives to deterministically
-  * generate a new public key.
-  *
-  * The generator uses the algorithm described in
-  * https://en.bitcoin.it/wiki/BIP_0032, accessed 12-November-2012 under the
-  * "Specification" header. The generator generates uncompressed keys.
-  *
-  * \param out_public_key The generated public key will be written here.
-  * \param in_parent_public_key The parent public key, referred to as K_par in
-  *                             the article above.
-  * \param chain_code Should point to a byte array of length 32 containing
-  *                   the BIP 0032 chain code.
-  * \param num A counter which determines which number the pseudo-random
-  *            number generator will output.
-  */
-static void generateDeterministicPublicKey(PointAffine *out_public_key, PointAffine *in_parent_public_key, const uint8_t *chain_code, const uint32_t num)
-{
-	uint8_t hash[SHA512_HASH_LENGTH];
-	uint8_t hmac_message[69]; // 04 (1 byte) + x (32 bytes) + y (32 bytes) + num (4 bytes)
-	BigNum256 i_l;
-
-	hmac_message[0] = 0x04;
-	memcpy(&(hmac_message[1]), in_parent_public_key->x, 32);
-	swapEndian256(&(hmac_message[1]));
-	memcpy(&(hmac_message[33]), in_parent_public_key->y, 32);
-	swapEndian256(&(hmac_message[33]));
-	writeU32BigEndian(&(hmac_message[65]), num);
-	hmacSha512(hash, chain_code, 32, hmac_message, sizeof(hmac_message));
-	setFieldToN();
-	i_l = (BigNum256)hash;
-	swapEndian256(i_l); // since hash is big-endian
-	bigModulo(i_l, i_l); // just in case
-	memcpy(out_public_key, in_parent_public_key, sizeof(PointAffine));
-	pointMultiply(out_public_key, i_l);
-}
 
 /** Test whether deterministic key generator is a type-2 generator. This means
   * that CKD(x, n) * G = CKD'(x * G, n) i.e. public keys can be derived

@@ -548,6 +548,10 @@ static char str_restore_line1[] PROGMEM = "from backup?";
 static char str_change_key_line0[] PROGMEM = "Change the key";
 /** Second line of #ASKUSER_CHANGE_KEY prompt. */
 static char str_change_key_line1[] PROGMEM = "of your wallet?";
+/** First line of #ASKUSER_GET_MASTER_KEY prompt. */
+static char str_get_master_key_line0[] PROGMEM = "Reveal master";
+/** Second line of #ASKUSER_GET_MASTER_KEY prompt. */
+static char str_get_master_key_line1[] PROGMEM = "public key?";
 /** First line of unknown prompt. */
 static char str_unknown_line0[] PROGMEM = "Unknown command in askUser()";
 /** Second line of unknown prompt. */
@@ -661,6 +665,15 @@ uint8_t askUser(AskUserCommand command)
 		writeString(str_change_key_line0, 1);
 		gotoStartOfLine(1);
 		writeString(str_change_key_line1, 1);
+		r = waitForButtonPress();
+	}
+	else if (command == ASKUSER_GET_MASTER_KEY)
+	{
+		waitForNoButtonPress();
+		gotoStartOfLine(0);
+		writeString(str_get_master_key_line0, 1);
+		gotoStartOfLine(1);
+		writeString(str_get_master_key_line1, 1);
 		r = waitForButtonPress();
 	}
 	else
