@@ -158,6 +158,16 @@ extern void setTransactionFee(char *text_amount);
 /** Notify the user interface that the list of Bitcoin amount/address pairs
   * should be cleared. */
 extern void clearOutputsSeen(void);
+/** Inform the user that an address has been generated.
+  * \param address The output address, as a null-terminated text string
+  *                such as "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn".
+  * \param num_sigs The number of required signatures to redeem Bitcoins from
+  *                 the address. For a non-multi-signature address, this
+  *                 should be 1.
+  * \param num_pubkeys The number of public keys involved in the address. For
+  *                    a non-multi-signature address, this should be 1.
+  */
+extern void displayAddress(char *address, uint8_t num_sigs, uint8_t num_pubkeys);
 /** Ask user if they want to allow some action.
   * \param command The action to ask the user about. See #AskUserCommandEnum.
   * \return 0 if the user accepted, non-zero if the user denied.
