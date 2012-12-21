@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="62">
+  <logicalFolder name="root" displayName="root" projectFiles="true">
+    <logicalFolder name="HeaderFiles"
+                   displayName="Header Files"
+                   projectFiles="true">
+      <logicalFolder name="f2" displayName="PIC32-specific" projectFiles="true">
+        <itemPath>../usb_callbacks.h</itemPath>
+        <itemPath>../usb_defs.h</itemPath>
+        <itemPath>../usb_descriptors.h</itemPath>
+        <itemPath>../usb_hal.h</itemPath>
+        <itemPath>../usb_standard_requests.h</itemPath>
+        <itemPath>../pic32_system.h</itemPath>
+        <itemPath>../serial_fifo.h</itemPath>
+        <itemPath>../usb_hid_stream.h</itemPath>
+      </logicalFolder>
+      <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
+        <itemPath>../../aes.h</itemPath>
+        <itemPath>../../baseconv.h</itemPath>
+        <itemPath>../../bignum256.h</itemPath>
+        <itemPath>../../common.h</itemPath>
+        <itemPath>../../ecdsa.h</itemPath>
+        <itemPath>../../endian.h</itemPath>
+        <itemPath>../../fft.h</itemPath>
+        <itemPath>../../fix16.h</itemPath>
+        <itemPath>../../hash.h</itemPath>
+        <itemPath>../../hmac_sha512.h</itemPath>
+        <itemPath>../../hwinterface.h</itemPath>
+        <itemPath>../../int64.h</itemPath>
+        <itemPath>../../p2sh_addr_gen.h</itemPath>
+        <itemPath>../../prandom.h</itemPath>
+        <itemPath>../../ripemd160.h</itemPath>
+        <itemPath>../../sha256.h</itemPath>
+        <itemPath>../../statistics.h</itemPath>
+        <itemPath>../../storage_common.h</itemPath>
+        <itemPath>../../stream_comm.h</itemPath>
+        <itemPath>../../test_helpers.h</itemPath>
+        <itemPath>../../transaction.h</itemPath>
+        <itemPath>../../wallet.h</itemPath>
+        <itemPath>../../xex.h</itemPath>
+      </logicalFolder>
+    </logicalFolder>
+    <logicalFolder name="LinkerScript"
+                   displayName="Linker Files"
+                   projectFiles="true">
+    </logicalFolder>
+    <logicalFolder name="f1" displayName="Miscellaneous" projectFiles="true">
+      <itemPath>../../LIBFIXMATH_LICENCE</itemPath>
+      <itemPath>../../LICENCE</itemPath>
+      <itemPath>../../PROTOCOL</itemPath>
+      <itemPath>../../README</itemPath>
+      <itemPath>../../Makefile</itemPath>
+    </logicalFolder>
+    <logicalFolder name="SourceFiles"
+                   displayName="Source Files"
+                   projectFiles="true">
+      <logicalFolder name="f2" displayName="PIC32-specific" projectFiles="true">
+        <itemPath>../main.c</itemPath>
+        <itemPath>../usb_hal.c</itemPath>
+        <itemPath>../usb_standard_requests.c</itemPath>
+        <itemPath>../unimplemented.c</itemPath>
+        <itemPath>../pic32_system.c</itemPath>
+        <itemPath>../usb_hid_stream.c</itemPath>
+        <itemPath>../serial_fifo.c</itemPath>
+      </logicalFolder>
+      <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
+        <itemPath>../../aes.c</itemPath>
+        <itemPath>../../baseconv.c</itemPath>
+        <itemPath>../../bignum256.c</itemPath>
+        <itemPath>../../ecdsa.c</itemPath>
+        <itemPath>../../endian.c</itemPath>
+        <itemPath>../../fft.c</itemPath>
+        <itemPath>../../fix16.c</itemPath>
+        <itemPath>../../hash.c</itemPath>
+        <itemPath>../../hmac_sha512.c</itemPath>
+        <itemPath>../../p2sh_addr_gen.c</itemPath>
+        <itemPath>../../prandom.c</itemPath>
+        <itemPath>../../ripemd160.c</itemPath>
+        <itemPath>../../sha256.c</itemPath>
+        <itemPath>../../statistics.c</itemPath>
+        <itemPath>../../stream_comm.c</itemPath>
+        <itemPath>../../test_helpers.c</itemPath>
+        <itemPath>../../transaction.c</itemPath>
+        <itemPath>../../wallet.c</itemPath>
+        <itemPath>../../xex.c</itemPath>
+      </logicalFolder>
+    </logicalFolder>
+    <logicalFolder name="ExternalFiles"
+                   displayName="Important Files"
+                   projectFiles="false">
+      <itemPath>Makefile</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceRootList>
+    <Elem>../..</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile</projectmakefile>
+  <confs>
+    <conf name="default" type="2">
+      <toolsSet>
+        <developmentServer>localhost</developmentServer>
+        <targetDevice>PIC32MX795F512L</targetDevice>
+        <targetHeader></targetHeader>
+        <targetPluginBoard></targetPluginBoard>
+        <platformTool>SKDEPIC32PlatformTool</platformTool>
+        <languageToolchain>XC32</languageToolchain>
+        <languageToolchainVersion>1.11</languageToolchainVersion>
+        <platform>3</platform>
+      </toolsSet>
+      <compileType>
+        <linkerTool>
+          <linkerLibItems>
+          </linkerLibItems>
+        </linkerTool>
+        <loading>
+          <useAlternateLoadableFile>false</useAlternateLoadableFile>
+          <alternateLoadableFile></alternateLoadableFile>
+        </loading>
+      </compileType>
+      <makeCustomizationType>
+        <makeCustomizationPreStepEnabled>false</makeCustomizationPreStepEnabled>
+        <makeCustomizationPreStep></makeCustomizationPreStep>
+        <makeCustomizationPostStepEnabled>false</makeCustomizationPostStepEnabled>
+        <makeCustomizationPostStep></makeCustomizationPostStep>
+        <makeCustomizationPutChecksumInUserID>false</makeCustomizationPutChecksumInUserID>
+        <makeCustomizationEnableLongLines>false</makeCustomizationEnableLongLines>
+        <makeCustomizationNormalizeHexFile>false</makeCustomizationNormalizeHexFile>
+      </makeCustomizationType>
+      <C32>
+        <property key="additional-warnings" value="true"/>
+        <property key="enable-app-io" value="false"/>
+        <property key="enable-omit-frame-pointer" value="false"/>
+        <property key="enable-symbols" value="true"/>
+        <property key="enable-unroll-loops" value="false"/>
+        <property key="exclude-floating-point" value="false"/>
+        <property key="extra-include-directories" value=""/>
+        <property key="generate-16-bit-code" value="false"/>
+        <property key="isolate-each-function" value="false"/>
+        <property key="keep-inline" value="false"/>
+        <property key="make-warnings-into-errors" value="false"/>
+        <property key="optimization-level" value=""/>
+        <property key="place-data-into-section" value="false"/>
+        <property key="post-instruction-scheduling" value="default"/>
+        <property key="pre-instruction-scheduling" value="default"/>
+        <property key="preprocessor-macros" value="FIXMATH_NO_64BIT;PIC32_STARTER_KIT"/>
+        <property key="strict-ansi" value="false"/>
+        <property key="support-ansi" value="false"/>
+        <property key="use-cci" value="false"/>
+        <property key="use-indirect-calls" value="false"/>
+      </C32>
+      <C32-AS>
+      </C32-AS>
+      <C32-LD>
+      </C32-LD>
+      <C32CPP>
+      </C32CPP>
+      <C32Global>
+      </C32Global>
+      <SKDEPIC32PlatformTool>
+      </SKDEPIC32PlatformTool>
+    </conf>
+  </confs>
+</configurationDescriptor>
