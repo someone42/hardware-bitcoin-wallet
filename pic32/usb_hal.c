@@ -125,6 +125,25 @@ static USBBufferDescriptor bdt_table[NUM_ENDPOINTS * 4] __attribute__((aligned(5
   * the interrupt service routine whenever a successful transaction occurs. */
 static EndpointState *endpoint_states[NUM_ENDPOINTS];
 
+/** Resets the USB HAL state. This doesn't reset as much as usbInit(), but
+  * resets everything appropriate to a USB protocol reset (as defined in
+  * section 7.1.7.5 of the USB specification). */
+static void usbHALReset(void)
+{
+	unsigned int endpoint;
+
+	U1ADDRbits.DEVADDR = 0; // default to device address = 0
+	// Reset all data sequence bits.
+	for (endpoint = 0; endpoint < NUM_ENDPOINTS; endpoint++)
+	{
+		if (endpoint_states[endpoint] != NULL)
+		{
+			endpoint_states[endpoint]->data_sequence = 0;
+		}
+	}
+	usbResetSeen();
+}
+
 /** Initialise USB module. */
 void usbInit(void)
 {
@@ -187,6 +206,7 @@ void usbConnect(void)
 void usbDisconnect(void)
 {
 	U1CONbits.USBEN = 0; // disable module
+	usbHALReset();
 }
 
 /** Handoff receive buffer of the appropriate endpoint state to the USB
@@ -200,7 +220,12 @@ void usbQueueReceivePacket(unsigned int endpoint)
 	uint8_t *packet_buffer;
 	uint32_t length;
 
-	endpoint &= (NUM_ENDPOINTS - 1);
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	if (endpoint_states[endpoint] == NULL)
 	{
 		// Attempting to access non-existent state.
@@ -254,7 +279,12 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 		// 27-10 in the PIC32 family reference manual). Therefore U1STAT must
 		// be read before clearing TRNIF.
 		endpoint = U1STATbits.ENDPT;
-		endpoint &= (NUM_ENDPOINTS - 1);
+		if (endpoint >= NUM_ENDPOINTS)
+		{
+			// Bad endpoint number.
+			usbFatalError();
+			return;
+		}
 		direction = U1STATbits.DIR;
 		// TRNIF needs to be cleared before the next transaction, otherwise
 		// an interrupt could be missed. Fourtunately, the minimum time for a
@@ -274,11 +304,6 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 		if (direction == 0)
 		{
 			// Last transaction was receive.
-			// For whatever reason, whenever the USB module sees a SETUP
-			// packet, it sets PKTDIS, halting all subsequent packet
-			// processing. PKTDIS needs to be cleared, otherwise there will
-			// be no further transactions.
-			U1CONbits.PKTDIS = 0;
 			index = BDT_IDX(endpoint, BDT_RX, BDT_EVEN);
 			length = bdt_table[index].STATUS.BYTE_COUNT;
 			is_setup = 0;
@@ -301,6 +326,15 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 			else
 			{
 				usbQueueReceivePacket(endpoint);
+			}
+			if (is_setup)
+			{
+				// Whenever the USB module sees a SETUP packet, it sets
+				// PKTDIS, halting all subsequent packet processing. This
+				// gives us the opportunity to safely cancel transactions.
+				// PKTDIS needs to be cleared, after processing the SETUP
+				// packet, otherwise there will be no further transactions.
+				U1CONbits.PKTDIS = 0;
 			}
 		}
 		else
@@ -350,18 +384,9 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 	else if (U1IRbits.URSTIF)
 	{
 		// USB reset seen.
-		U1ADDRbits.DEVADDR = 0; // default to device address = 0
 		U1IRbits.URSTIF = 1; // clear interrupt flag in USB module
 		IFS1bits.USBIF = 0; // clear interrupt flag in interrupt controller
-		// Reset all data sequence bits.
-		for (endpoint = 0; endpoint < NUM_ENDPOINTS; endpoint++)
-		{
-			if (endpoint_states[endpoint] != NULL)
-			{
-				endpoint_states[endpoint]->data_sequence = 0;
-			}
-		}
-		usbResetSeen();
+		usbHALReset();
 	}
 	else if (U1IRbits.UERRIF)
 	{
@@ -415,8 +440,12 @@ static volatile uint32_t *getEndpointControlRegister(unsigned int endpoint)
 		return &(U1EP13);
 	case 14:
 		return &(U1EP14);
-	default:
+	case 15:
 		return &(U1EP15);
+	default:
+		// Bad endpoint number.
+		usbFatalError();
+		return NULL;
 	}
 }
 
@@ -430,7 +459,12 @@ void usbDisableEndpoint(unsigned int endpoint)
 	volatile uint32_t *reg;
 
 	// Disable transmit/receive for the endpoint.
-	endpoint &= (NUM_ENDPOINTS - 1);
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	reg = getEndpointControlRegister(endpoint);
 	*reg = 0;
 	// In the worst case, the transmission or reception of a packet could
@@ -469,7 +503,12 @@ void usbEnableEndpoint(unsigned int endpoint, EndpointType type, EndpointState *
 		usbFatalError();
 		return;
 	}
-	endpoint &= (NUM_ENDPOINTS - 1);
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	endpoint_states[endpoint] = state;
 	state->data_sequence = 0;
 	usbQueueReceivePacket(endpoint);
@@ -494,7 +533,12 @@ void usbEnableEndpoint(unsigned int endpoint, EndpointType type, EndpointState *
   */
 unsigned int usbEndpointEnabled(unsigned int endpoint)
 {
-	endpoint &= (NUM_ENDPOINTS - 1);
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return 0;
+	}
 	if (endpoint_states[endpoint] == NULL)
 	{
 		return 0;
@@ -527,7 +571,12 @@ void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsig
 {
 	unsigned int index;
 
-	endpoint &= (NUM_ENDPOINTS - 1);
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	index = BDT_IDX(endpoint, BDT_TX, BDT_EVEN);
 	if (bdt_table[index].CTRL.UOWN != 0)
 	{
@@ -584,6 +633,37 @@ void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsig
 	bdt_table[index].CTRL.UOWN = 1;
 }
 
+/** Cancel a queued transmission.
+  * \param endpoint The endpoint number of the transmission to cancel.
+  * \warning It is almost always unsafe to call this, because the USB module
+  *          operates asynchronously and independently of the CPU. There is
+  *          only one time when it is safe: during the Setup stage of a
+  *          control transfer.
+  */
+void usbCancelTransmit(unsigned int endpoint)
+{
+	unsigned int index;
+
+	if (U1CONbits.PKTDIS == 0)
+	{
+		// Unsafe situation; the transmit could be in progress.
+		usbFatalError();
+	}
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
+	index = BDT_IDX(endpoint, BDT_TX, BDT_EVEN);
+	if (bdt_table[index].CTRL.UOWN == 0)
+	{
+		// Try to cancel non-existent transmit.
+		usbFatalError();
+	}
+	bdt_table[index].CTRL.UOWN = 0;
+}
+
 /** Stall an endpoint. If the host tries to transact with a stalled endpoint,
   * it will get a stall handshake. This is useful for issuing a control
   * transfer protocol stall (see section 8.5.4.3 of the USB specification).
@@ -594,6 +674,12 @@ void usbStallEndpoint(unsigned int endpoint)
 {
 	volatile uint32_t *reg;
 
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	reg = getEndpointControlRegister(endpoint);
 	*reg |= 0x02; // set EPSTALL bit
 }
@@ -606,6 +692,12 @@ void usbUnstallEndpoint(unsigned int endpoint)
 {
 	volatile uint32_t *reg;
 
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	reg = getEndpointControlRegister(endpoint);
 	*reg &= ~0x02; // clear EPSTALL bit
 }
@@ -618,6 +710,12 @@ unsigned int usbGetStallStatus(unsigned int endpoint)
 {
 	volatile uint32_t *reg;
 
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return 1;
+	}
 	reg = getEndpointControlRegister(endpoint);
 	if ((*reg & 0x02) != 0) // check EPSTALL bit
 	{
@@ -649,7 +747,12 @@ void usbSetDeviceAddress(unsigned int address)
   */
 void usbOverrideDataSequence(unsigned int endpoint, unsigned int new_data_sequence)
 {
-	endpoint &= (NUM_ENDPOINTS - 1);
+	if (endpoint >= NUM_ENDPOINTS)
+	{
+		// Bad endpoint number.
+		usbFatalError();
+		return;
+	}
 	if (endpoint_states[endpoint] == NULL)
 	{
 		// Attempting to override non-existent state.

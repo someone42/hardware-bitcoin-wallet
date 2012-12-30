@@ -9,8 +9,6 @@
   * The functions in this file don't actually interface with any
   * communications hardware. The interface of circular buffers to hardware
   * must be handled elsewhere.
-  * Note that this does use the Timer2 peripheral. See enterIdleMode() for
-  * reasons why.
   *
   * This file is licensed as described by the file LICENCE.
   */
@@ -39,22 +37,6 @@ void initCircularBuffer(volatile CircularBuffer *buffer, volatile uint8_t *stora
 	buffer->storage = storage;
 }
 
-/** Enter PIC32 idle mode to conserve power. The CPU will leave idle mode when
-  * an interrupt occurs.
-  * There is the possibility of a race condition. Say, for example, the caller
-  * wishes to wait for a byte to be pushed into a receive FIFO by an interrupt
-  * service handler. The caller checks the receive FIFO, and if it is empty,
-  * calls this function to wait. However, the receive interrupt may occur
-  * after the FIFO check but before the call to this function, in which case
-  * the receive interrupt will not bring the CPU out of idle mode.
-  * To handle those cases, Timer2 (see serialFIFOInit()) is set to fire
-  * interrupts periodically.
-  */
-static void __attribute__((nomips16)) enterIdleMode(void)
-{
-	asm volatile("wait");
-}
-
 /** Check whether a circular buffer is empty.
   * \param buffer The circular buffer to check.
   * \return Non-zero if it is empty, zero if it is non-empty.
@@ -62,6 +44,15 @@ static void __attribute__((nomips16)) enterIdleMode(void)
 int isCircularBufferEmpty(volatile CircularBuffer *buffer)
 {
 	return buffer->remaining == 0;
+}
+
+/** Check whether a circular buffer is full.
+  * \param buffer The circular buffer to check.
+  * \return Non-zero if it is full, zero if it is not full.
+  */
+int isCircularBufferFull(volatile CircularBuffer *buffer)
+{
+	return buffer->remaining == buffer->size;
 }
 
 /** Obtain the remaining space (in number of bytes) in a circular buffer.
@@ -122,7 +113,7 @@ void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, int is_i
 	uint32_t status;
 	uint32_t index;
 
-	while (buffer->remaining == buffer->size)
+	while (isCircularBufferFull(buffer))
 	{
 		// Buffer is full.
 		if (is_irq)
@@ -140,46 +131,4 @@ void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, int is_i
 	buffer->storage[index] = data;
 	buffer->remaining++;
 	restoreInterrupts(status);
-}
-
-#ifdef PIC32_STARTER_KIT
-static uint32_t int_counter;
-#endif // #ifdef PIC32_STARTER_KIT
-
-/** Interrupt service handler for Timer2. See enterIdleMode() for
-  * justification as to why a serial FIFO implementation needs a timer. */
-void __attribute__((vector(_TIMER_2_VECTOR), interrupt(ipl2), nomips16)) _Timer2Handler(void)
-{
-	IFS0bits.T2IF = 0; // clear interrupt flag
-#ifdef PIC32_STARTER_KIT
-	// Blink the "everything is running and interrupts are enabled" LED.
-	int_counter++;
-	if (int_counter == 500)
-	{
-		PORTDINV = 4; // blink green LED
-		int_counter = 0;
-	}
-#endif // #ifdef PIC32_STARTER_KIT
-}
-
-/** Initialise Timer2 for periodic interrupts. Why does a serial FIFO
-  * implementation need timer interrupts? To wake up the CPU in the case
-  * of a race condition where an interrupt occurs in between a check and
-  * the transition to idle state.
-  */
-void serialFIFOInit(void)
-{
-	T2CONbits.ON = 0; // turn timer off
-	T2CONbits.TCS = 0; // clock source = internal peripheral clock
-	T2CONbits.T32 = 0; // 16 bit mode
-	T2CONbits.TCKPS = 7; // 1:256 prescaler
-	T2CONbits.TGATE = 0; // disable gated time accumulation
-	T2CONbits.SIDL = 0; // continue in idle mode
-	TMR2 = 0; // clear count
-	PR2 = 70; // frequency = about 2 kHz
-	T2CONbits.ON = 1; // turn timer on
-	IPC2bits.T2IP = 2; // priority level = 2
-	IPC2bits.T2IS = 0; // sub-priority level = 0
-	IFS0bits.T2IF = 0; // clear interrupt flag
-	IEC0bits.T2IE = 1; // enable interrupt
 }

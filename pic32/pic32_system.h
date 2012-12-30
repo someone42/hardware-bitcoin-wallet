@@ -13,6 +13,7 @@
 extern uint32_t __attribute__((nomips16)) disableInterrupts(void);
 extern void __attribute__((nomips16)) restoreInterrupts(uint32_t status);
 extern void __attribute__((nomips16)) delayCycles(uint32_t num_cycles);
+extern void __attribute__((nomips16)) enterIdleMode(void);
 extern void pic32SystemInit(void);
 
 #ifdef PIC32_STARTER_KIT

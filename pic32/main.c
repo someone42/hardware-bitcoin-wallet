@@ -34,9 +34,11 @@ void usbFatalError(void)
   * This never returns. */
 int main(void)
 {
+	uint8_t mode;
+	uint8_t counter;
+
 	disableInterrupts();
 	pic32SystemInit();
-	serialFIFOInit();
 	usbInit();
 	usbHIDStreamInit();
 	usbDisconnect(); // just in case
@@ -46,9 +48,25 @@ int main(void)
 	// calling usbConnect().
 	usbConnect();
 
+	mode = streamGetOneByte();
+	counter = 0;
 	while (1)
 	{
-		//streamPutOneByte(streamGetOneByte());
-		streamGetOneByte();
+		if (mode == 'g')
+		{
+			streamGetOneByte();
+		}
+		else if (mode == 'p')
+		{
+			streamPutOneByte(counter++);
+		}
+		else if (mode == 'r')
+		{
+			streamPutOneByte(streamGetOneByte());
+		}
+		else
+		{
+			usbFatalError();
+		}
 	}
 }

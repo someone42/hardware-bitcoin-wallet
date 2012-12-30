@@ -156,18 +156,22 @@ static uint32_t current_transmit_report_length;
 
 /** Fill up transmit packet buffer with bytes obtained from the transmit
   * FIFO buffer, then queue the packet for transmission, if necessary.
-  * \param is_irq Pass a non-zero value if calling this from an interrupt
-  *               request handler, otherwise pass zero.
   */
-static void fillTransmitPacketBufferAndTransmit(int is_irq)
+static void fillTransmitPacketBufferAndTransmit(void)
 {
+	uint32_t status;
 	uint32_t count;
 	uint32_t i;
 
+	// Put everything in a critical section so that bytes are either in
+	// the transmit FIFO or in interrupt_packet_buffer.
+	status = disableInterrupts();
 	i = 1;
 	while ((i < sizeof(interrupt_packet_buffer)) && !isCircularBufferEmpty(&transmit_fifo))
 	{
-		interrupt_packet_buffer[i] = circularBufferRead(&transmit_fifo, is_irq);
+		// Note that is_irq is set because interrupts are disabled; that's
+		// equivalent to an interrupt request handler context.
+		interrupt_packet_buffer[i] = circularBufferRead(&transmit_fifo, 1);
 		i++;
 	}
 	count = i - 1;
@@ -184,6 +188,7 @@ static void fillTransmitPacketBufferAndTransmit(int is_irq)
 	{
 		interrupt_transmit_queued = 0;
 	}
+	restoreInterrupts(status);
 }
 
 /** Transfer bytes from a receive buffer into receive FIFO.
@@ -206,6 +211,57 @@ static void transferIntoReceiveFIFO(uint8_t *buffer, uint32_t length)
 	}
 }
 
+/** Remove a byte from the existing queued packet which was intended to be
+  * sent out the Interrupt IN endpoint.
+  *
+  * This is a hack necessary to have the "Get Report" request work
+  * intuitively. Bytes sent using streamPutOneByte() will, by default, end up
+  * being queued for transmission via. the Interrupt IN endpoint. But if the
+  * host exclusively uses "Get Report" requests (which use the control
+  * endpoint), it will never see bytes queued for transmission via. the
+  * Interrupt IN endpoint. Therefore, there needs to be some way to obtain
+  * bytes from a queued Interrupt IN transmission.
+  * \return The byte that was removed.
+  * \warning This should only be called if there is actually a queued packet.
+  */
+static uint8_t stealByteFromInterruptReport(void)
+{
+	uint8_t one_byte;
+	uint32_t count;
+	uint32_t i;
+
+	// Unqueue current transmit request.
+	if (interrupt_transmit_queued == 0)
+	{
+		// This should never happen.
+		usbFatalError();
+	}
+	usbCancelTransmit(TRANSMIT_ENDPOINT_NUMBER);
+	interrupt_transmit_queued = 0;
+	// Remove first report data byte from packet, shifting the rest of the
+	// data to fill the space.
+	count = interrupt_packet_buffer[0];
+	if ((count < 1) || (count > (sizeof(interrupt_packet_buffer) - 1)))
+	{
+		// Bad packet ID; this should never happen.
+		usbFatalError();
+	}
+	one_byte = interrupt_packet_buffer[1];
+	for (i = 1; i < count; i++)
+	{
+		interrupt_packet_buffer[i] = interrupt_packet_buffer[i + 1];
+	}
+	count--;
+	interrupt_packet_buffer[0] = (uint8_t)count;
+	// Queue updated transmit packet (if necessary).
+	if (count > 0)
+	{
+		interrupt_transmit_queued = 1;
+		usbQueueTransmitPacket(interrupt_packet_buffer, count + 1, TRANSMIT_ENDPOINT_NUMBER, 0);
+	}
+	return one_byte;
+}
+
 /** Incrementally build a report to send via. the control endpoint. This is
   * used to handle the "Get Report" request. If the added byte completes
   * the report, it will be transmitted; #do_build_transmit_report will be
@@ -226,7 +282,7 @@ static void buildTransmitReport(uint8_t one_byte)
 	if (current_transmit_report_length == desired_transmit_report_length)
 	{
 		// Got desired size, send it.
-		usbQueueTransmitPacket(get_report_packet_buffer, desired_transmit_report_length, CONTROL_ENDPOINT, 0);
+		usbQueueTransmitPacket(get_report_packet_buffer, desired_transmit_report_length, CONTROL_ENDPOINT_NUMBER, 0);
 		do_build_transmit_report = 0;
 	}
 }
@@ -248,7 +304,7 @@ void ep1ReceiveCallback(uint8_t *packet_buffer, uint32_t length, unsigned int is
   * IN endpoint (endpoint number #TRANSMIT_ENDPOINT_NUMBER). */
 void ep1TransmitCallback(void)
 {
-	fillTransmitPacketBufferAndTransmit(1);
+	fillTransmitPacketBufferAndTransmit();
 }
 
 /** Callback which is called whenever a packet is received on the Interrupt
@@ -365,6 +421,16 @@ static void getReport(uint8_t report_id, uint16_t length)
 		current_transmit_report_length = 0;
 		desired_transmit_report_length = length;
 		buildTransmitReport(report_id);
+		// Two ways this loop can end:
+		// 1. The report length reaches the desired length, in which case the
+		//    report is sent and do_build_transmit_report is set to 0.
+		// 2. The transmit interrupt report buffer is emptied, in which
+		//    case interrupt_transmit_queued will be set to 0. Further bytes
+		//    will have to come from somewhere else.
+		while (interrupt_transmit_queued && do_build_transmit_report)
+		{
+			buildTransmitReport(stealByteFromInterruptReport());
+		}
 		// Two ways this loop can end:
 		// 1. The report length reaches the desired length, in which case the
 		//    report is sent and do_build_transmit_report is set to 0.
@@ -631,6 +697,17 @@ uint8_t streamGetOneByte(void)
   */
 void streamPutOneByte(uint8_t one_byte)
 {
+	uint32_t status;
+
+	// Ensure that there is space in the transmit FIFO so that the call to
+	// circularBufferWrite() below cannot fail.
+	while (isCircularBufferFull(&transmit_fifo))
+	{
+		enterIdleMode();
+	}
+	// Everything below is in a critical section to avoid race conditions
+	// with the "Get Report" request.
+	status = disableInterrupts();
 	if (do_build_transmit_report)
 	{
 		// Keep adding bytes to the transmit report until it reaches the
@@ -646,20 +723,13 @@ void streamPutOneByte(uint8_t one_byte)
 		// bytes immediately after this one, they will queue up in the transmit
 		// FIFO, where they will be efficiently grouped into a packet by
 		// ep1TransmitCallback().
-		circularBufferWrite(&transmit_fifo, one_byte, 0);
+		// Note that is_irq is set because interrupts are disabled; that's
+		// equivalent to an interrupt request handler context.
+		circularBufferWrite(&transmit_fifo, one_byte, 1);
 	}
-	// If a transmit interrupt occurs here, then it is possible that the byte
-	// just pushed into the transmit FIFO is transmitted before the
-	// call to fillTransmitPacketBufferAndTransmit(). In that case, the
-	// call to fillTransmitPacketBufferAndTransmit() below will see that the
-	// transmit FIFO is empty, and do nothing.
 	if (!interrupt_transmit_queued)
 	{
-		// If transmit_queued is 0, then there is no chance for a race
-		// condition since ep1TransmitCallback() should not be called when
-		// transmit_queued is 0.
-		fillTransmitPacketBufferAndTransmit(0);
+		fillTransmitPacketBufferAndTransmit();
 	}
-	// At this point: either the transmit FIFO is empty, or there is a
-	// transmit queued (but not both).
+	restoreInterrupts(status);
 }

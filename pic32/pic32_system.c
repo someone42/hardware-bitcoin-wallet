@@ -2,6 +2,9 @@
   *
   * \brief Miscellaneous PIC32-related system functions
   *
+  * Note that this does use the Timer2 peripheral. See enterIdleMode() for
+  * reasons why.
+  *
   * This file is licensed as described by the file LICENCE.
   */
 
@@ -85,6 +88,42 @@ static void prefetchInit(void)
 	CHECONbits.DCSZ = 0;
 }
 
+/** Enter PIC32 idle mode to conserve power. The CPU will leave idle mode when
+  * an interrupt occurs.
+  * There is the possibility of a race condition. Say, for example, the caller
+  * wishes to wait for a byte to be pushed into a receive FIFO by an interrupt
+  * service handler. The caller checks the receive FIFO, and if it is empty,
+  * calls this function to wait. However, the receive interrupt may occur
+  * after the FIFO check but before the call to this function, in which case
+  * the receive interrupt will not bring the CPU out of idle mode.
+  */
+void __attribute__((nomips16)) enterIdleMode(void)
+{
+	asm volatile("wait");
+}
+
+#ifdef PIC32_STARTER_KIT
+/** Counter which counts _Timer2Handler() calls in order to blink an LED at
+  * a reasonable rate. */
+static uint32_t int_counter;
+#endif // #ifdef PIC32_STARTER_KIT
+
+/** Interrupt service handler for Timer2. See enterIdleMode() for
+  * justification as to why a serial FIFO implementation needs a timer. */
+void __attribute__((vector(_TIMER_2_VECTOR), interrupt(ipl2), nomips16)) _Timer2Handler(void)
+{
+	IFS0bits.T2IF = 0; // clear interrupt flag
+#ifdef PIC32_STARTER_KIT
+	// Blink the "everything is running and interrupts are enabled" LED.
+	int_counter++;
+	if (int_counter == 500)
+	{
+		PORTDINV = 4; // blink green LED
+		int_counter = 0;
+	}
+#endif // #ifdef PIC32_STARTER_KIT
+}
+
 #ifdef PIC32_STARTER_KIT
 /** Interrupt service handler for Timer3, used to flash USB activity LED. */
 void __attribute__((vector(_TIMER_3_VECTOR), interrupt(ipl2), nomips16)) _Timer3Handler(void)
@@ -129,6 +168,22 @@ void pic32SystemInit(void)
 	IFS0bits.T3IF = 0; // clear interrupt flag
 	IEC0bits.T3IE = 1; // enable interrupt
 #endif // #ifdef PIC32_STARTER_KIT
+	// Initialise Timer2 for periodic interrupts to wake up the CPU in the case
+	// of a race condition where an interrupt occurs in between a check and
+	// the transition to idle state (enterIdleMode()).
+	T2CONbits.ON = 0; // turn timer off
+	T2CONbits.TCS = 0; // clock source = internal peripheral clock
+	T2CONbits.T32 = 0; // 16 bit mode
+	T2CONbits.TCKPS = 7; // 1:256 prescaler
+	T2CONbits.TGATE = 0; // disable gated time accumulation
+	T2CONbits.SIDL = 0; // continue in idle mode
+	TMR2 = 0; // clear count
+	PR2 = 70; // frequency = about 2 kHz
+	T2CONbits.ON = 1; // turn timer on
+	IPC2bits.T2IP = 2; // priority level = 2
+	IPC2bits.T2IS = 0; // sub-priority level = 0
+	IFS0bits.T2IF = 0; // clear interrupt flag
+	IEC0bits.T2IE = 1; // enable interrupt
 
 	INTCONbits.MVEC = 1; // enable multi-vector mode
 	prefetchInit();

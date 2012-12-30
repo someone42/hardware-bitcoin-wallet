@@ -318,7 +318,7 @@ static void getConfiguration(void)
   */
 static void clearOrSetEndpointHalt(uint16_t endpoint, unsigned int do_set)
 {
-	endpoint &= 0x7f; // clear endpoint direction bit
+	endpoint &= 0xff7f; // clear endpoint direction bit
 	if (endpoint >= NUM_ENDPOINTS)
 	{
 		usbControlProtocolStall();
@@ -377,7 +377,7 @@ static void getStatus(uint8_t bmRequestType, uint16_t endpoint)
 	else if (bmRequestType == 0x82)
 	{
 		// Endpoint status.
-		endpoint &= 0x7f; // clear endpoint direction bit
+		endpoint &= 0xff7f; // clear endpoint direction bit
 		if (endpoint < NUM_ENDPOINTS)
 		{
 			if (usbEndpointEnabled(endpoint))

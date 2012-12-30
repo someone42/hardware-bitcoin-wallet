@@ -27,11 +27,11 @@
 typedef enum EndpointTypeEnum
 {
 	/** Bidirectional control endpoint. */
-	CONTROL_ENDPOINT	= 1,
+	CONTROL_ENDPOINT	= 21,
 	/** Endpoint for transmitting data to host. */
-	IN_ENDPOINT			= 2,
+	IN_ENDPOINT			= 24,
 	/** Endpoint for receiving data from host. */
-	OUT_ENDPOINT		= 3
+	OUT_ENDPOINT		= 27
 } EndpointType;
 
 /** Structure which holds per-endpoint state. Such a state is needed because
@@ -87,6 +87,7 @@ extern void usbEnableEndpoint(unsigned int endpoint, EndpointType type, Endpoint
 extern unsigned int usbEndpointEnabled(unsigned int endpoint);
 extern void usbQueueReceivePacket(unsigned int endpoint);
 extern void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsigned int endpoint, unsigned int is_extended);
+extern void usbCancelTransmit(unsigned int endpoint);
 extern void usbStallEndpoint(unsigned int endpoint);
 extern void usbUnstallEndpoint(unsigned int endpoint);
 extern unsigned int usbGetStallStatus(unsigned int endpoint);
