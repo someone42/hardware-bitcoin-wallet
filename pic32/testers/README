@@ -1,0 +1,6 @@
+usb_request_tester.c will test a USB device's response to the general USB
+requests which must be implemented by all USB devices. It requires libusb-1.0.
+Compile it with something like:
+gcc -o usb_request_tester usb_request_tester.c -I<path to libusb-1.0 includes> -lusb-1.0
+and run it with something like:
+sudo ./usb_request_tester
