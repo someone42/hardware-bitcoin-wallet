@@ -29,10 +29,12 @@
 // Watchdog timer configuration.
 #pragma config FWDTEN	= OFF
 
-#ifdef PIC32_STARTER_KIT
 /** Counter which counts down number of flashes of USB activity LED. */
 static volatile unsigned int usb_activity_counter;
-#endif // #ifdef PIC32_STARTER_KIT
+
+/** Counter which counts _Timer2Handler() calls in order to blink an LED at
+  * a reasonable rate. */
+static uint32_t timer2_interrupt_counter;
 
 /** Disable interrupts.
   * \return Saved value of Status CP0 register, to pass to restoreInterrupts().
@@ -102,36 +104,31 @@ void __attribute__((nomips16)) enterIdleMode(void)
 	asm volatile("wait");
 }
 
-#ifdef PIC32_STARTER_KIT
-/** Counter which counts _Timer2Handler() calls in order to blink an LED at
-  * a reasonable rate. */
-static uint32_t int_counter;
-#endif // #ifdef PIC32_STARTER_KIT
-
 /** Interrupt service handler for Timer2. See enterIdleMode() for
   * justification as to why a serial FIFO implementation needs a timer. */
 void __attribute__((vector(_TIMER_2_VECTOR), interrupt(ipl2), nomips16)) _Timer2Handler(void)
 {
 	IFS0bits.T2IF = 0; // clear interrupt flag
-#ifdef PIC32_STARTER_KIT
 	// Blink the "everything is running and interrupts are enabled" LED.
-	int_counter++;
-	if (int_counter == 500)
+	timer2_interrupt_counter++;
+	if (timer2_interrupt_counter == 500)
 	{
+		timer2_interrupt_counter = 0;
 		PORTDINV = 4; // blink green LED
-		int_counter = 0;
 	}
-#endif // #ifdef PIC32_STARTER_KIT
 }
 
-#ifdef PIC32_STARTER_KIT
 /** Interrupt service handler for Timer3, used to flash USB activity LED. */
 void __attribute__((vector(_TIMER_3_VECTOR), interrupt(ipl2), nomips16)) _Timer3Handler(void)
 {
 	IFS0bits.T3IF = 0; // clear interrupt flag
 	if (usb_activity_counter > 0)
 	{
+#ifdef PIC32_STARTER_KIT
 		PORTDINV = 2; // blink orange LED
+#else
+		PORTDINV = 1; // blink blue LED
+#endif // #ifdef PIC32_STARTER_KIT
 		usb_activity_counter--;
 	}
 }
@@ -144,16 +141,20 @@ void usbActivityLED(void)
 		usb_activity_counter += 2;
 	}
 }
-#endif // #ifdef PIC32_STARTER_KIT
 
 /** Initialise miscellaneous PIC32 system functions such as the prefetch
   * module. */
 void pic32SystemInit(void)
 {
-#ifdef PIC32_STARTER_KIT
 	// Set LED pins to output and turn them all off.
-	TRISDCLR = 7;
+#ifdef PIC32_STARTER_KIT
 	PORTDCLR = 7;
+	TRISDCLR = 7;
+#else
+	PORTDCLR = 0x14;
+	PORTDSET = 0x01; // for blue LED, 0 = on, 1 = off
+	TRISDCLR = 0x15;
+#endif // #ifdef PIC32_STARTER_KIT
 	// Initialise Timer3 for USB activity LED flashing.
 	T3CONbits.ON = 0; // turn timer off
 	T3CONbits.TCS = 0; // clock source = internal peripheral clock
@@ -167,7 +168,6 @@ void pic32SystemInit(void)
 	IPC3bits.T3IS = 0; // sub-priority level = 0
 	IFS0bits.T3IF = 0; // clear interrupt flag
 	IEC0bits.T3IE = 1; // enable interrupt
-#endif // #ifdef PIC32_STARTER_KIT
 	// Initialise Timer2 for periodic interrupts to wake up the CPU in the case
 	// of a race condition where an interrupt occurs in between a check and
 	// the transition to idle state (enterIdleMode()).

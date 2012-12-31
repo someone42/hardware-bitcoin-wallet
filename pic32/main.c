@@ -23,6 +23,8 @@ void usbFatalError(void)
 	disableInterrupts();
 #ifdef PIC32_STARTER_KIT
 	PORTDSET = 1; // turn on red LED
+#else
+	PORTDSET = 0x10; // turn on red LED
 #endif // #ifdef PIC32_STARTER_KIT
 	while (1)
 	{

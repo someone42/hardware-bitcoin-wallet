@@ -267,9 +267,7 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 	uint32_t length;
 	uint32_t transmitted_bytes;
 
-#ifdef PIC32_STARTER_KIT
 	usbActivityLED();
-#endif // #ifdef PIC32_STARTER_KIT
 	U1CONbits.PPBRST = 1; // reset ping-pong buffer pointers to EVEN
 	// Determine cause of interrupt.
 	if (U1IRbits.TRNIF)
