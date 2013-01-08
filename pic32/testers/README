@@ -4,3 +4,11 @@ Compile it with something like:
 gcc -o usb_request_tester usb_request_tester.c -I<path to libusb-1.0 includes> -lusb-1.0
 and run it with something like:
 sudo ./usb_request_tester
+
+report_tester.c will send and receive various patterns of HID reports to a
+USB HID device that implements the stream protocol described
+in pic32/usb_hid_stream.c. It also requires libusb-1.0.
+Compile it with something like:
+gcc -o report_tester report_tester.c -I<path to libusb-1.0 includes> -lusb-1.0
+and run it with something like:
+sudo ./report_tester

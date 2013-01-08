@@ -28,6 +28,13 @@
 #pragma config UPLLIDIV	= DIV_2
 // Watchdog timer configuration.
 #pragma config FWDTEN	= OFF
+// Debugger configuration.
+#pragma config ICESEL	= ICS_PGx2
+#ifdef __DEBUG
+#pragma config DEBUG	= ON
+#else
+#pragma config DEBUG	= OFF
+#endif // #ifdef __DEBUG
 
 /** Counter which counts down number of flashes of USB activity LED. */
 static volatile unsigned int usb_activity_counter;
@@ -157,7 +164,9 @@ void pic32SystemInit(void)
 #endif // #ifdef PIC32_STARTER_KIT
 	// Initialise Timer3 for USB activity LED flashing.
 	T3CONbits.ON = 0; // turn timer off
+#ifdef PIC32_STARTER_KIT
 	T3CONbits.TCS = 0; // clock source = internal peripheral clock
+#endif // #ifdef PIC32_STARTER_KIT
 	T3CONbits.TCKPS = 7; // 1:256 prescaler
 	T3CONbits.TGATE = 0; // disable gated time accumulation
 	T3CONbits.SIDL = 0; // continue in idle mode
@@ -172,7 +181,9 @@ void pic32SystemInit(void)
 	// of a race condition where an interrupt occurs in between a check and
 	// the transition to idle state (enterIdleMode()).
 	T2CONbits.ON = 0; // turn timer off
+#ifdef PIC32_STARTER_KIT
 	T2CONbits.TCS = 0; // clock source = internal peripheral clock
+#endif // #ifdef PIC32_STARTER_KIT
 	T2CONbits.T32 = 0; // 16 bit mode
 	T2CONbits.TCKPS = 7; // 1:256 prescaler
 	T2CONbits.TGATE = 0; // disable gated time accumulation

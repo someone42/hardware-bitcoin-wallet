@@ -49,21 +49,46 @@ int main(void)
 	// All USB-related modules should be initialised before
 	// calling usbConnect().
 	usbConnect();
-
 	mode = streamGetOneByte();
 	counter = 0;
 	while (1)
 	{
-		if (mode == 'g')
+		if ((mode == 'g') || (mode == 'i') || (mode == 'j'))
 		{
-			streamGetOneByte();
+			if (mode == 'i')
+			{
+				delayCycles(3600000); // pretend to be doing some processing
+			}
+			else if (mode == 'j')
+			{
+				delayCycles(360000000); // pretend to be doing lots of processing
+			}
+			// Expect data to be an incrementing sequence. This is designed
+			// to expose any out-of-order cases.
+			if (streamGetOneByte() != counter)
+			{
+				usbFatalError();
+			}
+			counter++;
 		}
-		else if (mode == 'p')
+		else if ((mode == 'p') || (mode == 't') || (mode == 'x'))
 		{
+			if (mode == 't')
+			{
+				delayCycles(3600000); // pretend to be doing some processing
+			}
+			else if (mode == 'x')
+			{
+				delayCycles(360000000); // pretend to be doing lots of processing
+			}
+			// Send data which is an incrementing sequence. This is designed
+			// to expose any out-of-order cases.
 			streamPutOneByte(counter++);
 		}
 		else if (mode == 'r')
 		{
+			// Reply, or loopback mode. This tests simultaneous sending and
+			// receiving.
 			streamPutOneByte(streamGetOneByte());
 		}
 		else

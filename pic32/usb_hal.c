@@ -519,10 +519,14 @@ void usbEnableEndpoint(unsigned int endpoint, EndpointType type, EndpointState *
 	{
 		*reg = 0b00001001; // enable handshake and receive
 	}
-	else
+	else if (type == CONTROL_ENDPOINT)
 	{
 		// Bidirectional control endpoint.
 		*reg = 0b00001101; // enable handshake, transmit and receive
+	}
+	else
+	{
+		usbFatalError();
 	}
 }
 

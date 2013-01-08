@@ -441,6 +441,16 @@ static void getReport(uint8_t report_id, uint16_t length)
 		{
 			buildTransmitReport(circularBufferRead(&transmit_fifo, 1));
 		}
+		// If the control request ate up the entire interrupt transmit
+		// report but left the transmit FIFO full, streamPutOneByte() will
+		// deadlock. This is because it waits for the transmit FIFO to become
+		// not full, yet there is no interrupt transmit queued to consume
+		// the transmit FIFO. Thus to avoid this deadlock, queue an interrupt
+		// transmit if there is anything in the transmit FIFO.
+		if (!interrupt_transmit_queued)
+		{
+			fillTransmitPacketBufferAndTransmit();
+		}
 	}
 }
 
