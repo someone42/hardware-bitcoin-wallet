@@ -29,7 +29,7 @@
 // Watchdog timer configuration.
 #pragma config FWDTEN	= OFF
 // Debugger configuration.
-#pragma config ICESEL	= ICS_PGx2
+#pragma config ICESEL	= ICS_PGx1
 #ifdef __DEBUG
 #pragma config DEBUG	= ON
 #else
@@ -158,9 +158,9 @@ void pic32SystemInit(void)
 	PORTDCLR = 7;
 	TRISDCLR = 7;
 #else
+	TRISDCLR = 0x15;
 	PORTDCLR = 0x14;
 	PORTDSET = 0x01; // for blue LED, 0 = on, 1 = off
-	TRISDCLR = 0x15;
 #endif // #ifdef PIC32_STARTER_KIT
 	// Initialise Timer3 for USB activity LED flashing.
 	T3CONbits.ON = 0; // turn timer off

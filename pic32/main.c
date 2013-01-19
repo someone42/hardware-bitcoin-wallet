@@ -14,6 +14,7 @@
 #include "usb_hid_stream.h"
 #include "pic32_system.h"
 #include "serial_fifo.h"
+#include "ssd1306.h"
 #include "../hwinterface.h"
 
 /** This will be called whenever an unrecoverable error occurs. This should
@@ -38,23 +39,44 @@ int main(void)
 {
 	uint8_t mode;
 	uint8_t counter;
+	char string_buffer[2];
 
 	disableInterrupts();
 	pic32SystemInit();
+	initSSD1306();
 	usbInit();
 	usbHIDStreamInit();
 	usbDisconnect(); // just in case
 	usbSetupControlEndpoint();
 	restoreInterrupts(1);
+
+#ifndef PIC32_STARTER_KIT
+	// The BitSafe development board has VBUS not connected to anything.
+	// This causes the PIC32 USB module to think that there is no USB
+	// connection. As a workaround, setting VBUSCHG will pull VBUS up.
+	U1OTGCONbits.VBUSCHG = 1;
+	// The BitSafe development board has the Vdd/2 reference connected to
+	// a pin which shares the JTAG TMS function. By default, JTAG is enabled
+	// and this causes the Vdd/2 voltage to diverge significantly.
+	// Disabling JTAG fixes that.
+	DDPCONbits.JTAGEN = 0;
+#endif // #ifndef PIC32_STARTER_KIT
+
 	// All USB-related modules should be initialised before
 	// calling usbConnect().
 	usbConnect();
+
 	mode = streamGetOneByte();
+	if (mode == 'd')
+	{
+		displayOn();
+	}
 	counter = 0;
 	while (1)
 	{
 		if ((mode == 'g') || (mode == 'i') || (mode == 'j'))
 		{
+			// "Get" test mode, which exclusively uses streamGetOneByte().
 			if (mode == 'i')
 			{
 				delayCycles(3600000); // pretend to be doing some processing
@@ -73,6 +95,7 @@ int main(void)
 		}
 		else if ((mode == 'p') || (mode == 't') || (mode == 'x'))
 		{
+			// "Put" test mode, which exclusively uses streamPutOneByte().
 			if (mode == 't')
 			{
 				delayCycles(3600000); // pretend to be doing some processing
@@ -90,6 +113,14 @@ int main(void)
 			// Reply, or loopback mode. This tests simultaneous sending and
 			// receiving.
 			streamPutOneByte(streamGetOneByte());
+		}
+		else if (mode == 'd')
+		{
+			// Display test mode, which sends all received bytes to the
+			// display.
+			string_buffer[0] = (char)streamGetOneByte();
+			string_buffer[1] = '\0';
+			writeStringToDisplay(string_buffer);
 		}
 		else
 		{
