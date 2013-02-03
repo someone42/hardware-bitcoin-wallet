@@ -34,11 +34,6 @@
 #include "usb_standard_requests.h" // for usbResetSeen() callback
 #include "pic32_system.h"
 
-/** Virtual addresses are addresses used internally by the CPU to access
-  * memory and peripherals. When passing addresses from the CPU to
-  * peripherals (eg. for DMA), these virtual addresses need to be converted
-  * to physical addresses by setting the most significant 3 bits to 0. */
-#define VIRTUAL_TO_PHYSICAL(x)		(((uint32_t)(x)) & 0x1fffffff)
 /** Each endpoint has 4 buffer descriptor entries: even receive, odd receive,
   * even transmit and odd transmit. The even/odd buffers allow for double
   * buffering. This macro generates a readable index into #bdt_table. For

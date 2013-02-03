@@ -15,6 +15,10 @@
 #include "pic32_system.h"
 #include "serial_fifo.h"
 #include "ssd1306.h"
+#include "atsha204.h"
+#include "adc.h"
+#include "pushbuttons.h"
+#include "sst25x.h"
 #include "../hwinterface.h"
 
 /** This will be called whenever an unrecoverable error occurs. This should
@@ -42,8 +46,25 @@ int main(void)
 	char string_buffer[2];
 
 	disableInterrupts();
+
+#ifndef PIC32_STARTER_KIT
+	// The BitSafe development board has the Vdd/2 reference connected to
+	// a pin which shares the JTAG TMS function. By default, JTAG is enabled
+	// and this causes the Vdd/2 voltage to diverge significantly.
+	// Disabling JTAG fixes that.
+	// This must also be done before calling initSST25x() because one of the
+	// external memory interface pins is shared with the JTAG TDI function.
+	// Leaving JTAG enabled while calling initSST25x() will cause improper
+	// operation of the external memory.
+	DDPCONbits.JTAGEN = 0;
+#endif // #ifndef PIC32_STARTER_KIT
+
 	pic32SystemInit();
 	initSSD1306();
+	initPushButtons();
+	initSST25x();
+	initATSHA204();
+	initADC();
 	usbInit();
 	usbHIDStreamInit();
 	usbDisconnect(); // just in case
@@ -54,12 +75,9 @@ int main(void)
 	// The BitSafe development board has VBUS not connected to anything.
 	// This causes the PIC32 USB module to think that there is no USB
 	// connection. As a workaround, setting VBUSCHG will pull VBUS up.
+	// This must be done after calling usbInit() because usbInit() sets
+	// the U1OTGCON register.
 	U1OTGCONbits.VBUSCHG = 1;
-	// The BitSafe development board has the Vdd/2 reference connected to
-	// a pin which shares the JTAG TMS function. By default, JTAG is enabled
-	// and this causes the Vdd/2 voltage to diverge significantly.
-	// Disabling JTAG fixes that.
-	DDPCONbits.JTAGEN = 0;
 #endif // #ifndef PIC32_STARTER_KIT
 
 	// All USB-related modules should be initialised before
@@ -124,6 +142,7 @@ int main(void)
 		}
 		else
 		{
+			// Unknown test mode.
 			usbFatalError();
 		}
 	}

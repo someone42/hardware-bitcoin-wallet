@@ -85,16 +85,49 @@ void __attribute__((nomips16)) delayCycles(uint32_t num_cycles)
 	} while ((current_count - start_count) < num_cycles);
 }
 
-/** Initialise caching module. */
-static void prefetchInit(void)
+/** Delay for at least the specified number of cycles. This is not as precise
+  * as delayCycles(), but it consumes less power because the CPU is placed in
+  * idle mode while delaying.
+  * \param num_cycles CPU cycles to delay for.
+  */
+void __attribute__((nomips16)) delayCyclesAndIdle(uint32_t num_cycles)
 {
+	uint32_t start_count;
+	uint32_t current_count;
+
+	// Note that Count is incremented every 2 CPU cycles.
+	num_cycles >>= 1;
+	// Use Count register ($9) to count cycles.
+	asm volatile("mfc0 %0, $9" : "=r"(start_count));
+	do
+	{
+		enterIdleMode();
+		asm volatile("mfc0 %0, $9" : "=r"(current_count));
+	} while ((current_count - start_count) < num_cycles);
+}
+
+/** Initialise caching module and set up CPU for instruction caching. */
+static void __attribute__ ((nomips16)) prefetchInit(void)
+{
+	uint32_t config1;
+
 	// Set 1 wait state. This is okay for CPU operation from 0 to 60 MHz.
 	CHECONbits.PFMWS = 1;
-	// Enable predictive caching for all regions (cacheable and uncacheable).
+	// Enable predictive caching for cacheable regions only.
 	// This eliminates flash wait states for sequential code.
-	CHECONbits.PREFEN = 3;
+	// TODO: Maybe don't do this because of that CPU cache errata?
+	CHECONbits.PREFEN = 1;
 	// Disable data caching.
 	CHECONbits.DCSZ = 0;
+	// Enable cacheability of kseg0 (it's turned off by default).
+	// See section 2.12.13 of the PIC32 family reference manual (revision E),
+	// obtained from
+	// http://ww1.microchip.com/downloads/en/DeviceDoc/61113E.pdf on
+	// 6 November 2012.
+	asm volatile("mfc0 %0, $16, 0" : "=r"(config1));
+	config1 &= ~0x00000007; // mask out K0
+	config1 |= 0x00000003; // set K0 = 3 (cacheable)
+	asm volatile("mtc0 %0, $16, 0" : : "r"(config1));
 }
 
 /** Enter PIC32 idle mode to conserve power. The CPU will leave idle mode when
@@ -125,10 +158,10 @@ void __attribute__((vector(_TIMER_2_VECTOR), interrupt(ipl2), nomips16)) _Timer2
 	}
 }
 
-/** Interrupt service handler for Timer3, used to flash USB activity LED. */
-void __attribute__((vector(_TIMER_3_VECTOR), interrupt(ipl2), nomips16)) _Timer3Handler(void)
+/** Interrupt service handler for Timer4, used to flash USB activity LED. */
+void __attribute__((vector(_TIMER_4_VECTOR), interrupt(ipl2), nomips16)) _Timer4Handler(void)
 {
-	IFS0bits.T3IF = 0; // clear interrupt flag
+	IFS0bits.T4IF = 0; // clear interrupt flag
 	if (usb_activity_counter > 0)
 	{
 #ifdef PIC32_STARTER_KIT
@@ -162,21 +195,24 @@ void pic32SystemInit(void)
 	PORTDCLR = 0x14;
 	PORTDSET = 0x01; // for blue LED, 0 = on, 1 = off
 #endif // #ifdef PIC32_STARTER_KIT
-	// Initialise Timer3 for USB activity LED flashing.
-	T3CONbits.ON = 0; // turn timer off
+
+	// Initialise Timer4 for USB activity LED flashing.
+	T4CONbits.ON = 0; // turn timer off
 #ifdef PIC32_STARTER_KIT
-	T3CONbits.TCS = 0; // clock source = internal peripheral clock
+	T4CONbits.TCS = 0; // clock source = internal peripheral clock
 #endif // #ifdef PIC32_STARTER_KIT
-	T3CONbits.TCKPS = 7; // 1:256 prescaler
-	T3CONbits.TGATE = 0; // disable gated time accumulation
-	T3CONbits.SIDL = 0; // continue in idle mode
-	TMR3 = 0; // clear count
-	PR3 = 7031; // frequency = about 20 Hz
-	T3CONbits.ON = 1; // turn timer on
-	IPC3bits.T3IP = 2; // priority level = 2
-	IPC3bits.T3IS = 0; // sub-priority level = 0
-	IFS0bits.T3IF = 0; // clear interrupt flag
-	IEC0bits.T3IE = 1; // enable interrupt
+	T4CONbits.TCKPS = 7; // 1:256 prescaler
+	T4CONbits.T32 = 0; // 16 bit mode
+	T4CONbits.TGATE = 0; // disable gated time accumulation
+	T4CONbits.SIDL = 0; // continue in idle mode
+	TMR4 = 0; // clear count
+	PR4 = 7031; // frequency = about 20 Hz
+	T4CONbits.ON = 1; // turn timer on
+	IPC4bits.T4IP = 2; // priority level = 2
+	IPC4bits.T4IS = 0; // sub-priority level = 0
+	IFS0bits.T4IF = 0; // clear interrupt flag
+	IEC0bits.T4IE = 1; // enable interrupt
+
 	// Initialise Timer2 for periodic interrupts to wake up the CPU in the case
 	// of a race condition where an interrupt occurs in between a check and
 	// the transition to idle state (enterIdleMode()).

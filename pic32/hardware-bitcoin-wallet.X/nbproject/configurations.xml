@@ -14,6 +14,10 @@
         <itemPath>../serial_fifo.h</itemPath>
         <itemPath>../usb_hid_stream.h</itemPath>
         <itemPath>../ssd1306.h</itemPath>
+        <itemPath>../adc.h</itemPath>
+        <itemPath>../atsha204.h</itemPath>
+        <itemPath>../pushbuttons.h</itemPath>
+        <itemPath>../sst25x.h</itemPath>
       </logicalFolder>
       <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
         <itemPath>../../aes.h</itemPath>
@@ -65,6 +69,11 @@
         <itemPath>../serial_fifo.c</itemPath>
         <itemPath>../ssd1306.c</itemPath>
         <itemPath>../ssd1306_bitbang.S</itemPath>
+        <itemPath>../adc.c</itemPath>
+        <itemPath>../atsha204.c</itemPath>
+        <itemPath>../atsha204_bitbang.S</itemPath>
+        <itemPath>../pushbuttons.c</itemPath>
+        <itemPath>../sst25x.c</itemPath>
       </logicalFolder>
       <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
         <itemPath>../../aes.c</itemPath>
@@ -150,6 +159,7 @@
         <property key="support-ansi" value="false"/>
         <property key="use-cci" value="false"/>
         <property key="use-indirect-calls" value="false"/>
+        <appendMe value="-Wextra"/>
       </C32>
       <C32-AS>
         <property key="assembler-symbols" value=""/>
@@ -216,6 +226,7 @@
         <property key="use-indirect-calls" value="false"/>
       </C32CPP>
       <C32Global>
+        <property key="legacy-libc" value="false"/>
       </C32Global>
       <PICkit3PlatformTool>
         <property key="ADC 1" value="true"/>
