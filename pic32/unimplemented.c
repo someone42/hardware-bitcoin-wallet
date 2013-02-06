@@ -132,9 +132,12 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 	return NV_IO_ERROR;
 }
 
-/** Ensure that all buffered writes are committed to non-volatile storage. */
-void nonVolatileFlush(void)
+/** Ensure that all buffered writes are committed to non-volatile storage.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
+NonVolatileReturn nonVolatileFlush(void)
 {
+	return NV_IO_ERROR;
 }
 
 /** Overwrite anything in RAM which could contain sensitive data. "Sensitive

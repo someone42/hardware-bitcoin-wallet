@@ -64,9 +64,13 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 	return NV_NO_ERROR;
 }
 
-/** Ensure that all buffered writes are committed to non-volatile storage. */
-void nonVolatileFlush(void)
+/** Ensure that all buffered writes are committed to non-volatile storage.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
+NonVolatileReturn nonVolatileFlush(void)
 {
-	// Nothing to do.
+	// Nothing to do; writes are never buffered.
+	return NV_NO_ERROR;
 }
+
 

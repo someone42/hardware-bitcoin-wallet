@@ -26,9 +26,8 @@
   */
 
 #include <stdint.h>
-#include <string.h>
-#include <stdio.h>
 #include <p32xxxx.h>
+#include "../common.h"
 #include "pic32_system.h"
 #include "atsha204.h"
 

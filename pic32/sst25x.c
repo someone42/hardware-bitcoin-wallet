@@ -32,9 +32,6 @@
 
 #include <p32xxxx.h>
 #include <stdint.h>
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include "pic32_system.h"
 #include "sst25x.h"
 

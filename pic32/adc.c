@@ -28,8 +28,6 @@
   */
 
 #include <stdint.h>
-#include <stdio.h>
-#include <math.h>
 #include <p32xxxx.h>
 #include "adc.h"
 #include "pic32_system.h"

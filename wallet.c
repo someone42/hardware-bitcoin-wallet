@@ -396,7 +396,6 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			if (remaining > 0)
 			{
 				r = nonVolatileWrite(buffer, address, (uint8_t)remaining);
-				nonVolatileFlush();
 			}
 			if (address <= (0xffffffff - 32))
 			{
@@ -409,6 +408,12 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			}
 		}
 
+		if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
+		{
+			// After each pass, flush write buffers to ensure that
+			// non-volatile memory is actually overwritten.
+			r = nonVolatileFlush();
+		}
 		if ((r != NV_INVALID_ADDRESS) && (r != NV_NO_ERROR))
 		{
 			// Uh oh, probably an I/O error.
@@ -463,17 +468,21 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			if (address >= start)
 			{
 				r = nonVolatileWrite(buffer, address, 4);
+				if ((r == NV_INVALID_ADDRESS) || (r == NV_NO_ERROR))
+				{
+					r = nonVolatileFlush();
+				}
 				if ((r != NV_INVALID_ADDRESS) && (r != NV_NO_ERROR))
 				{
 					// Uh oh, probably an I/O error.
 					break;
 				}
+#ifdef TEST_WALLET
 				if (r == NV_NO_ERROR)
 				{
-#ifdef TEST_WALLET
 					logVersionFieldWrite(address);
-#endif // #ifdef TEST_WALLET
 				}
+#endif // #ifdef TEST_WALLET
 			}
 			if (address <= (0xffffffff - WALLET_RECORD_LENGTH))
 			{
@@ -504,6 +513,7 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 /** Writes 4 byte wallet version. This is in its own function because
   * it's used by both newWallet() and changeEncryptionKey().
   * \return See #NonVolatileReturnEnum.
+  * \warning This does not call nonVolatileFlush(). The caller has to do that.
   */
 static NonVolatileReturn writeWalletVersion(void)
 {
@@ -524,6 +534,7 @@ static NonVolatileReturn writeWalletVersion(void)
   * it's used by newWallet(), changeEncryptionKey() and changeWalletName().
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
   *         error occurred.
+  * \warning This does not call nonVolatileFlush(). The caller has to do that.
   */
 static WalletErrors writeWalletChecksum(void)
 {
@@ -704,7 +715,6 @@ WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, ui
 			return last_error;
 		}
 	}
-	nonVolatileFlush();
 
 	// Write checksum.
 	r = writeWalletChecksum();
@@ -713,7 +723,11 @@ WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, uint8_t use_seed, ui
 		last_error = r;
 		return last_error;
 	}
-	nonVolatileFlush();
+	if (nonVolatileFlush() != NV_NO_ERROR)
+	{
+		last_error = WALLET_WRITE_ERROR;
+		return last_error;
+	}
 
 	last_error = initWallet(wallet_spec);
 	return last_error;
@@ -750,6 +764,11 @@ AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 	num_addresses++;
 	writeU32LittleEndian(buffer, num_addresses);
 	if (encryptedNonVolatileWrite(buffer, base_nv_address + OFFSET_NUM_ADDRESSES, 4) != NV_NO_ERROR)
+	{
+		last_error = WALLET_WRITE_ERROR;
+		return BAD_ADDRESS_HANDLE;
+	}
+	if (nonVolatileFlush() != NV_NO_ERROR)
 	{
 		last_error = WALLET_WRITE_ERROR;
 		return BAD_ADDRESS_HANDLE;
@@ -974,7 +993,6 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 		{
 			setEncryptionKey(new_key);
 			r = encryptedNonVolatileWrite(buffer, address, 16);
-			nonVolatileFlush();
 		}
 		address += 16;
 	}
@@ -984,7 +1002,7 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 	{
 		if (is_hidden_wallet)
 		{
-			// Updating the version field for hidden wallet would reveal
+			// Updating the version field for a hidden wallet would reveal
 			// where it is, so don't do it.
 			last_error = WALLET_NO_ERROR;
 		}
@@ -1005,6 +1023,15 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 	{
 		last_error = WALLET_WRITE_ERROR;
 	}
+
+	if (last_error == WALLET_NO_ERROR)
+	{
+		if (nonVolatileFlush() != NV_NO_ERROR)
+		{
+			last_error = WALLET_WRITE_ERROR;
+		}
+	}
+
 	return last_error;
 }
 
@@ -1045,7 +1072,11 @@ WalletErrors changeWalletName(uint8_t *new_name)
 		last_error = r;
 		return last_error;
 	}
-	nonVolatileFlush();
+	if (nonVolatileFlush() != NV_NO_ERROR)
+	{
+		last_error = WALLET_WRITE_ERROR;
+		return last_error;
+	}
 
 	last_error = WALLET_NO_ERROR;
 	return last_error;
@@ -1339,10 +1370,15 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t lengt
 	return NV_NO_ERROR;
 }
 
-/** Ensure that all buffered writes are committed to non-volatile storage. */
-void nonVolatileFlush(void)
+/** Ensure that all buffered writes are committed to non-volatile storage.
+  * Since this is for testing only, this probably doesn't need to be called
+  * at all.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
+NonVolatileReturn nonVolatileFlush(void)
 {
 	fflush(wallet_test_file);
+	return NV_NO_ERROR;
 }
 
 /** Pretend to overwrite anything in RAM which could contain sensitive

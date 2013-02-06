@@ -204,8 +204,10 @@ extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8
   * \return See #NonVolatileReturnEnum for return values.
   */
 extern NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length);
-/** Ensure that all buffered writes are committed to non-volatile storage. */
-extern void nonVolatileFlush(void);
+/** Ensure that all buffered writes are committed to non-volatile storage.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
+extern NonVolatileReturn nonVolatileFlush(void);
 
 /** Overwrite anything in RAM which could contain sensitive data. "Sensitive
   * data" includes secret things like encryption keys and wallet private keys.
