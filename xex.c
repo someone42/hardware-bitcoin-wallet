@@ -249,7 +249,7 @@ void clearEncryptionKey(void)
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
 {
 	uint32_t block_start;
 	uint32_t block_end;
@@ -262,6 +262,11 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
 	block_start = address & 0xfffffff0;
 	block_offset = (uint8_t)(address & 0x0000000f);
 	block_end = (address + length - 1) & 0xfffffff0;
+	if ((address + length) < address)
+	{
+		// Overflow occurred.
+		return NV_INVALID_ADDRESS;
+	}
 
 	memset(n, 0, 16);
 	for (; block_start <= block_end; block_start += 16)
@@ -300,7 +305,7 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
 {
 	uint32_t block_start;
 	uint32_t block_end;
@@ -313,6 +318,11 @@ NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint
 	block_start = address & 0xfffffff0;
 	block_offset = (uint8_t)(address & 0x0000000f);
 	block_end = (address + length - 1) & 0xfffffff0;
+	if ((address + length) < address)
+	{
+		// Overflow occurred.
+		return NV_INVALID_ADDRESS;
+	}
 
 	memset(n, 0, 16);
 	for (; block_start <= block_end; block_start += 16)
@@ -593,10 +603,10 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 int main(void)
 {
 	uint8_t what_storage_should_be[MAX_ADDRESS];
-	uint8_t buffer[256];
+	uint8_t buffer[512];
 	uint8_t one_key[32];
 	unsigned int i;
-	int j;
+	unsigned int j;
 
 	initTests(__FILE__);
 
@@ -634,12 +644,12 @@ int main(void)
 	for (i = 0; i < NUM_RW_TESTS; i++)
 	{
 		uint32_t address;
-		uint8_t length;
+		uint32_t length;
 
 		do
 		{
 			address = (uint32_t)(rand() & (MAX_ADDRESS - 1));
-			length = (uint8_t)rand();
+			length = rand() % sizeof(buffer);
 		} while ((address + length) > MAX_ADDRESS);
 		if (rand() & 1)
 		{

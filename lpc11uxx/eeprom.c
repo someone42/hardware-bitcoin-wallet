@@ -43,11 +43,11 @@ static uint32_t iap_result[5];
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
 {
 	// Since EEPROM_SIZE is much smaller than 2 ^ 32, address + length cannot
 	// overflow.
-	if ((address > EEPROM_SIZE)
+	if ((address > EEPROM_SIZE) || (length > EEPROM_SIZE)
 		|| ((address + length) > EEPROM_SIZE))
 	{
 		return NV_INVALID_ADDRESS;
@@ -75,11 +75,11 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
 {
 	// Since EEPROM_SIZE is much smaller than 2 ^ 32, address + length cannot
 	// overflow.
-	if ((address > EEPROM_SIZE)
+	if ((address > EEPROM_SIZE) || (length > EEPROM_SIZE)
 		|| ((address + length) > EEPROM_SIZE))
 	{
 		return NV_INVALID_ADDRESS;

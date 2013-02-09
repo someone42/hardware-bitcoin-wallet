@@ -74,6 +74,7 @@
         <itemPath>../atsha204_bitbang.S</itemPath>
         <itemPath>../pushbuttons.c</itemPath>
         <itemPath>../sst25x.c</itemPath>
+        <itemPath>../nvmem_manager.c</itemPath>
       </logicalFolder>
       <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
         <itemPath>../../aes.c</itemPath>

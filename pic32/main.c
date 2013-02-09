@@ -20,6 +20,7 @@
 #include "pushbuttons.h"
 #include "sst25x.h"
 #include "../hwinterface.h"
+#include "../endian.h"
 
 /** This will be called whenever an unrecoverable error occurs. This should
   * not return. */
@@ -44,6 +45,7 @@ int main(void)
 	uint8_t mode;
 	uint8_t counter;
 	char string_buffer[2];
+	unsigned int i;
 
 	disableInterrupts();
 
@@ -140,6 +142,62 @@ int main(void)
 			string_buffer[1] = '\0';
 			writeStringToDisplay(string_buffer);
 		}
+		else if (mode == 'n')
+		{
+			// Non-volatile I/O test.
+			uint8_t nv_operation;
+			uint8_t buffer[16384];
+			uint32_t address;
+			uint32_t length;
+
+			nv_operation = streamGetOneByte();
+			if ((nv_operation == 0x00) || (nv_operation == 0x01))
+			{
+				for (i = 0; i < 4; i++)
+				{
+					buffer[i] = streamGetOneByte();
+				}
+				address = readU32LittleEndian(buffer);
+				for (i = 0; i < 4; i++)
+				{
+					buffer[i] = streamGetOneByte();
+				}
+				length = readU32LittleEndian(buffer);
+				if (length > sizeof(buffer))
+				{
+					// I/O size is too big.
+					usbFatalError();
+				}
+				else
+				{
+					if (nv_operation == 0x00)
+					{
+						nonVolatileRead(buffer, address, length);
+						for (i = 0; i < length; i++)
+						{
+							streamPutOneByte(buffer[i]);
+						}
+					}
+					else
+					{
+						for (i = 0; i < length; i++)
+						{
+							buffer[i] = streamGetOneByte();
+						}
+						nonVolatileWrite(buffer, address, length);
+					}
+				}
+			} // end if ((nv_operation == 0x00) || (nv_operation == 0x01))
+			else if (nv_operation == 0x02)
+			{
+				nonVolatileFlush();
+			}
+			else
+			{
+				// Unknown non-volatile memory operation.
+				usbFatalError();
+			}
+		} // end else if (mode == 'n')
 		else
 		{
 			// Unknown test mode.

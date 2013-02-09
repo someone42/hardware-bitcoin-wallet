@@ -27,10 +27,10 @@
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
 {
-	if ((address > EEPROM_SIZE)
-		|| ((address + (uint32_t)length) > EEPROM_SIZE))
+	if ((address > EEPROM_SIZE) || (length > EEPROM_SIZE)
+		|| ((address + length) > EEPROM_SIZE))
 	{
 		return NV_INVALID_ADDRESS;
 	}
@@ -38,7 +38,7 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
 	// The (void *)(int) is there because pointers on AVR are 16 bit, so
 	// just doing (void *) would result in a "cast to pointer from integer
 	// of different size" warning.
-	eeprom_write_block(data, (void *)(int)address, length);
+	eeprom_write_block(data, (void *)(int)address, (size_t)length);
 	return NV_NO_ERROR;
 }
 
@@ -49,9 +49,9 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t leng
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
 {
-	if ((address > EEPROM_SIZE)
+	if ((address > EEPROM_SIZE) || (length > EEPROM_SIZE)
 		|| ((address + (uint32_t)length) > EEPROM_SIZE))
 	{
 		return NV_INVALID_ADDRESS;

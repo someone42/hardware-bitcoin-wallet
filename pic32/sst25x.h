@@ -16,6 +16,11 @@
   *          be invalid.
   */
 #define SECTOR_SIZE			4096
+/** Total number of bytes in non-volatile storage.
+  * \warning This must be much smaller than 2 ^ 32 or some overflow checks
+  *          in nvmem_manager.c won't work.
+  */
+#define NV_MEMORY_SIZE		1048576
 
 extern void initSST25x(void);
 extern uint8_t sst25xReadStatusRegister(void);

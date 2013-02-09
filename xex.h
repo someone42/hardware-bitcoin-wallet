@@ -27,7 +27,7 @@ extern void setEncryptionKey(uint8_t *in);
 extern void getEncryptionKey(uint8_t *out);
 extern uint8_t isEncryptionKeyNonZero(void);
 extern void clearEncryptionKey(void);
-extern NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length);
-extern NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint8_t length);
+extern NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length);
+extern NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint32_t length);
 
 #endif // #ifndef XEX_H_INCLUDED

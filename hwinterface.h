@@ -195,7 +195,7 @@ extern int hardwareRandom32Bytes(uint8_t *buffer);
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length);
+extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length);
 /** Read from non-volatile storage.
   * \param data A pointer to the buffer which will receive the data.
   * \param address Byte offset specifying where in non-volatile storage to
@@ -203,7 +203,7 @@ extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-extern NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length);
+extern NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length);
 /** Ensure that all buffered writes are committed to non-volatile storage.
   * \return See #NonVolatileReturnEnum for return values.
   */

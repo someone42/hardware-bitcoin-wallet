@@ -106,40 +106,6 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	return -1;
 }
 
-/** Write to non-volatile storage.
-  * \param data A pointer to the data to be written.
-  * \param address Byte offset specifying where in non-volatile storage to
-  *                start writing to.
-  * \param length The number of bytes to write.
-  * \return See #NonVolatileReturnEnum for return values.
-  * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
-  *          data is actually written to non-volatile storage.
-  */
-NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
-{
-	return NV_IO_ERROR;
-}
-
-/** Read from non-volatile storage.
-  * \param data A pointer to the buffer which will receive the data.
-  * \param address Byte offset specifying where in non-volatile storage to
-  *                start reading from.
-  * \param length The number of bytes to read.
-  * \return See #NonVolatileReturnEnum for return values.
-  */
-NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
-{
-	return NV_IO_ERROR;
-}
-
-/** Ensure that all buffered writes are committed to non-volatile storage.
-  * \return See #NonVolatileReturnEnum for return values.
-  */
-NonVolatileReturn nonVolatileFlush(void)
-{
-	return NV_IO_ERROR;
-}
-
 /** Overwrite anything in RAM which could contain sensitive data. "Sensitive
   * data" includes secret things like encryption keys and wallet private keys.
   * It also includes derived things like expanded keys and intermediate

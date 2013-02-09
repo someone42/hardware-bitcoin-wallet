@@ -395,7 +395,7 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 			}
 			if (remaining > 0)
 			{
-				r = nonVolatileWrite(buffer, address, (uint8_t)remaining);
+				r = nonVolatileWrite(buffer, address, remaining);
 			}
 			if (address <= (0xffffffff - 32))
 			{
@@ -1286,13 +1286,13 @@ static uint32_t minimum_address_written;
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
 {
 #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
-	int i;
+	unsigned int i;
 #endif // #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 
-	if (address > (0xffffffff - (uint32_t)length))
+	if (address > (0xffffffff - length))
 	{
 		// address + length will overflow.
 		return NV_INVALID_ADDRESS;
@@ -1345,16 +1345,16 @@ static uint32_t allow_test_reads_up_to = TEST_FILE_SIZE - 1;
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint8_t length)
+NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
 {
-	if (address > (0xffffffff - (uint32_t)length))
+	if (address > (0xffffffff - length))
 	{
 		// address + length will overflow.
 		return NV_INVALID_ADDRESS;
 	}
-	if ((address + (uint32_t)length) > TEST_FILE_SIZE)
+	if ((address + length) > TEST_FILE_SIZE)
 	{
-		if ((address + (uint32_t)length) > (allow_test_reads_up_to + 1))
+		if ((address + length) > (allow_test_reads_up_to + 1))
 		{
 			return NV_INVALID_ADDRESS;
 		}
