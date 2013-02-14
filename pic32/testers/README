@@ -18,3 +18,10 @@ doing lots of writes and reads. It requires HIDAPI to be installed as a
 shared library.
 Compile it with something like:
 gcc -o nvm_test nvm_test.c -I<path to HIDAPI includes> -lhidapi -L<path to HIDAPI libraries>
+
+hwb_tester.c is a program which can send and receive packets using USB HID
+reports. It requires HIDAPI to be installed as a shared library.
+Compile it with something like:
+gcc -o hwb_tester hwb_tester.c -I<path to HIDAPI includes> -lhidapi -L<path to HIDAPI libraries>
+While running, it will prompt for the names of files containing packets. A few
+example files (with extension .bin) are included in this subdirectory.
