@@ -27,11 +27,7 @@
 void usbFatalError(void)
 {
 	disableInterrupts();
-#ifdef PIC32_STARTER_KIT
-	PORTDSET = 1; // turn on red LED
-#else
 	PORTDSET = 0x10; // turn on red LED
-#endif // #ifdef PIC32_STARTER_KIT
 	while (1)
 	{
 		// do nothing
@@ -42,14 +38,15 @@ void usbFatalError(void)
   * This never returns. */
 int main(void)
 {
+#ifdef TEST_MODE
 	uint8_t mode;
 	uint8_t counter;
 	char string_buffer[2];
 	unsigned int i;
+#endif // #ifdef TEST_MODE
 
 	disableInterrupts();
 
-#ifndef PIC32_STARTER_KIT
 	// The BitSafe development board has the Vdd/2 reference connected to
 	// a pin which shares the JTAG TMS function. By default, JTAG is enabled
 	// and this causes the Vdd/2 voltage to diverge significantly.
@@ -59,7 +56,6 @@ int main(void)
 	// Leaving JTAG enabled while calling initSST25x() will cause improper
 	// operation of the external memory.
 	DDPCONbits.JTAGEN = 0;
-#endif // #ifndef PIC32_STARTER_KIT
 
 	pic32SystemInit();
 	initSSD1306();
@@ -73,19 +69,18 @@ int main(void)
 	usbSetupControlEndpoint();
 	restoreInterrupts(1);
 
-#ifndef PIC32_STARTER_KIT
 	// The BitSafe development board has VBUS not connected to anything.
 	// This causes the PIC32 USB module to think that there is no USB
 	// connection. As a workaround, setting VBUSCHG will pull VBUS up.
 	// This must be done after calling usbInit() because usbInit() sets
 	// the U1OTGCON register.
 	U1OTGCONbits.VBUSCHG = 1;
-#endif // #ifndef PIC32_STARTER_KIT
 
 	// All USB-related modules should be initialised before
 	// calling usbConnect().
 	usbConnect();
 
+#ifdef TEST_MODE
 	mode = streamGetOneByte();
 	if (mode == 'd')
 	{
@@ -203,5 +198,11 @@ int main(void)
 			// Unknown test mode.
 			usbFatalError();
 		}
+	} // end while (1)
+#else
+	while(1)
+	{
+		processPacket();
 	}
+#endif // #ifdef TEST_MODE
 }

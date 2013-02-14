@@ -164,11 +164,7 @@ void __attribute__((vector(_TIMER_4_VECTOR), interrupt(ipl2), nomips16)) _Timer4
 	IFS0bits.T4IF = 0; // clear interrupt flag
 	if (usb_activity_counter > 0)
 	{
-#ifdef PIC32_STARTER_KIT
-		PORTDINV = 2; // blink orange LED
-#else
 		PORTDINV = 1; // blink blue LED
-#endif // #ifdef PIC32_STARTER_KIT
 		usb_activity_counter--;
 	}
 }
@@ -187,20 +183,12 @@ void usbActivityLED(void)
 void pic32SystemInit(void)
 {
 	// Set LED pins to output and turn them all off.
-#ifdef PIC32_STARTER_KIT
-	PORTDCLR = 7;
-	TRISDCLR = 7;
-#else
 	TRISDCLR = 0x15;
 	PORTDCLR = 0x14;
 	PORTDSET = 0x01; // for blue LED, 0 = on, 1 = off
-#endif // #ifdef PIC32_STARTER_KIT
 
 	// Initialise Timer4 for USB activity LED flashing.
 	T4CONbits.ON = 0; // turn timer off
-#ifdef PIC32_STARTER_KIT
-	T4CONbits.TCS = 0; // clock source = internal peripheral clock
-#endif // #ifdef PIC32_STARTER_KIT
 	T4CONbits.TCKPS = 7; // 1:256 prescaler
 	T4CONbits.T32 = 0; // 16 bit mode
 	T4CONbits.TGATE = 0; // disable gated time accumulation
@@ -217,9 +205,6 @@ void pic32SystemInit(void)
 	// of a race condition where an interrupt occurs in between a check and
 	// the transition to idle state (enterIdleMode()).
 	T2CONbits.ON = 0; // turn timer off
-#ifdef PIC32_STARTER_KIT
-	T2CONbits.TCS = 0; // clock source = internal peripheral clock
-#endif // #ifdef PIC32_STARTER_KIT
 	T2CONbits.T32 = 0; // 16 bit mode
 	T2CONbits.TCKPS = 7; // 1:256 prescaler
 	T2CONbits.TGATE = 0; // disable gated time accumulation
