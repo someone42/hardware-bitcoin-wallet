@@ -224,6 +224,7 @@ int main(int argc, char **argv)
 	long int size;
 	long int i;
 	struct termios options;
+	struct termios old_options;
 
 	if (argc != 2)
 	{
@@ -245,7 +246,8 @@ int main(int argc, char **argv)
 	}
 
 	fcntl(fd_serial, F_SETFL, 0); // block on reads
-	tcgetattr(fd_serial, &options);
+	tcgetattr(fd_serial, &old_options); // save configuration
+	memcpy(&options, &old_options, sizeof(options));
 	cfsetispeed(&options, B57600); // baud rate 57600
 	cfsetospeed(&options, B57600);
 	options.c_cflag |= (CLOCAL | CREAD); // enable receiver and set local mode on
@@ -254,7 +256,9 @@ int main(int argc, char **argv)
 	options.c_cflag &= ~CSIZE; // character size mask
 	options.c_cflag |= CS8; // 8 data bits
 	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // raw input
+	options.c_lflag &= ~(XCASE | ECHOK | ECHONL | ECHOCTL | ECHOPRT | ECHOKE); // disable more stuff
 	options.c_iflag &= ~(IXON | IXOFF | IXANY); // no software flow control
+	options.c_iflag &= ~(INPCK | INLCR | IGNCR | ICRNL | IUCLC); // disable more stuff
 	options.c_oflag &= ~OPOST; // raw output
 	tcsetattr(fd_serial, TCSANOW, &options);
 
@@ -314,6 +318,7 @@ int main(int argc, char **argv)
 		}
 	} while (!abort);
 
+	tcsetattr(fd_serial, TCSANOW, &old_options); // restore configuration
 	close(fd_serial);
 
 	exit(0);
