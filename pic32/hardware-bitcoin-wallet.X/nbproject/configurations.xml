@@ -18,6 +18,9 @@
         <itemPath>../atsha204.h</itemPath>
         <itemPath>../pushbuttons.h</itemPath>
         <itemPath>../sst25x.h</itemPath>
+        <itemPath>../test_fft.h</itemPath>
+        <itemPath>../hwrng.h</itemPath>
+        <itemPath>../hwrng_limits.h</itemPath>
       </logicalFolder>
       <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
         <itemPath>../../aes.h</itemPath>
@@ -77,6 +80,8 @@
         <itemPath>../nvmem_manager.c</itemPath>
         <itemPath>../user_interface.c</itemPath>
         <itemPath>../strings.c</itemPath>
+        <itemPath>../test_fft.c</itemPath>
+        <itemPath>../hwrng.c</itemPath>
       </logicalFolder>
       <logicalFolder name="f1" displayName="Platform-independent" projectFiles="true">
         <itemPath>../../aes.c</itemPath>
@@ -157,7 +162,7 @@
         <property key="place-data-into-section" value="false"/>
         <property key="post-instruction-scheduling" value="default"/>
         <property key="pre-instruction-scheduling" value="default"/>
-        <property key="preprocessor-macros" value="FIXMATH_NO_64BIT"/>
+        <property key="preprocessor-macros" value=""/>
         <property key="strict-ansi" value="false"/>
         <property key="support-ansi" value="false"/>
         <property key="use-cci" value="false"/>

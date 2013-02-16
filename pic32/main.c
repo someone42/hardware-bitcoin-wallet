@@ -19,8 +19,14 @@
 #include "adc.h"
 #include "pushbuttons.h"
 #include "sst25x.h"
+#include "hwrng.h"
 #include "../hwinterface.h"
 #include "../endian.h"
+#include "../stream_comm.h"
+
+#ifdef TEST_FFT
+#include "test_fft.h"
+#endif // #ifdef TEST_FFT
 
 /** This will be called whenever an unrecoverable error occurs. This should
   * not return. */
@@ -199,6 +205,18 @@ int main(void)
 			usbFatalError();
 		}
 	} // end while (1)
+#elif TEST_FFT
+	testFFT();
+	while(1)
+	{
+		// do nothing
+	}
+#elif TEST_STATISTICS
+	testStatistics();
+	while(1)
+	{
+		// do nothing
+	}
 #else
 	while(1)
 	{

@@ -30,7 +30,6 @@
 #include "ssd1306.h"
 #include "../endian.h"
 #include "../hwinterface.h"
-#include "LPC11Uxx.h"
 
 static void reportStatistics(uint32_t tests_failed);
 static void reportFftResults(ComplexFixed *fft_buffer);
@@ -362,7 +361,7 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	if (sample_buffer_consumed == 0)
 	{
 		// Need to wait until next sample buffer has been filled.
-		while (!sample_buffer_full)
+		while (!isADCBufferFull())
 		{
 			// do nothing
 		}
@@ -684,11 +683,13 @@ static void sendFix16(fix16_t value)
   *   stream, compute various statistical values and send them to the stream.
   *   The host can then check the output.
   */
-void testStatistics(void)
+void __attribute__ ((nomips16)) testStatistics(void)
 {
 	uint8_t mode;
 	uint8_t buffer[4];
 	uint8_t random_bytes[32];
+	uint32_t start_count;
+	uint32_t end_count;
 	uint32_t cycles;
 	uint32_t i;
 	uint32_t sample;
@@ -751,10 +752,7 @@ void testStatistics(void)
 				incrementHistogram(sample);
 			}
 
-			SysTick->CTRL = 4; // disable system tick timer, frequency = CPU
-			SysTick->VAL = 0; // clear system tick timer
-			SysTick->LOAD = 0x00FFFFFF; // set timer reload to max
-			SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
+			asm volatile("mfc0 %0, $9" : "=r"(start_count));
 
 			mean = calculateCentralMoment(fix16_zero, 1);
 			variance = calculateCentralMoment(mean, 2);
@@ -762,8 +760,8 @@ void testStatistics(void)
 			kappa4 = calculateCentralMoment(mean, 4);
 			entropy_estimate = estimateEntropy();
 
-			cycles = SysTick->VAL; // read as soon as possible
-			cycles = (0x00FFFFFF - cycles);
+			asm volatile("mfc0 %0, $9" : "=r"(end_count)); // read as soon as possible
+			cycles = (end_count - start_count) * 2; // Count ticks every 2 cycles
 
 			sendFix16(mean);
 			sendFix16(variance);

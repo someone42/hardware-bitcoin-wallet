@@ -10,6 +10,7 @@
 
 #include "common.h"
 #include "fix16.h"
+#include "fft.h" // include for FFT_SIZE
 
 /** Number of bins for histogram buffer. This should be large enough that
   * every possible ADC value can be placed in a separate bin. Since most
@@ -51,9 +52,5 @@ extern void subtractMeanFromFftBuffer(ComplexFixed *fft_buffer);
 extern void clearPowerSpectralDensity(void);
 extern void accumulatePowerSpectralDensity(volatile uint16_t *source_buffer);
 extern int calculateAutoCorrelation(ComplexFixed *fft_buffer);
-
-#ifdef TEST_STATISTICS
-extern void testStatistics(void);
-#endif // #ifdef TEST_STATISTICS
 
 #endif // #ifndef STATISTICS_H_INCLUDED

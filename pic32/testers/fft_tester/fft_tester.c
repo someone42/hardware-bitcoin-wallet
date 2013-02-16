@@ -156,19 +156,22 @@ static void flushReportToSend(void)
 {
 	uint8_t packet_buffer[64];
 
-	packet_buffer[0] = (uint8_t)report_to_send_length;
-	if (report_to_send_length > (sizeof(packet_buffer) - 1))
+	if (report_to_send_length > 0)
 	{
-		printf("Report too big in flushReportToSend()\n");
-		exit(1);
+		packet_buffer[0] = (uint8_t)report_to_send_length;
+		if (report_to_send_length > (sizeof(packet_buffer) - 1))
+		{
+			printf("Report too big in flushReportToSend()\n");
+			exit(1);
+		}
+		memcpy(&(packet_buffer[1]), report_to_send, report_to_send_length);
+		if (hid_write(handle, packet_buffer, report_to_send_length + 1) < 0)
+		{
+			printf("hid_write() failed, error: %ls\n", hid_error(handle));
+			exit(1);
+		}
+		report_to_send_length = 0;
 	}
-	memcpy(&(packet_buffer[1]), report_to_send, report_to_send_length);
-	if (hid_write(handle, packet_buffer, report_to_send_length + 1) < 0)
-	{
-		printf("hid_write() failed, error: %ls\n", hid_error(handle));
-		exit(1);
-	}
-	report_to_send_length = 0;
 }
 
 // Queue byte for sending in the next USB HID report.

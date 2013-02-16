@@ -3,8 +3,9 @@
 // ***********************************************************************
 //
 // Read test vectors from statistics_test_vectors.txt and send them to
-// hardware Bitcoin wallet. The firmware should be compiled with the
-// "TEST_STATISTICS" preprocessor definition set.
+// hardware Bitcoin wallet using a CP2110-like USB HID wire protocol.
+// The firmware should be compiled with the "TEST_STATISTICS" preprocessor
+// definition set. This uses HIDAPI.
 //
 // generate_test_vectors.m is a GNU Octave script which can
 // be used to generate those test vectors.
@@ -19,13 +20,17 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include "hidapi/hidapi.h"
 
-#include <unistd.h>
-#include <fcntl.h>
-#include <termios.h>
+#include "../../../fix16.h"
+#include "../../../statistics.h" // include for SAMPLE_COUNT
 
-#include "../../fix16.h"
-#include "../../statistics.h" // include for SAMPLE_COUNT
+// Vendor ID of target device. This must match the vendor ID in the
+// device's device descriptor.
+#define TARGET_VID				0x04f3
+// Product ID of target device. This must match the product ID in the
+// device's device descriptor.
+#define TARGET_PID				0x0210
 
 // Number of real-valued outputs which the device will send.
 #define OUTPUTS_TO_CHECK				5
@@ -38,31 +43,21 @@
 // that's why there is also an absolute error test.
 #define ERROR_FACTOR					0.004
 
-// The default number of bytes (transmitted or received) in between
-// acknowledgments.
-#define DEFAULT_ACKNOWLEDGE_INTERVAL	16
-// The number of received bytes in between acknowledgments that this program
-// will use (doesn't have to be the default).
-#define RX_ACKNOWLEDGE_INTERVAL			32
+// Handle to HID device, so that it doesn't have to be passed as a parameter
+// all the time.
+static hid_device *handle;
 
-// Remaining number of bytes that can be transmitted before listening for
-// acknowledge.
-static uint32_t tx_bytes_to_ack;
-// Remaining number of bytes that can be received before other side expects an
-// acknowledge.
-static uint32_t rx_bytes_to_ack;
-
-int fd_serial; // file descriptor for serial port
-
-// Write the 32-bit unsigned integer specified by in into the byte array
-// specified by out. This will write the bytes in a little-endian format.
-static void writeU32LittleEndian(uint8_t *out, uint32_t in)
-{
-	out[0] = (uint8_t)in;
-	out[1] = (uint8_t)(in >> 8);
-	out[2] = (uint8_t)(in >> 16);
-	out[3] = (uint8_t)(in >> 24);
-}
+// Most recently received report. This does include the report ID.
+static uint8_t received_report[64];
+// Size of most recently received report. This does include the report ID.
+static unsigned int received_report_length;
+// Next byte to grab from most recently received report.
+static unsigned int received_report_index;
+// Report to send, which is built up as bytes are sent using sendByte().
+// Does not include the report ID.
+static uint8_t report_to_send[63];
+// Current length of next report to send. Does not include the report ID.
+static unsigned int report_to_send_length;
 
 // Read a 32-bit unsigned integer from the byte array specified by in.
 // The bytes will be read in a little-endian format.
@@ -75,59 +70,78 @@ static uint32_t readU32LittleEndian(uint8_t *in)
 }
 
 // From fix16.h
-static fix16_t fix16_from_dbl(double a)
-{
-	double temp = a * fix16_one;
-#ifndef FIXMATH_NO_ROUNDING
-	temp += (temp >= 0) ? 0.5f : -0.5f;
-#endif
-	return (fix16_t)temp;
-}
-
-// From fix16.h
 static double fix16_to_dbl(fix16_t a)
 {
 	return (double)a / fix16_one;
 }
 
-// Get a byte from the serial link, sending an acknowledgement if required.
+// Get next byte from the current USB HID report.
 static uint8_t receiveByte(void)
 {
-	uint8_t ack_buffer[5];
-	uint8_t buffer;
+	int r;
+	unsigned int data_size;
 
-	read(fd_serial, &buffer, 1);
-	rx_bytes_to_ack--;
-	if (!rx_bytes_to_ack)
+	while (received_report_index >= received_report_length)
 	{
-		rx_bytes_to_ack = RX_ACKNOWLEDGE_INTERVAL;
-		ack_buffer[0] = 0xff;
-		writeU32LittleEndian(&(ack_buffer[1]), rx_bytes_to_ack);
-		write(fd_serial, ack_buffer, 5);
-	}
-	return buffer;
-}
-
-// Send a byte to the serial link, waiting for acknowledgement if required.
-static void sendByte(uint8_t data)
-{
-	uint8_t ack_buffer[5];
-	uint8_t buffer;
-
-	buffer = data;
-	write(fd_serial, &buffer, 1);
-	tx_bytes_to_ack--;
-	if (!tx_bytes_to_ack)
-	{
-		read(fd_serial, ack_buffer, 5);
-		if (ack_buffer[0] != 0xff)
+		// Finished with current report; need to get another report.
+		r = hid_read(handle, received_report, sizeof(received_report));
+		if (r < 0)
 		{
-			printf("Unexpected acknowledgement format (%d)\n", (int)ack_buffer[0]);
-			printf("Exiting, since the serial link is probably dodgy\n");
+			printf("hid_read() failed, error: %ls\n", hid_error(handle));
 			exit(1);
 		}
-		tx_bytes_to_ack = readU32LittleEndian(&(ack_buffer[1]));
+		else if (r == 0)
+		{
+			printf("Got 0 length report. That doesn't make sense.\n");
+			exit(1);
+		}
+		data_size = received_report[0]; // report ID
+		if ((data_size > 63) || (data_size > (unsigned int)(r - 1)))
+		{
+			printf("Got invalid report ID: %u\n", data_size);
+			exit(1);
+		}
+		received_report_length = data_size + 1;
+		received_report_index = 1;
 	}
+	return received_report[received_report_index++];
+}
+
+// Unconditionally send report_to_send over the USB HID link.
+// Calling this too often leads to poor throughput.
+static void flushReportToSend(void)
+{
+	uint8_t packet_buffer[64];
+
+	if (report_to_send_length > 0)
+	{
+		packet_buffer[0] = (uint8_t)report_to_send_length;
+		if (report_to_send_length > (sizeof(packet_buffer) - 1))
+		{
+			printf("Report too big in flushReportToSend()\n");
+			exit(1);
+		}
+		memcpy(&(packet_buffer[1]), report_to_send, report_to_send_length);
+		if (hid_write(handle, packet_buffer, report_to_send_length + 1) < 0)
+		{
+			printf("hid_write() failed, error: %ls\n", hid_error(handle));
+			exit(1);
+		}
+		report_to_send_length = 0;
+	}
+}
+
+// Queue byte for sending in the next USB HID report.
+// This won't necessarily send anything. To flush the queue and actually
+// send something, call flushReportToSend().
+static void sendByte(uint8_t data)
+{
+	while (report_to_send_length >= sizeof(report_to_send))
+	{
+		// Report to send is full; flush it.
+		flushReportToSend();
+	}
+	report_to_send[report_to_send_length++] = data;
 }
 
 // Read an array of integers from a file. Each number should be on a separate
@@ -200,6 +214,7 @@ static void sendIntegerArray(int *array, uint32_t size)
 		sendByte((uint8_t)array[i]);
 		sendByte((uint8_t)(array[i] >> 8));
 	}
+	flushReportToSend();
 }
 
 // Performs absolute and relative error tests.
@@ -251,15 +266,14 @@ int realArraysEqualWithinTolerance(double *target, double *value, uint32_t size)
 	{
 		if (!equalWithinTolerance(target[i], value[i]))
 		{
-			printf("%d mismatch ", i);
+			printf("%d mismatch target = %g value = %g ", i, target[i], value[i]);
 			return 0;
 		}
 	}
 	return 1;
 }
 
-
-int main(int argc, char **argv)
+int main(void)
 {
 	int i;
 	int matches;
@@ -271,46 +285,23 @@ int main(int argc, char **argv)
 	double expected_array[OUTPUTS_TO_CHECK];
 	double output_array[OUTPUTS_TO_CHECK];
 	FILE *f_vectors; // file containing test vectors
-	struct termios options;
-	struct termios old_options;
 	uint8_t cycles_buffer[4];
 
-	if (argc != 2)
+	if (hid_init())
 	{
-		printf("Usage: %s <serial device>\n", argv[0]);
-		printf("\n");
-		printf("Example: %s /dev/ttyUSB0\n", argv[0]);
+		printf("hid_init() failed\n");
 		exit(1);
 	}
 
-	// Attempt to open serial link.
-	fd_serial = open(argv[1], O_RDWR | O_NOCTTY);
-	if (fd_serial == -1)
+	// Open the device using the VID, PID,
+	handle = hid_open(TARGET_VID, TARGET_PID, NULL);
+	if (!handle)
 	{
-		printf("Could not open device \"%s\"\n", argv[1]);
-		printf("Make sure you have permission to open it. In many systems, only\n");
-		printf("root can access devices by default.\n");
-		exit(1);
+		printf("Unable to open target device.\n");
+		printf("Are you running this as root?\n");
+		printf("Is the device plugged in?\n");
+ 		exit(1);
 	}
-
-	fcntl(fd_serial, F_SETFL, 0); // block on reads
-	tcgetattr(fd_serial, &old_options); // save configuration
-	memcpy(&options, &old_options, sizeof(options));
-	cfsetispeed(&options, B57600); // baud rate 57600
-	cfsetospeed(&options, B57600);
-	options.c_cflag |= (CLOCAL | CREAD); // enable receiver and set local mode on
-	options.c_cflag &= ~PARENB; // no parity
-	options.c_cflag &= ~CSTOPB; // 1 stop bit
-	options.c_cflag &= ~CSIZE; // character size mask
-	options.c_cflag |= CS8; // 8 data bits
-	options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG); // raw input
-	options.c_lflag &= ~(XCASE | ECHOK | ECHONL | ECHOCTL | ECHOPRT | ECHOKE); // disable more stuff
-	options.c_iflag &= ~(IXON | IXOFF | IXANY); // no software flow control
-	options.c_iflag &= ~(INPCK | INLCR | IGNCR | ICRNL | IUCLC); // disable more stuff
-	options.c_oflag &= ~OPOST; // raw output
-	tcsetattr(fd_serial, TCSANOW, &options);
-	rx_bytes_to_ack = DEFAULT_ACKNOWLEDGE_INTERVAL;
-	tx_bytes_to_ack = DEFAULT_ACKNOWLEDGE_INTERVAL;
 
 	// Attempt to open file containing test vectors.
 	f_vectors = fopen("statistics_test_vectors.txt", "r");
@@ -321,6 +312,7 @@ int main(int argc, char **argv)
 	}
 
 	sendByte(0); // set device testing mode (see testStatistics() in ../hwrng.c)
+	flushReportToSend();
 
 	succeeded = 0;
 	failed = 0;
@@ -372,7 +364,8 @@ int main(int argc, char **argv)
 	printf("Tests which failed: %d\n", failed);
 
 	fclose(f_vectors);
-	tcsetattr(fd_serial, TCSANOW, &old_options); // restore configuration
-	close(fd_serial);
+	hid_close(handle);
+	// Free static HIDAPI objects. 
+	hid_exit();
 	exit(0);
 }

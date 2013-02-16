@@ -25,3 +25,13 @@ Compile it with something like:
 gcc -o hwb_tester hwb_tester.c -I<path to HIDAPI includes> -lhidapi -L<path to HIDAPI libraries>
 While running, it will prompt for the names of files containing packets. A few
 example files (with extension .bin) are included in this subdirectory.
+
+stream_to_stdout.c will send a string using a USB HID report, then it will
+dump the contents of all received reports to stdout. This is useful for some
+of the statistics test modes. It requires HIDAPI to be installed as a shared
+library.
+Compile it with something like:
+gcc -o stream_to_stdout stream_to_stdout.c -I<path to HIDAPI includes> -lhidapi -L<path to HIDAPI libraries>
+and run it with something like:
+./stream_to_stdout S > log.txt
+(That will send 'S' to the device and write all received bytes to log.txt.)
