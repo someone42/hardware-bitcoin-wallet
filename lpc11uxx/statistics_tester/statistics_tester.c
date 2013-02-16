@@ -24,8 +24,8 @@
 #include <fcntl.h>
 #include <termios.h>
 
-#include "../fix16.h"
-#include "../statistics.h" // include for SAMPLE_COUNT
+#include "../../fix16.h"
+#include "../../statistics.h" // include for SAMPLE_COUNT
 
 // Number of real-valued outputs which the device will send.
 #define OUTPUTS_TO_CHECK				5
