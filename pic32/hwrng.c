@@ -610,6 +610,11 @@ static void reportStatistics(uint32_t tests_failed)
 		// Report maximum autocorrelation value and entropy estimate.
 		sprintFix16(buffer, most_recent_variance);
 		writeStringToDisplay(buffer);
+		if (report_to_stream == 5)
+		{
+			sendString(buffer);
+			sendString(", ");
+		}
 		nextLine();
 		sprintFix16(buffer, most_recent_max_autocorrelation);
 		writeStringToDisplay(buffer);
@@ -732,7 +737,7 @@ void __attribute__ ((nomips16)) testStatistics(void)
 			if (!report_to_stream)
 			{
 				// Spam hardwareRandom32Bytes() output to stream,
-				// so that host can inspect the raw HWRNG samples.
+				// so that host can inspect the raw HWRNG samples
 				for (i = 0; i < sizeof(random_bytes); i++)
 				{
 					streamPutOneByte(random_bytes[i]);
