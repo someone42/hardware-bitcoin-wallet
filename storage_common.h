@@ -14,12 +14,6 @@
 #ifndef STORAGE_COMMON_H_INCLUDED
 #define STORAGE_COMMON_H_INCLUDED
 
-/** Length of a wallet record.
-  * \warning This must also be a multiple of 16, since the block size of
-  *          AES is 128 bits.
-  */
-#define WALLET_RECORD_LENGTH	176
-
 /** Length of any UUID.
   * \warning This must also be a multiple of 16, since the block size of
   *          AES is 128 bits.
@@ -32,15 +26,9 @@
 #define ADDRESS_POOL_CHECKSUM	96
 /** Address where device UUID is located. */
 #define ADDRESS_DEVICE_UUID		128
-/** Address where the wallet staging area is. This staging area is used to
-  * ensure that operations which write to a wallet are atomic.
-  * \todo Actually use this.
-  * \warning This must also be a multiple of 16, since the block size of
-  *          AES is 128 bits.
-  */
-#define ADDRESS_WALLET_STAGING	144
+
 /** Address where wallet records start at. From here on, non-volatile storage
   * will consist of sequential wallet records. */
-#define ADDRESS_WALLET_START	(ADDRESS_WALLET_STAGING + WALLET_RECORD_LENGTH)
+#define ADDRESS_WALLET_START	(ADDRESS_DEVICE_UUID + UUID_LENGTH)
 
 #endif // #ifndef STORAGE_COMMON_H_INCLUDED
