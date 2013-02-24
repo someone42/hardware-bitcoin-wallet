@@ -282,7 +282,7 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 		// TRNIF needs to be cleared before the next transaction, otherwise
 		// an interrupt could be missed. Fourtunately, the minimum time for a
 		// valid 0-length data transaction is 32 + 3 + 32 + 3 + 16 + 3 bit
-		// periods (token + data + handshake), or 267 cycles at 36 MHz. That's
+		// periods (token + data + handshake), or 534 cycles at 72 MHz. That's
 		// plenty of time, however, TRNIF should still be cleared before
 		// doing any packet processing.
 		U1IRbits.TRNIF = 1; // clear interrupt flag in USB module
@@ -464,7 +464,7 @@ void usbDisableEndpoint(unsigned int endpoint)
 	// have begun just before "*reg = 0;". To account for this, wait for at
 	// least 100 microseconds (greater than the worst-case time for a
 	// maximum size transaction) before touching endpoint_states or bdt_table.
-	delayCycles(8000); // 100 microseconds at PIC32 maximum speed of 80 MHz
+	delayCycles(100 * CYCLES_PER_MICROSECOND);
 	// It's now safe to modify endpoint_states and bdt_table without worrying
 	// about screwing up the interrupt service handler.
 	endpoint_states[endpoint] = NULL;

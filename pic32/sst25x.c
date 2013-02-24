@@ -96,7 +96,7 @@ void initSST25x(void)
 	PORTBbits.RB8 = 1; // set slave select high
 	// Wait 100 us for SST25x startup, as recommended in Table 16 of the
 	// SST25VF080B datasheet.
-	delayCycles(3600);
+	delayCycles(100 * CYCLES_PER_MICROSECOND);
 
 	// The SPI initialisation sequence follows that which is described in
 	// section 23.3.3.1 of the PIC32 family reference manual.
@@ -108,8 +108,8 @@ void initSST25x(void)
 	{
 		junk = SPI4BUF;
 	}
-	SPI4CONbits.ENHBUF = 1; // ensable enhanced buffer mode (i.e. enable FIFOs)
-	SPI4BRG = 1; // set baud rate for 9 MHz operation
+	SPI4CONbits.ENHBUF = 1; // enable enhanced buffer mode (i.e. enable FIFOs)
+	SPI4BRG = 3; // set baud rate for 9 MHz operation
 	SPI4STATbits.SPIROV = 0;
 	SPI4CONbits.MSTEN = 1; // PIC32 is SPI master
 	SPI4CONbits.CKP = 1; // idle high, active low

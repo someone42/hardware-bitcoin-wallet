@@ -11,7 +11,7 @@
 
 /** Bunch of nops to make cycle time longer so that pins don't toggle too
   * fast for the SSD1306. */
-#define HALF_BIT_DELAY		nop; nop; nop; nop; nop; nop; nop; nop;
+#define HALF_BIT_DELAY		nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop; nop;
 
 /** Size of each SPI frame, in number of bits. This must be greater than 3,
   * otherwise a shift amount below will become negative. */

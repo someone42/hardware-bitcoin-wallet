@@ -63,7 +63,7 @@ static int isCancelPressed(void)
 /** Wait for approximately 1 millisecond. */
 static void wait1ms(void)
 {
-	delayCyclesAndIdle(36000);
+	delayCyclesAndIdle(1 * CYCLES_PER_MILLISECOND);
 }
 
 /** Wait until neither accept nor cancel buttons are being pressed. This

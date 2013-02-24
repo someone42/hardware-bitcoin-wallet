@@ -81,7 +81,7 @@ void initADC(void)
 	// Don't need to set SAMC since ADC is not in auto-convert (continuous)
 	// mode.
 	//AD1CON3bits.SAMC = 12; // sample time = 12 ADC conversion clocks
-	AD1CON3bits.ADCS = 14; // ADC conversion clock = 1.2 MHz
+	AD1CON3bits.ADCS = 15; // ADC conversion clock = 2.25 MHz
 	AD1CON1bits.SIDL = 1; // discontinue operation in idle mode
 	AD1CON1bits.CLRASAM = 0; // don't clear ASAM; overwrite buffer contents
 	AD1CON1bits.SAMP = 0; // don't start sampling immediately
@@ -89,7 +89,7 @@ void initADC(void)
 	AD1CON1bits.ON = 1; // turn ADC module on
 	IFS1bits.AD1IF = 0; // clear interrupt flag
 	IEC1bits.AD1IE = 0; // disable interrupt
-	delayCycles(144); // wait 4 microsecond for ADC to stabilise
+	delayCycles(4 * CYCLES_PER_MICROSECOND); // wait 4 microsecond for ADC to stabilise
 
 	// Initialise Timer3 to trigger ADC conversions.
 	T3CONbits.ON = 0; // turn timer off
@@ -98,7 +98,7 @@ void initADC(void)
 	T3CONbits.TGATE = 0; // disable gated time accumulation
 	T3CONbits.SIDL = 0; // continue in idle mode
 	TMR3 = 0; // clear count
-	PR3 = 1500; // frequency = 24000 Hz
+	PR3 = 3000; // frequency = 24000 Hz
 	IFS0bits.T3IF = 0; // clear interrupt flag
 	IEC0bits.T3IE = 0; // disable timer interrupt
 	T3CONbits.ON = 1; // turn timer on

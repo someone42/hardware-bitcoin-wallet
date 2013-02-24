@@ -265,7 +265,7 @@ static void resetSSD1306(void)
 	// datasheet covers the reset procedure.
 	PORTDCLR = OLED_RES;
 	// RES# needs to be low for at least 3 microseconds.
-	delayCycles(3600); // 100 microseconds just to be sure
+	delayCycles(50 * CYCLES_PER_MICROSECOND); // 50 microseconds just to be sure
 	PORTDSET = OLED_RES;
 	displayOff();
 	writeSPIByte(0, 0xa8); // set multiplex ratio

@@ -43,23 +43,23 @@
 /** Timeout for waiting for an entire token from the ATSHA204. This is given
   * in the number of search loop iterations of atsha204LookForBit().
   * The value here is:
-  * (t_BIT maximum + t_TURNAROUND) * 1.5 / 0.333, rounded up.
+  * (t_BIT maximum + t_TURNAROUND) * 1.5 / 0.167, rounded up.
   * t_BIT and t_TURNAROUND are from Table 7-3 of the ATSHA204 datasheet
-  * (measured in microsecond). 1.5 is a safety factor. 0.333 is the time taken
+  * (measured in microsecond). 1.5 is a safety factor. 0.167 is the time taken
   * (in microsecond) for a single search loop iteration (assumes CPU clock is
-  * at 36 MHz).
+  * at 72 MHz).
   */
-#define TOKEN_TIMEOUT_ITERATIONS	779
+#define TOKEN_TIMEOUT_ITERATIONS	1554
 /** Timeout for waiting for a single zero pulse within a token from the
   * ATSHA204. This is given in the number of search loop iterations of
   * atsha204LookForBit(). The value here is:
-  * t_ZLO maximum * 1.5 / 0.333, rounded up.
+  * t_ZLO maximum * 1.5 / 0.167, rounded up.
   * t_ZLO is from Table 7-3 of the ATSHA204 datasheet (measured in
-  * microsecond). 1.5 is a safety factor. 0.333 is the time taken (in
+  * microsecond). 1.5 is a safety factor. 0.167 is the time taken (in
   * microsecond) for a single search loop iteration (assumes CPU clock is
-  * at 36 MHz).
+  * at 72 MHz).
   */
-#define PULSE_TIMEOUT_ITERATIONS	39
+#define PULSE_TIMEOUT_ITERATIONS	78
 
 /** Possible return values for receiveToken(). */
 typedef enum ATSHA204ReceivedTokenEnum
@@ -306,9 +306,9 @@ static uint32_t receiveBytes(uint8_t *buffer, uint32_t length)
 static void sendWakeToken(void)
 {
 	PORTFbits.RF0 = 0;
-	delayCycles(2880); // 80 us
+	delayCycles(80 * CYCLES_PER_MICROSECOND); // 80 us
 	PORTFbits.RF0 = 1;
-	delayCycles(108000); // 3 ms
+	delayCycles(3 * CYCLES_PER_MILLISECOND); // 3 ms
 }
 
 /** Calculate the CRC16 of a stream of bits, using the generator polynomial
@@ -492,7 +492,7 @@ int atsha204Random(uint8_t *random_bytes)
 		// The token receive timeout (#TOKEN_TIMEOUT_ITERATIONS) equates to
 		// about 250 microsecond. The idea here is to delay enough to make
 		// each iteration of this do loop about 1 millisecond.
-		delayCycles(27000); // 750 microsecond
+		delayCycles(750 * CYCLES_PER_MICROSECOND); // 750 microsecond
 		buffer[0] = TRANSMIT_FLAG;
 		received_length = sendAndReceiveBytes(buffer, 1, sizeof(buffer));
 		timeout_counter++;

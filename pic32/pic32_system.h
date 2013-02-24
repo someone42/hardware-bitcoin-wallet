@@ -16,6 +16,13 @@
   * to physical addresses by setting the most significant 3 bits to 0. */
 #define VIRTUAL_TO_PHYSICAL(x)		(((uint32_t)(x)) & 0x1fffffff)
 
+/** Number of CPU cycles per microsecond. */
+#define CYCLES_PER_MICROSECOND		72
+/** Number of CPU cycles per millisecond. */
+#define CYCLES_PER_MILLISECOND		(CYCLES_PER_MICROSECOND * 1000)
+/** Number of CPU cycles per second. */
+#define CYCLES_PER_SECOND			(CYCLES_PER_MILLISECOND * 1000)
+
 extern uint32_t __attribute__((nomips16)) disableInterrupts(void);
 extern void __attribute__((nomips16)) restoreInterrupts(uint32_t status);
 extern void __attribute__((nomips16)) delayCycles(uint32_t num_cycles);

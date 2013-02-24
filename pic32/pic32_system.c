@@ -21,7 +21,7 @@
 #pragma config POSCMOD	= XT
 #pragma config FSOSCEN	= OFF
 #pragma config FPLLMUL	= MUL_18
-#pragma config FPLLODIV	= DIV_2
+#pragma config FPLLODIV	= DIV_1
 #pragma config FPBDIV	= DIV_1
 // USB PLL configuration.
 #pragma config UPLLEN	= ON
@@ -111,8 +111,8 @@ static void __attribute__ ((nomips16)) prefetchInit(void)
 {
 	uint32_t config1;
 
-	// Set 1 wait state. This is okay for CPU operation from 0 to 60 MHz.
-	CHECONbits.PFMWS = 1;
+	// Set 2 wait states. This is okay for CPU operation from 0 to 90 MHz.
+	CHECONbits.PFMWS = 2;
 	// Enable predictive caching for cacheable regions only.
 	// This eliminates flash wait states for sequential code.
 	// TODO: Maybe don't do this because of that CPU cache errata?
@@ -194,7 +194,7 @@ void pic32SystemInit(void)
 	T4CONbits.TGATE = 0; // disable gated time accumulation
 	T4CONbits.SIDL = 0; // continue in idle mode
 	TMR4 = 0; // clear count
-	PR4 = 7031; // frequency = about 20 Hz
+	PR4 = 14062; // frequency = about 20 Hz
 	T4CONbits.ON = 1; // turn timer on
 	IPC4bits.T4IP = 2; // priority level = 2
 	IPC4bits.T4IS = 0; // sub-priority level = 0
@@ -210,7 +210,7 @@ void pic32SystemInit(void)
 	T2CONbits.TGATE = 0; // disable gated time accumulation
 	T2CONbits.SIDL = 0; // continue in idle mode
 	TMR2 = 0; // clear count
-	PR2 = 70; // frequency = about 2 kHz
+	PR2 = 141; // frequency = about 2 kHz
 	T2CONbits.ON = 1; // turn timer on
 	IPC2bits.T2IP = 2; // priority level = 2
 	IPC2bits.T2IS = 0; // sub-priority level = 0

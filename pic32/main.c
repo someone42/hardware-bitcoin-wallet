@@ -100,11 +100,11 @@ int main(void)
 			// "Get" test mode, which exclusively uses streamGetOneByte().
 			if (mode == 'i')
 			{
-				delayCycles(3600000); // pretend to be doing some processing
+				delayCycles(100 * CYCLES_PER_MILLISECOND); // pretend to be doing some processing
 			}
 			else if (mode == 'j')
 			{
-				delayCycles(360000000); // pretend to be doing lots of processing
+				delayCycles(10 * CYCLES_PER_SECOND); // pretend to be doing lots of processing
 			}
 			// Expect data to be an incrementing sequence. This is designed
 			// to expose any out-of-order cases.
@@ -119,11 +119,11 @@ int main(void)
 			// "Put" test mode, which exclusively uses streamPutOneByte().
 			if (mode == 't')
 			{
-				delayCycles(3600000); // pretend to be doing some processing
+				delayCycles(100 * CYCLES_PER_MILLISECOND); // pretend to be doing some processing
 			}
 			else if (mode == 'x')
 			{
-				delayCycles(360000000); // pretend to be doing lots of processing
+				delayCycles(10 * CYCLES_PER_SECOND); // pretend to be doing lots of processing
 			}
 			// Send data which is an incrementing sequence. This is designed
 			// to expose any out-of-order cases.

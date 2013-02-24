@@ -11,20 +11,20 @@
 .text
 .set noreorder
 
-/** A bit must be sent every 4.34 us = 156.24 cycles (at CPU clock = 36 MHz).
+/** A bit must be sent every 4.34 us = 312.48 cycles (at CPU clock = 72 MHz).
   * The bit loop in atsha204SendToken() requires
   * 9 + 3 * (DELAY_LOOP_ITERATIONS) cycles (count them).
   */
-#define DELAY_LOOP_ITERATIONS	49
+#define DELAY_LOOP_ITERATIONS	101
 /** To prevent glitches from interfering with with communication,
   * atsha204LookForBit() looks for a sustained signal. This value determines
   * how many iterations the signal must be sustained for. The search loop
-  * in atsha204LookForBit() requires 12 cycles, so at CPU clock = 36 MHz, the
-  * loop requires 0.333 microsecond. The ATSHA204 has a minimum pulse time of
-  * 4.6 microsecond. This is (4.6 / 0.333) / 1.5, rounded down. The 1.5 is
+  * in atsha204LookForBit() requires 12 cycles, so at CPU clock = 72 MHz, the
+  * loop requires 0.167 microsecond. The ATSHA204 has a minimum pulse time of
+  * 4.6 microsecond. This is (4.6 / 0.167) / 1.5, rounded down. The 1.5 is
   * a safety factor.
   */
-#define GLITCH_FILTER_LENGTH	9
+#define GLITCH_FILTER_LENGTH	18
 
 /* void atsha204SendToken(volatile uint32_t *port, uint32_t token, uint32_t size)
  *
@@ -68,7 +68,7 @@ delay_loop:
  *
  * Searches for a sustained low or high pulse on a GPIO port. "Sustained" means
  * that the pulse occurs for at least #GLITCH_FILTER_LENGTH loop iterations
- * (each loop iteration is 0.333 microsecond at 36 MHz). This function will
+ * (each loop iteration is 0.167 microsecond at 72 MHz). This function will
  * time out and stop searching after a supplied timeout length.
  *
  * Parameters:
