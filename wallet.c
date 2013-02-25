@@ -707,7 +707,7 @@ AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return BAD_ADDRESS_HANDLE;
 	}
 #ifdef TEST_WALLET
@@ -759,7 +759,7 @@ WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_publi
 
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return last_error;
 	}
 	if (current_wallet.encrypted.num_addresses == 0)
@@ -828,7 +828,7 @@ WalletErrors getMasterPublicKey(PointAffine *out_public_key, uint8_t *out_chain_
 
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return last_error;
 	}
 	memcpy(local_seed, current_wallet.encrypted.seed, SEED_LENGTH);
@@ -852,7 +852,7 @@ uint32_t getNumAddresses(void)
 {
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return 0;
 	}
 	if (current_wallet.encrypted.num_addresses == 0)
@@ -879,7 +879,7 @@ WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah)
 {
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return last_error;
 	}
 	if (current_wallet.encrypted.num_addresses == 0)
@@ -916,7 +916,7 @@ WalletErrors changeEncryptionKey(uint8_t *new_key)
 
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return last_error;
 	}
 
@@ -949,7 +949,7 @@ WalletErrors changeWalletName(uint8_t *new_name)
 {
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return last_error;
 	}
 	if (is_hidden_wallet)
@@ -1035,7 +1035,7 @@ WalletErrors backupWallet(uint8_t do_encrypt, uint8_t destination_device)
 
 	if (!wallet_loaded)
 	{
-		last_error = WALLET_NOT_THERE;
+		last_error = WALLET_NOT_LOADED;
 		return last_error;
 	}
 
@@ -1336,9 +1336,9 @@ void clearVersionFieldWriteLog(void)
 }
 
 /** Call nearly all wallet functions and make sure they
-  * return #WALLET_NOT_THERE somehow. This should only be called if a wallet
+  * return #WALLET_NOT_LOADED somehow. This should only be called if a wallet
   * is not loaded. */
-static void checkFunctionsReturnWalletNotThere(void)
+static void checkFunctionsReturnWalletNotLoaded(void)
 {
 	uint8_t temp[128];
 	uint32_t check_num_addresses;
@@ -1347,68 +1347,77 @@ static void checkFunctionsReturnWalletNotThere(void)
 
 	// newWallet() not tested because it calls initWallet() when it's done.
 	ah = makeNewAddress(temp, &public_key);
-	if ((ah == BAD_ADDRESS_HANDLE) && (walletGetLastError() == WALLET_NOT_THERE))
+	if ((ah == BAD_ADDRESS_HANDLE) && (walletGetLastError() == WALLET_NOT_LOADED))
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("makeNewAddress() doesn't recognise when wallet isn't there\n");
+		printf("makeNewAddress() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
 	check_num_addresses = getNumAddresses();
-	if ((check_num_addresses == 0) && (walletGetLastError() == WALLET_NOT_THERE))
+	if ((check_num_addresses == 0) && (walletGetLastError() == WALLET_NOT_LOADED))
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("getNumAddresses() doesn't recognise when wallet isn't there\n");
+		printf("getNumAddresses() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
-	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_NOT_THERE)
+	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_NOT_LOADED)
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("getAddressAndPublicKey() doesn't recognise when wallet isn't there\n");
+		printf("getAddressAndPublicKey() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
-	if (getPrivateKey(temp, 0) == WALLET_NOT_THERE)
+	if (getPrivateKey(temp, 0) == WALLET_NOT_LOADED)
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("getPrivateKey() doesn't recognise when wallet isn't there\n");
+		printf("getPrivateKey() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
-	if (changeEncryptionKey(temp) == WALLET_NOT_THERE)
+	if (changeEncryptionKey(temp) == WALLET_NOT_LOADED)
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("changeEncryptionKey() doesn't recognise when wallet isn't there\n");
+		printf("changeEncryptionKey() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
-	if (changeWalletName(temp) == WALLET_NOT_THERE)
+	if (changeWalletName(temp) == WALLET_NOT_LOADED)
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("changeWalletName() doesn't recognise when wallet isn't there\n");
+		printf("changeWalletName() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
-	if (backupWallet(0, 0) == WALLET_NOT_THERE)
+	if (backupWallet(0, 0) == WALLET_NOT_LOADED)
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("backupWallet() doesn't recognise when wallet isn't there\n");
+		printf("backupWallet() doesn't recognise when wallet isn't loaded\n");
+		reportFailure();
+	}
+	if (getMasterPublicKey(&public_key, temp) == WALLET_NOT_LOADED)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("getMasterPublicKey() doesn't recognise when wallet isn't loaded\n");
 		reportFailure();
 	}
 }
@@ -1603,7 +1612,7 @@ int main(void)
 
 	// initWallet() hasn't been called yet, so nearly every function should
 	// return WALLET_NOT_THERE somehow.
-	checkFunctionsReturnWalletNotThere();
+	checkFunctionsReturnWalletNotLoaded();
 
 	// The non-volatile storage area was blanked out, so there shouldn't be a
 	// (valid) wallet there.
@@ -1722,7 +1731,7 @@ int main(void)
 		printf("uninitWallet() failed to do its basic job\n");
 		reportFailure();
 	}
-	checkFunctionsReturnWalletNotThere();
+	checkFunctionsReturnWalletNotLoaded();
 
 	// Load wallet again. Since there is actually a wallet there, this
 	// should succeed.

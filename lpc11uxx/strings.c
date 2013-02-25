@@ -32,6 +32,8 @@ static const char str_WALLET_WRITE_ERROR[] = "EEPROM Write error";
 static const char str_WALLET_ADDRESS_NOT_FOUND[] = "Address not in wallet";
 /** String for #WALLET_NOT_THERE wallet error. */
 static const char str_WALLET_NOT_THERE[] = "Wallet doesn't exist";
+/** String for #WALLET_NOT_LOADED wallet error. */
+static const char str_WALLET_NOT_LOADED[] = "Wallet not loaded";
 /** String for #WALLET_INVALID_HANDLE wallet error. */
 static const char str_WALLET_INVALID_HANDLE[] = "Invalid address handle";
 /** String for #WALLET_BACKUP_ERROR wallet error. */
@@ -118,6 +120,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case WALLET_NOT_THERE:
 			str = str_WALLET_NOT_THERE;
+			break;
+		case WALLET_NOT_LOADED:
+			str = str_WALLET_NOT_LOADED;
 			break;
 		case WALLET_INVALID_HANDLE:
 			str = str_WALLET_INVALID_HANDLE;
@@ -225,6 +230,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case WALLET_NOT_THERE:
 			return (uint16_t)(sizeof(str_WALLET_NOT_THERE) - 1);
+			break;
+		case WALLET_NOT_LOADED:
+			return (uint16_t)(sizeof(str_WALLET_NOT_LOADED) - 1);
 			break;
 		case WALLET_INVALID_HANDLE:
 			return (uint16_t)(sizeof(str_WALLET_INVALID_HANDLE) - 1);

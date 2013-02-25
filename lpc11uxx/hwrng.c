@@ -310,7 +310,7 @@ static NOINLINE uint32_t fftTestsFailed(fix16_t variance)
 	}
 	if (fix16_from_int(max_bin) > F16(PSD_MAX_PEAK * 2.0 * FFT_SIZE))
 	{
-		tests_failed |= 16; // peak in power spectrum is below minimum frequency
+		tests_failed |= 16; // peak in power spectrum is above maximum frequency
 	}
 	if (fix16_from_int(bandwidth) < F16(PSD_MIN_BANDWIDTH * 2.0 * FFT_SIZE))
 	{

@@ -43,8 +43,12 @@ typedef enum WalletErrorsEnum
 	WALLET_WRITE_ERROR			=	4,
 	/** Address not in wallet (or, invalid address supplied). */
 	WALLET_ADDRESS_NOT_FOUND	=	5,
-	/** Wallet doesn't exist (or, wrong encryption key used). */
+	/** There is no wallet at the specified location (or, wrong encryption key
+	  * used). */
 	WALLET_NOT_THERE			=	6,
+	/** The operation requires a wallet to be loaded, but no wallet is
+	  * loaded. */
+	WALLET_NOT_LOADED			=	7,
 	/** Invalid address handle. */
 	WALLET_INVALID_HANDLE		=	8,
 	/** Backup seed could not be written to specified device. */
