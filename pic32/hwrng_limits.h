@@ -112,7 +112,7 @@
   * entropy. Even an absurdly low value is still capable of detecting some
   * hardware failure modes.
   */
-#define PSD_BANDWIDTH_THRESHOLD		0.005
+#define PSD_BANDWIDTH_THRESHOLD		0.03
 /** Number of consecutive power spectrum bins which must be below the
   * threshold (see #PSD_BANDWIDTH_THRESHOLD) before the code in statistics.c
   * considers a bin as an edge of the HWRNG bandwidth. Making this value

@@ -13,9 +13,9 @@
   * The results of conversions are written into #adc_sample_buffer using DMA
   * transfers. To begin a series of conversions, call beginFillingADCBuffer(),
   * then wait until isADCBufferFull() returns a non-zero
-  * value. #adc_sample_buffer will then contain #SAMPLE_BUFFER_SIZE samples.
-  * This interface allows one buffer of samples to be collected while the
-  * previous one is processed, which speeds up entropy collection.
+  * value. #adc_sample_buffer will then contain #ADC_SAMPLE_BUFFER_SIZE
+  * samples. This interface allows one buffer of samples to be collected while
+  * the previous one is processed, which speeds up entropy collection.
   *
   * For details on hardware interfacing requirements, see initADC().
   *
@@ -35,7 +35,7 @@
 /** A place to store samples from the ADC. When isADCBufferFull() returns
   * a non-zero value, every entry in this array will be filled with ADC samples
   * taken periodically. */
-volatile uint16_t adc_sample_buffer[SAMPLE_BUFFER_SIZE];
+volatile uint16_t adc_sample_buffer[ADC_SAMPLE_BUFFER_SIZE];
 
 /** Set up the PIC32 ADC to sample from AN2 periodically using Timer3 as the
   * trigger. DMA is used to move the ADC result into #adc_sample_buffer. */
@@ -98,13 +98,13 @@ void initADC(void)
 	T3CONbits.TGATE = 0; // disable gated time accumulation
 	T3CONbits.SIDL = 0; // continue in idle mode
 	TMR3 = 0; // clear count
-	PR3 = 3000; // frequency = 24000 Hz
+	PR3 = 1500; // frequency = 48000 Hz
 	IFS0bits.T3IF = 0; // clear interrupt flag
 	IEC0bits.T3IE = 0; // disable timer interrupt
 	T3CONbits.ON = 1; // turn timer on
 }
 
-/** Begin collecting #SAMPLE_BUFFER_SIZE samples, filling
+/** Begin collecting #ADC_SAMPLE_BUFFER_SIZE samples, filling
   * up #adc_sample_buffer. This will return before all the samples have been
   * collected, allowing the caller to do something else while samples are
   * collected in the background. isADCBufferFull() can be used to determine

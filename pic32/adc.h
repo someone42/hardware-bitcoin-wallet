@@ -15,9 +15,9 @@
   * \warning This must be a multiple of 16, or else hardwareRandom32Bytes()
   *          will attempt to read past the end of the sample buffer.
   */
-#define SAMPLE_BUFFER_SIZE		(FFT_SIZE * 2)
+#define ADC_SAMPLE_BUFFER_SIZE	(FFT_SIZE * 4)
 
-extern volatile uint16_t adc_sample_buffer[SAMPLE_BUFFER_SIZE];
+extern volatile uint16_t adc_sample_buffer[ADC_SAMPLE_BUFFER_SIZE];
 
 extern void initADC(void);
 extern void beginFillingADCBuffer(void);

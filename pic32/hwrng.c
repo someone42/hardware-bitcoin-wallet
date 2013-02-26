@@ -52,6 +52,31 @@ static fix16_t most_recent_entropy_estimate;
 static int report_to_stream;
 #endif // #ifdef TEST_STATISTICS
 
+/** Number of ADC samples per HWRNG sample. The signal is oversampled and then
+  * filtered in the digital domain to improve the robustness of the HWRNG to
+  * high-frequency intereference. */
+#define OVERSAMPLE_RATIO				2
+/** Size of sample buffer after filtering and decimation. */
+#define DECIMATED_SAMPLE_BUFFER_SIZE	(ADC_SAMPLE_BUFFER_SIZE / OVERSAMPLE_RATIO)
+/** Approximately half the order (i.e. "number of points" or "size") of the
+  * FIR filter. This influences #FILTER_ORDER. This must match the parameter
+  * listed in calculate_fir_coefficients.m. */
+#define FILTER_HALF_ORDER				8
+/** The order (i.e. "number of points" or "size") of the FIR filter. Bigger
+  * means higher quality and more computation time. To adjust this,
+  * see #FILTER_HALF_ORDER. */
+#define FILTER_ORDER					(2 * FILTER_HALF_ORDER + 1)
+/** FIR filter coefficients, calculated using calculate_fir_coefficients.m
+  * and expressed in Q16.16 fixed-point representation. */
+static const int32_t fir_lowpass_coefficients[FILTER_ORDER] = {
+-123, 202, 711, 0, -2681, -2929, 5309, 19161,
+26236,
+19161, 5309, -2929, -2681, 0, 711, 202, -123};
+
+/** The contents of #adc_sample_buffer after filtering and decimation have
+  * been applied. */
+static volatile uint16_t decimated_sample_buffer[DECIMATED_SAMPLE_BUFFER_SIZE];
+
 /** This will be zero if the next sample to be returned by
   * hardwareRandom32Bytes() is the first sample to be placed in a histogram
   * bin. This will be non-zero if that next sample is not the first
@@ -330,6 +355,35 @@ static NOINLINE uint32_t fftTestsFailed(fix16_t variance)
 	return tests_failed;
 }
 
+/** Apply FIR filter to samples.
+  * \param samples Array of input samples. It must
+  *                contain #ADC_SAMPLE_BUFFER_SIZE samples.
+  * \param base_index Index into samples array to begin applying filter.
+  * \param coefficients Array of FIR filter coefficients, in Q16.16
+  *                     fixed-point representation.
+  * \param order Order (number of coefficients) of the filter.
+  * \return The output sample.
+  * \warning All filter coefficients should have a magnitude of less than one.
+  */
+static int32_t firFilter(const volatile uint16_t *samples, const unsigned int base_index, const int32_t *coefficients, const unsigned int order)
+{
+	int32_t sum; // Q16.16 fixed-point representation
+	unsigned int i;
+	unsigned int index;
+
+	// Convolute samples with coefficients.
+	sum = 0;
+	for (i = 0; i < order; i++)
+	{
+		// The "& (ADC_SAMPLE_BUFFER_SIZE - 1)" makes this a circular
+		// convolution. Circular convolution treats every sample in the
+		// ADC buffer fairly.
+		index = (base_index + i) & (ADC_SAMPLE_BUFFER_SIZE - 1);
+		sum += ((int32_t)samples[index]) * coefficients[i];
+	}
+	return (sum >> 16) + ((sum >> 15) & 1); // round result
+}
+
 /** Fill buffer with 32 random bytes from a hardware random number generator.
   * \param buffer The buffer to fill. This should have enough space for 32
   *               bytes.
@@ -342,6 +396,8 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	uint32_t sample;
 	uint32_t tests_failed;
 	fix16_t variance;
+	int32_t filtered_sample;
+	unsigned int base_index;
 
 	if (!is_not_first_in_histogram)
 	{
@@ -351,32 +407,41 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 		clearPowerSpectralDensity();
 		// The histogram is empty. The sample buffer is also assumed to be
 		// empty, since this may be the first call to hardwareRandom32Bytes()
-		// after power-on. Therefore an extra call to beginFillingADCBuffer()
-		// needs to be done to ensure that a full, current sample buffer is
-		// available.
+		// after power-on.
 		sample_buffer_consumed = 0;
-		beginFillingADCBuffer();
 		is_not_first_in_histogram = 1;
 	}
 	if (sample_buffer_consumed == 0)
 	{
 		// Need to wait until next sample buffer has been filled.
+		suppressIdleMode(1); // start suppressing CPU idle mode
+		beginFillingADCBuffer();
 		while (!isADCBufferFull())
 		{
 			// do nothing
+		}
+		suppressIdleMode(0); // stop suppressing CPU idle mode
+		// Filter ADC samples, placing result into decimated_sample_buffer.
+		for (i = 0; i < DECIMATED_SAMPLE_BUFFER_SIZE; i++)
+		{
+			// The "- FILTER_HALF_ORDER" is there to account for the
+			// delay of the low-pass filter.
+			base_index = ((i * OVERSAMPLE_RATIO) - FILTER_HALF_ORDER) & (ADC_SAMPLE_BUFFER_SIZE - 1);
+			filtered_sample = firFilter(adc_sample_buffer, base_index, fir_lowpass_coefficients, FILTER_ORDER);
+			decimated_sample_buffer[i] = filtered_sample;
 		}
 	}
 	// From here on, code can assume that a full, current sample buffer is
 	// available.
 
-	// The following loop assumes that #SAMPLE_BUFFER_SIZE is a multiple
-	// of 16.
-#if ((SAMPLE_BUFFER_SIZE & 15) != 0)
-#error "SAMPLE_BUFFER_SIZE not a multiple of 16"
-#endif // #if ((SAMPLE_BUFFER_SIZE & 15) != 0)
+	// The following loop assumes that #DECIMATED_SAMPLE_BUFFER_SIZE is a
+	// multiple of 16.
+#if ((DECIMATED_SAMPLE_BUFFER_SIZE & 15) != 0)
+#error "DECIMATED_SAMPLE_BUFFER_SIZE not a multiple of 16"
+#endif // #if ((DECIMATED_SAMPLE_BUFFER_SIZE & 15) != 0)
 	for (i = 0; i < 16; i++)
 	{
-		sample = adc_sample_buffer[sample_buffer_consumed];
+		sample = decimated_sample_buffer[sample_buffer_consumed];
 		incrementHistogram(sample);
 		// Fill entropy buffer with ADC sample data.
 		buffer[i * 2] = (uint8_t)sample;
@@ -384,18 +449,17 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 		sample_buffer_consumed++;
 	}
 
-	if (sample_buffer_consumed >= SAMPLE_BUFFER_SIZE)
+	if (sample_buffer_consumed >= DECIMATED_SAMPLE_BUFFER_SIZE)
 	{
 		// accumulatePowerSpectralDensity() assumes that the sample array has
 		// FFT_SIZE * 2 samples (i.e. the sample array is conveniently large
 		// enough to perform a double-sized real FFT on).
-#if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
-#error "SAMPLE_BUFFER_SIZE not twice FFT_SIZE"
-#endif // #if SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
-		accumulatePowerSpectralDensity(adc_sample_buffer);
+#if DECIMATED_SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
+#error "DECIMATED_SAMPLE_BUFFER_SIZE not twice FFT_SIZE"
+#endif // #if DECIMATED_SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
+		accumulatePowerSpectralDensity(decimated_sample_buffer);
 		// Sample buffer fully consumed; need to get a new buffer.
 		sample_buffer_consumed = 0;
-		beginFillingADCBuffer();
 	}
 
 	if (samples_in_histogram >= SAMPLE_COUNT)
