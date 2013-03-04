@@ -47,15 +47,14 @@ static uint32_t packed_histogram_buffer[((HISTOGRAM_NUM_BINS * BITS_PER_HISTOGRA
   */
 fix16_t psd_accumulator[FFT_SIZE + 1];
 
-/** This will be non-zero if there was an arithmetic error in the calculation
-  * of power spectral density (see #psd_accumulator). This will be zero if
+/** This will be true if there was an arithmetic error in the calculation
+  * of power spectral density (see #psd_accumulator). This will be false if
   * there haven't been any arithmetic errors so far.
   */
-uint8_t psd_accumulator_error;
+bool psd_accumulator_error_occurred;
 
-/** This is normally 0, but it will be set to non-zero if one of the histogram
-  * bins overflowed. */
-int histogram_overflow;
+/** This will be set to true if one of the histogram bins overflows. */
+bool histogram_overflow_occurred;
 /** Number of samples that have been placed in the histogram. */
 uint32_t samples_in_histogram;
 /** The index (bin number) into the histogram buffer where the histogram
@@ -76,7 +75,7 @@ void clearHistogram(void)
 {
 	memset(packed_histogram_buffer, 0, sizeof(packed_histogram_buffer));
 	samples_in_histogram = 0;
-	histogram_overflow = 0;
+	histogram_overflow_occurred = false;
 }
 
 /** Gets an entry from the histogram counts buffer.
@@ -93,7 +92,7 @@ static uint32_t getHistogram(uint32_t index)
 	if (index >= HISTOGRAM_NUM_BINS)
 	{
 		// This should never happen.
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return 0;
 	}
 	bit_index = index * BITS_PER_HISTOGRAM_BIN;
@@ -126,13 +125,13 @@ static void putHistogram(uint32_t index, uint32_t value)
 	if (index >= HISTOGRAM_NUM_BINS)
 	{
 		// This should never happen.
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return;
 	}
 	if (value > MAX_HISTOGRAM_VALUE)
 	{
 		// Overflow in one of the bins.
-		histogram_overflow = 1;
+		histogram_overflow_occurred = true;
 		return;
 	}
 	bit_index = index * BITS_PER_HISTOGRAM_BIN;
@@ -214,7 +213,7 @@ static fix16_t getTermFromIterator(fix16_t mean, uint32_t power)
 		if (iterator_index >= HISTOGRAM_NUM_BINS)
 		{
 			// Iterator ran past end of samples. This should never happen.
-			fix16_error_flag = 1;
+			fix16_error_occurred = true;
 			return fix16_zero;
 		}
 		updateIteratorCache();
@@ -330,7 +329,7 @@ void subtractMeanFromFftBuffer(ComplexFixed *fft_buffer)
 void clearPowerSpectralDensity(void)
 {
 	memset(psd_accumulator, 0, sizeof(psd_accumulator));
-	psd_accumulator_error = 0;
+	psd_accumulator_error_occurred = false;
 }
 
 /** Calculate (an estimate of) the power spectral density of a bunch of
@@ -373,15 +372,15 @@ void accumulatePowerSpectralDensity(volatile uint16_t *source_buffer)
 	// fft_buffer[0] in the PSD accumulation loop, but pre-subtraction
 	// reduces the chance of overflow occurring.
 	subtractMeanFromFftBuffer(fft_buffer);
-	if (fft(fft_buffer, 0))
+	if (fft(fft_buffer, false))
 	{
-		psd_accumulator_error = 1;
+		psd_accumulator_error_occurred = true;
 	}
-	if (fftPostProcessReal(fft_buffer, 0))
+	if (fftPostProcessReal(fft_buffer, false))
 	{
-		psd_accumulator_error = 1;
+		psd_accumulator_error_occurred = true;
 	}
-	fix16_error_flag = 0;
+	fix16_error_occurred = false;
 	for (i = 0; i < (FFT_SIZE + 1); i++)
 	{
 		// Rescale terms to make overflow less likely when squaring them.
@@ -401,9 +400,9 @@ void accumulatePowerSpectralDensity(volatile uint16_t *source_buffer)
 		sum_of_squares = fix16_mul(sum_of_squares, FIX16_RECIPROCAL_OF(SAMPLE_COUNT / 512));
 		psd_accumulator[i] = fix16_add(psd_accumulator[i], sum_of_squares);
 	}
-	if (fix16_error_flag)
+	if (fix16_error_occurred)
 	{
-		psd_accumulator_error = 1;
+		psd_accumulator_error_occurred = true;
 	}
 }
 
@@ -411,12 +410,11 @@ void accumulatePowerSpectralDensity(volatile uint16_t *source_buffer)
   * estimate (#psd_accumulator).
   * \param fft_buffer The result of the autocorrelation computation will be
   *                   written here.
-  * \return 0 if the calculation completed successfully, non-zero if there was
+  * \return false if the calculation completed successfully, true if there was
   *         some arithmetic error.
   */
-int calculateAutoCorrelation(ComplexFixed *fft_buffer)
+bool calculateAutoCorrelation(ComplexFixed *fft_buffer)
 {
-	int r;
 	fix16_t sample;
 	uint32_t i;
 	uint32_t fft_index;
@@ -444,14 +442,14 @@ int calculateAutoCorrelation(ComplexFixed *fft_buffer)
 			psd_index--;
 		}
 	}
-	r = 0;
-	if (fft(fft_buffer, 1))
+
+	if (fft(fft_buffer, true))
 	{
-		r = 1;
+		return true;
 	}
-	if (fftPostProcessReal(fft_buffer, 1))
+	if (fftPostProcessReal(fft_buffer, true))
 	{
-		r = 1;
+		return true;
 	}
-	return r;
+	return false;
 }

@@ -26,6 +26,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <p32xxxx.h>
 #include "usb_hal.h"
@@ -255,8 +256,8 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 {
 	unsigned int endpoint;
 	unsigned int direction;
-	unsigned int is_setup;
-	unsigned int is_extended;
+	bool is_setup;
+	bool is_extended;
 	EndpointState *state;
 	uint32_t index;
 	uint32_t length;
@@ -265,7 +266,7 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 	usbActivityLED();
 	U1CONbits.PPBRST = 1; // reset ping-pong buffer pointers to EVEN
 	// Determine cause of interrupt.
-	if (U1IRbits.TRNIF)
+	if (U1IRbits.TRNIF != 0)
 	{
 		// Packet transmitted or received.
 		// Clearing TRNIF advances the U1STAT FIFO (see Note 1 of Register
@@ -299,10 +300,10 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 			// Last transaction was receive.
 			index = BDT_IDX(endpoint, BDT_RX, BDT_EVEN);
 			length = bdt_table[index].STATUS.BYTE_COUNT;
-			is_setup = 0;
+			is_setup = false;
 			if (bdt_table[index].STATUS.PID == USBPID_SETUP)
 			{
-				is_setup = 1;
+				is_setup = true;
 				// From section 8.5.3 of the USB specification, SETUP
 				// transactions always use DATA0.
 				state->data_sequence = 0;
@@ -360,11 +361,11 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 				// USB specification).
 				if (length < MAX_PACKET_SIZE)
 				{
-					is_extended = 0;
+					is_extended = false;
 				}
 				else
 				{
-					is_extended = 1;
+					is_extended = true;
 				}
 				usbQueueTransmitPacket(state->transmit_buffer, length, endpoint, is_extended);
 			}
@@ -374,14 +375,14 @@ void __attribute__((vector(_USB_1_VECTOR), interrupt(ipl2), nomips16)) _USBHandl
 			}
 		}
 	}
-	else if (U1IRbits.URSTIF)
+	else if (U1IRbits.URSTIF != 0)
 	{
 		// USB reset seen.
 		U1IRbits.URSTIF = 1; // clear interrupt flag in USB module
 		IFS1bits.USBIF = 0; // clear interrupt flag in interrupt controller
 		usbHALReset();
 	}
-	else if (U1IRbits.UERRIF)
+	else if (U1IRbits.UERRIF != 0)
 	{
 		// USB error.
 		U1IRbits.UERRIF = 1; // clear interrupt flag in USB module
@@ -526,23 +527,23 @@ void usbEnableEndpoint(unsigned int endpoint, EndpointType type, EndpointState *
 }
 
 /** Query whether an endpoint is enabled.
-  * \return 0 if the endpoint is disabled, non-zero if it is enabled.
+  * \return false if the endpoint is disabled, true if it is enabled.
   */
-unsigned int usbEndpointEnabled(unsigned int endpoint)
+bool usbIsEndpointEnabled(unsigned int endpoint)
 {
 	if (endpoint >= NUM_ENDPOINTS)
 	{
 		// Bad endpoint number.
 		usbFatalError();
-		return 0;
+		return false;
 	}
 	if (endpoint_states[endpoint] == NULL)
 	{
-		return 0;
+		return false;
 	}
 	else
 	{
-		return 1;
+		return true;
 	}
 }
 
@@ -553,8 +554,8 @@ unsigned int usbEndpointEnabled(unsigned int endpoint)
   * \param packet_buffer Address of persistent packet data to transmit.
   * \param length Number of bytes to transmit.
   * \param endpoint The endpoint number of the transmission.
-  * \param is_extended Whether to do an extended transmission (non-zero) or
-  *                    not (zero). A large (>= #MAX_PACKET_SIZE) extended
+  * \param is_extended Whether to do an extended transmission or
+  *                    not. A large (>= #MAX_PACKET_SIZE) extended
   *                    transmission may be split up into multiple packets, as
   *                    described in section 5.5.3 of the USB specification.
   *                    If you're confused over whether to do an extended
@@ -564,7 +565,7 @@ unsigned int usbEndpointEnabled(unsigned int endpoint)
   * \warning Since this is non-blocking, the data specified by packet_buffer
   *          must persist until the transmitCallback function is called.
   */
-void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsigned int endpoint, unsigned int is_extended)
+void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsigned int endpoint, bool is_extended)
 {
 	unsigned int index;
 
@@ -593,7 +594,7 @@ void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsig
 	{
 		// Data will fit entirely in one packet (with room to spare), so it
 		// is never necessary to do an extended transmit.
-		endpoint_states[endpoint]->is_extended_transmit = 0;
+		endpoint_states[endpoint]->is_extended_transmit = false;
 	}
 	else if (length == MAX_PACKET_SIZE)
 	{
@@ -609,7 +610,7 @@ void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsig
 		if (is_extended)
 		{
 			// Split packet into MAX_PACKET_SIZE sized chunks.
-			endpoint_states[endpoint]->is_extended_transmit = 1;
+			endpoint_states[endpoint]->is_extended_transmit = true;
 			length = MAX_PACKET_SIZE;
 		}
 		else
@@ -701,9 +702,9 @@ void usbUnstallEndpoint(unsigned int endpoint)
 
 /** Check whether an endpoint is stalled or not.
   * \param endpoint The endpoint number of the endpoint to check.
-  * \return Non-zero if the endpoint is stalled, zero if it is not stalled.
+  * \return true if the endpoint is stalled, false if it is not stalled.
   */
-unsigned int usbGetStallStatus(unsigned int endpoint)
+bool usbIsEndpointStalled(unsigned int endpoint)
 {
 	volatile uint32_t *reg;
 
@@ -711,16 +712,16 @@ unsigned int usbGetStallStatus(unsigned int endpoint)
 	{
 		// Bad endpoint number.
 		usbFatalError();
-		return 1;
+		return true;
 	}
 	reg = getEndpointControlRegister(endpoint);
 	if ((*reg & 0x02) != 0) // check EPSTALL bit
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 

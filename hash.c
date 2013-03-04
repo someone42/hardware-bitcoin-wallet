@@ -21,7 +21,7 @@ void clearM(HashState *hs)
 {
 	hs->index_m = 0;
 	hs->byte_position_m = 0;
-	memset(hs->m, 0, 64);
+	memset(hs->m, 0, sizeof(hs->m));
 }
 
 /** Add one more byte to the message buffer and call HashState#hashBlock()
@@ -121,19 +121,19 @@ void hashFinish(HashState *hs)
   *            must have space for at least 32 bytes, even if the hash
   *            function's result is smaller than 256 bits.
   * \param hs The hash state to read the hash value from.
-  * \param big_endian If this is non-zero, then the hash will be written in a
-  *                   big-endian way (useful for computing the first hash of
-  *                   a double SHA-256 hash). If this is zero, then the hash
-  *                   will be written in little-endian way (useful for sending
-  *                   off to a signing function).
+  * \param do_write_big_endian Whether the hash should be written in a
+  *                            big-endian way (useful for computing the first
+  *                            hash of a double SHA-256 hash) instead of a
+  *                            little-endian way (useful for sending off to a
+  *                            signing function).
   * \warning hashFinish() (or the appropriate hash-specific finish function)
   *          must be called before this function.
   */
-void writeHashToByteArray(uint8_t *out, HashState *hs, uint8_t big_endian)
+void writeHashToByteArray(uint8_t *out, HashState *hs, bool do_write_big_endian)
 {
 	uint8_t i;
 
-	if (big_endian)
+	if (do_write_big_endian)
 	{
 		for (i = 0; i < 8; i++)
 		{

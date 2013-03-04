@@ -24,6 +24,6 @@ int main(void)
 	do
 	{
 		processPacket();
-	} while (1);
+	} while (true);
 }
 

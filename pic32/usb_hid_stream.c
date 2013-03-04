@@ -43,6 +43,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "usb_hal.h"
 #include "usb_callbacks.h"
 #include "usb_defs.h"
@@ -94,12 +95,12 @@ static volatile uint8_t transmit_fifo_storage[TRANSMIT_FIFO_SIZE];
 /** Storage for the receive FIFO buffer. */
 static volatile uint8_t receive_fifo_storage[RECEIVE_FIFO_SIZE];
 
-/** Flag (non-zero = set, zero = clear) which when set, indicates that a
+/** Flag which when true, indicates that a
   * packet has been queued for transmission on the Interrupt IN endpoint. */
-static volatile int interrupt_transmit_queued;
-/** Flag (non-zero = set, zero = clear) which when set, indicates that a
+static volatile bool interrupt_transmit_queued;
+/** Flag which when true, indicates that a
   * packet has been queued for reception on the Interrupt OUT endpoint. */
-static volatile int interrupt_receive_queued;
+static volatile bool interrupt_receive_queued;
 
 /** Persistent packet buffer for packets sent from the Interrupt IN endpoint
   * (see #TRANSMIT_ENDPOINT_NUMBER). */
@@ -126,32 +127,32 @@ static const uint8_t null_packet[4];
   * is used to detect configuration changes. */
 static uint8_t old_configuration_value;
 
-/** Flag (non-zero = set, zero = clear) which, when set, indicates that
+/** Flag which, when true, indicates that
   * streamGetOneByte() should queue a receive for the control endpoint instead
   * of the Interrupt OUT endpoint. This is used to handle the "Set Report"
   * request. */
-static volatile int do_control_receive_queue;
-/** Flag (non-zero = set, zero = clear) which, when set, indicates that
+static volatile bool do_control_receive_queue;
+/** Flag which, when true, indicates that
   * the next control transfer Data stage will contain an output report. This
   * is used to handle the "Set Report" request. */
-static volatile int expect_control_report;
+static volatile bool expect_control_report;
 /** Expected report ID of a report received through the control endpoint. This
-  * is only valid when #expect_control_report is set. */
+  * is only valid when #expect_control_report is true. */
 static uint8_t expected_control_report_id;
 
-/** Flag (non-zero = set, zero = clear) which, when set, indicates that
+/** Flag which, when true, indicates that
   * streamPutOneByte() should redirect bytes into #get_report_packet_buffer,
   * where they will be transmitted through the control endpoint (instead of
   * the Interrupt IN endpoint). This is used to handle the "Get Report"
   * request. */
-static volatile int do_build_transmit_report;
+static volatile bool do_build_transmit_report;
 /** Desired size (as given in the "Get Report" request), in bytes, of the
   * report to send through the control endpoint. This includes the report ID
-  * byte. This is only valid when #do_build_transmit_report is set. */
+  * byte. This is only valid when #do_build_transmit_report is true. */
 static uint32_t desired_transmit_report_length;
 /** Current size, in bytes, of the report which will be sent through the
   * control endpoint. This includes the report ID byte. This is only valid
-  * when #do_build_transmit_report is set. */
+  * when #do_build_transmit_report is true. */
 static uint32_t current_transmit_report_length;
 
 /** Fill up transmit packet buffer with bytes obtained from the transmit
@@ -171,7 +172,7 @@ static void fillTransmitPacketBufferAndTransmit(void)
 	{
 		// Note that is_irq is set because interrupts are disabled; that's
 		// equivalent to an interrupt request handler context.
-		interrupt_packet_buffer[i] = circularBufferRead(&transmit_fifo, 1);
+		interrupt_packet_buffer[i] = circularBufferRead(&transmit_fifo, true);
 		i++;
 	}
 	count = i - 1;
@@ -181,12 +182,12 @@ static void fillTransmitPacketBufferAndTransmit(void)
 		// Set transmit_queued before queueing transmit to avoid race
 		// condition where packet is transmitted just after
 		// usbQueueTransmitPacket() call.
-		interrupt_transmit_queued = 1;
-		usbQueueTransmitPacket(interrupt_packet_buffer, count + 1, TRANSMIT_ENDPOINT_NUMBER, 0);
+		interrupt_transmit_queued = true;
+		usbQueueTransmitPacket(interrupt_packet_buffer, count + 1, TRANSMIT_ENDPOINT_NUMBER, false);
 	}
 	else
 	{
-		interrupt_transmit_queued = 0;
+		interrupt_transmit_queued = false;
 	}
 	restoreInterrupts(status);
 }
@@ -207,7 +208,7 @@ static void transferIntoReceiveFIFO(uint8_t *buffer, uint32_t length)
 	}
 	for (i = 0; i < length; i++)
 	{
-		circularBufferWrite(&receive_fifo, buffer[i], 1);
+		circularBufferWrite(&receive_fifo, buffer[i], true);
 	}
 }
 
@@ -231,13 +232,13 @@ static uint8_t stealByteFromInterruptReport(void)
 	uint32_t i;
 
 	// Unqueue current transmit request.
-	if (interrupt_transmit_queued == 0)
+	if (!interrupt_transmit_queued)
 	{
 		// This should never happen.
 		usbFatalError();
 	}
 	usbCancelTransmit(TRANSMIT_ENDPOINT_NUMBER);
-	interrupt_transmit_queued = 0;
+	interrupt_transmit_queued = false;
 	// Remove first report data byte from packet, shifting the rest of the
 	// data to fill the space.
 	count = interrupt_packet_buffer[0];
@@ -256,8 +257,8 @@ static uint8_t stealByteFromInterruptReport(void)
 	// Queue updated transmit packet (if necessary).
 	if (count > 0)
 	{
-		interrupt_transmit_queued = 1;
-		usbQueueTransmitPacket(interrupt_packet_buffer, count + 1, TRANSMIT_ENDPOINT_NUMBER, 0);
+		interrupt_transmit_queued = true;
+		usbQueueTransmitPacket(interrupt_packet_buffer, count + 1, TRANSMIT_ENDPOINT_NUMBER, false);
 	}
 	return one_byte;
 }
@@ -265,14 +266,14 @@ static uint8_t stealByteFromInterruptReport(void)
 /** Incrementally build a report to send via. the control endpoint. This is
   * used to handle the "Get Report" request. If the added byte completes
   * the report, it will be transmitted; #do_build_transmit_report will be
-  * cleared if that happens.
+  * cleared to false if that happens.
   * \param one_byte The byte to add to the report.
   */
 static void buildTransmitReport(uint8_t one_byte)
 {
 	if ((current_transmit_report_length >= desired_transmit_report_length)
 		|| (current_transmit_report_length >= sizeof(get_report_packet_buffer))
-		|| (do_build_transmit_report == 0))
+		|| (!do_build_transmit_report))
 	{
 		// This should never happen.
 		usbFatalError();
@@ -282,8 +283,8 @@ static void buildTransmitReport(uint8_t one_byte)
 	if (current_transmit_report_length == desired_transmit_report_length)
 	{
 		// Got desired size, send it.
-		usbQueueTransmitPacket(get_report_packet_buffer, desired_transmit_report_length, CONTROL_ENDPOINT_NUMBER, 0);
-		do_build_transmit_report = 0;
+		usbQueueTransmitPacket(get_report_packet_buffer, desired_transmit_report_length, CONTROL_ENDPOINT_NUMBER, false);
+		do_build_transmit_report = false;
 	}
 }
 
@@ -291,10 +292,10 @@ static void buildTransmitReport(uint8_t one_byte)
   * IN endpoint (endpoint number #TRANSMIT_ENDPOINT_NUMBER).
   * \param packet_buffer The contents of the packet.
   * \param length The length (in bytes) of the received packet.
-  * \param is_setup Will be non-zero if a SETUP token was received, will
-  *                 be zero if a OUT or IN token was received.
+  * \param is_setup Will be true if a SETUP token was received, will
+  *                 be false if a OUT or IN token was received.
   */
-void ep1ReceiveCallback(uint8_t *packet_buffer, uint32_t length, unsigned int is_setup)
+void ep1ReceiveCallback(uint8_t *packet_buffer, uint32_t length, bool is_setup)
 {
 	// Since this is an IN endpoint, this callback should never be called.
 	usbFatalError();
@@ -311,14 +312,19 @@ void ep1TransmitCallback(void)
   * OUT endpoint (endpoint number #RECEIVE_ENDPOINT_NUMBER).
   * \param packet_buffer The contents of the packet.
   * \param length The length (in bytes) of the received packet.
-  * \param is_setup Will be non-zero if a SETUP token was received, will
-  *                 be zero if a OUT or IN token was received.
+  * \param is_setup Will be true if a SETUP token was received, will
+  *                 be false if a OUT or IN token was received.
   * \warning This assumes that there is enough space in the receive FIFO for
   *          the received packet. There should always be enough space, since
   *          a receive is never queued unless there is enough space.
   */
-void ep2ReceiveCallback(uint8_t *packet_buffer, uint32_t length, unsigned int is_setup)
+void ep2ReceiveCallback(uint8_t *packet_buffer, uint32_t length, bool is_setup)
 {
+	if (is_setup)
+	{
+		// This should never happen.
+		usbFatalError();
+	}
 	// Check that the packet length (provided by the USB module) matches
 	// the length given in the first byte.
 	if (length < 1)
@@ -340,12 +346,12 @@ void ep2ReceiveCallback(uint8_t *packet_buffer, uint32_t length, unsigned int is
 		// until eventually there is enough space to queue a receive.
 		if (circularBufferSpaceRemaining(&receive_fifo) >= RECEIVE_HEADROOM)
 		{
-			interrupt_receive_queued = 1;
+			interrupt_receive_queued = true;
 			usbQueueReceivePacket(RECEIVE_ENDPOINT_NUMBER);
 		}
 		else
 		{
-			interrupt_receive_queued = 0;
+			interrupt_receive_queued = false;
 		}
 	}
 }
@@ -381,7 +387,7 @@ static void getDescriptor(uint8_t type, uint8_t index, uint16_t lang_id, uint16_
 		}
 		else
 		{
-			usbQueueTransmitPacket(report_descriptor, packet_length, CONTROL_ENDPOINT_NUMBER, 1);
+			usbQueueTransmitPacket(report_descriptor, packet_length, CONTROL_ENDPOINT_NUMBER, true);
 		}
 	}
 	else
@@ -417,13 +423,13 @@ static void getReport(uint8_t report_id, uint16_t length)
 	else
 	{
 		// Build a report and send it.
-		do_build_transmit_report = 1;
+		do_build_transmit_report = true;
 		current_transmit_report_length = 0;
 		desired_transmit_report_length = length;
 		buildTransmitReport(report_id);
 		// Two ways this loop can end:
 		// 1. The report length reaches the desired length, in which case the
-		//    report is sent and do_build_transmit_report is set to 0.
+		//    report is sent and do_build_transmit_report is set to false.
 		// 2. The transmit interrupt report buffer is emptied, in which
 		//    case interrupt_transmit_queued will be set to 0. Further bytes
 		//    will have to come from somewhere else.
@@ -433,13 +439,13 @@ static void getReport(uint8_t report_id, uint16_t length)
 		}
 		// Two ways this loop can end:
 		// 1. The report length reaches the desired length, in which case the
-		//    report is sent and do_build_transmit_report is set to 0.
+		//    report is sent and do_build_transmit_report is set to false.
 		// 2. The transmit FIFO is emptied before the report reaches the
 		//    desired size, so nothing is sent and do_build_transmit_report
-		//    remains set. streamPutOneByte() will handle the rest.
+		//    remains set to true. streamPutOneByte() will handle the rest.
 		while (!isCircularBufferEmpty(&transmit_fifo) && do_build_transmit_report)
 		{
-			buildTransmitReport(circularBufferRead(&transmit_fifo, 1));
+			buildTransmitReport(circularBufferRead(&transmit_fifo, true));
 		}
 		// If the control request ate up the entire interrupt transmit
 		// report but left the transmit FIFO full, streamPutOneByte() will
@@ -480,14 +486,14 @@ static void setReport(uint8_t report_id, uint16_t length)
 	{
 		usbControlNextStage();
 		expected_control_report_id = report_id;
-		expect_control_report = 1;
+		expect_control_report = true;
 		if (circularBufferSpaceRemaining(&receive_fifo) < RECEIVE_HEADROOM)
 		{
 			// Not enough space in receive FIFO to handle request.
 			usbSuppressControlReceive(); // do not immediately proceed to Data stage
 			// Redirect streamGetOneByte() to queue receives on the control
 			// endpoint instead of the Interrupt OUT endpoint.
-			do_control_receive_queue = 1;
+			do_control_receive_queue = true;
 		}
 	}
 }
@@ -507,11 +513,11 @@ static void setReport(uint8_t report_id, uint16_t length)
   * \param wLength Maximum number of bytes to transfer during the Data stage.
   *                This is allowed to be zero. If it is zero, then there is
   *                no Data stage.
-  * \return Zero if the request was handled, non-zero if the request was not
+  * \return false if the request was handled, true if the request was not
   *         handled (i.e. the request did not match any supported
   *         class-specific request).
   */
-unsigned int usbClassHandleControlSetup(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength)
+bool usbClassHandleControlSetup(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength)
 {
 	if ((bmRequestType == 0x81) && (bRequest == GET_DESCRIPTOR))
 	{
@@ -529,9 +535,9 @@ unsigned int usbClassHandleControlSetup(uint8_t bmRequestType, uint8_t bRequest,
 	}
 	else
 	{
-		return 1; // unknown or unsupported request.
+		return true; // unknown or unsupported request.
 	}
-	return 0; // success
+	return false; // success
 }
 
 /** This callback will be called if the control endpoint (endpoint 0)
@@ -540,10 +546,10 @@ unsigned int usbClassHandleControlSetup(uint8_t bmRequestType, uint8_t bRequest,
   * control endpoint.
   * \param packet_buffer The contents of the data packet are placed here.
   * \param length The length (in bytes) of the received data packet.
-  * \return Zero if the data was accepted, non-zero if the data was not
+  * \return false if the data was accepted, true if the data was not
   *         handled (i.e. the class driver did not expect any data).
   */
-unsigned int usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length)
+bool usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length)
 {
 	if (expect_control_report)
 	{
@@ -562,7 +568,7 @@ unsigned int usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length)
 				usbControlNextStage();
 				transferIntoReceiveFIFO(&(packet_buffer[1]), length - 1);
 				// Send success packet.
-				usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, 0);
+				usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, false);
 			}
 		}
 		else
@@ -570,11 +576,12 @@ unsigned int usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length)
 			// Packet too small.
 			usbControlProtocolStall();
 		}
-		return 0;
+		expect_control_report = false;
+		return false;
 	}
 	else
 	{
-		return 1; // did not expect any data
+		return true; // did not expect any data
 	}
 }
 
@@ -583,9 +590,9 @@ unsigned int usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length)
   * control transfer-specific state. */
 void usbClassAbortControlTransfer(void)
 {
-	do_control_receive_queue = 0;
-	expect_control_report = 0;
-	do_build_transmit_report = 0;
+	do_control_receive_queue = false;
+	expect_control_report = false;
+	do_build_transmit_report = false;
 }
 
 /** Callback which will be called whenever a successful "Set Configuration"
@@ -600,8 +607,8 @@ void usbClassSetConfiguration(uint8_t new_configuration_value)
 	if ((old_configuration_value == 0) && (new_configuration_value != 0))
 	{
 		// Transition from unconfigured to configured.
-		interrupt_transmit_queued = 0;
-		interrupt_receive_queued = 1;
+		interrupt_transmit_queued = false;
+		interrupt_receive_queued = true;
 		usbEnableEndpoint(TRANSMIT_ENDPOINT_NUMBER, IN_ENDPOINT, &transmit_endpoint_state);
 		usbEnableEndpoint(RECEIVE_ENDPOINT_NUMBER, OUT_ENDPOINT, &receive_endpoint_state);
 	}
@@ -610,8 +617,8 @@ void usbClassSetConfiguration(uint8_t new_configuration_value)
 		// Transition from configured to unconfigured.
 		usbDisableEndpoint(TRANSMIT_ENDPOINT_NUMBER);
 		usbDisableEndpoint(RECEIVE_ENDPOINT_NUMBER);
-		interrupt_transmit_queued = 0;
-		interrupt_receive_queued = 0;
+		interrupt_transmit_queued = false;
+		interrupt_receive_queued = false;
 		usbClassAbortControlTransfer(); // will reset state
 	}
 	old_configuration_value = new_configuration_value;
@@ -668,7 +675,7 @@ uint8_t streamGetOneByte(void)
 	uint32_t status;
 	uint8_t one_byte;
 
-	one_byte = circularBufferRead(&receive_fifo, 0);
+	one_byte = circularBufferRead(&receive_fifo, false);
 	// It's probably safe to leave interrupts enabled, but just to be sure,
 	// disable them so that no race conditions can occur.
 	status = disableInterrupts();
@@ -679,7 +686,7 @@ uint8_t streamGetOneByte(void)
 	{
 		if (circularBufferSpaceRemaining(&receive_fifo) >= RECEIVE_HEADROOM)
 		{
-			do_control_receive_queue = 0;
+			do_control_receive_queue = false;
 			usbQueueReceivePacket(CONTROL_ENDPOINT_NUMBER);
 		}
 	}
@@ -687,7 +694,7 @@ uint8_t streamGetOneByte(void)
 	{
 		if (circularBufferSpaceRemaining(&receive_fifo) >= RECEIVE_HEADROOM)
 		{
-			interrupt_receive_queued = 1;
+			interrupt_receive_queued = true;
 			usbQueueReceivePacket(RECEIVE_ENDPOINT_NUMBER);
 		}
 	}
@@ -735,7 +742,7 @@ void streamPutOneByte(uint8_t one_byte)
 		// ep1TransmitCallback().
 		// Note that is_irq is set because interrupts are disabled; that's
 		// equivalent to an interrupt request handler context.
-		circularBufferWrite(&transmit_fifo, one_byte, 1);
+		circularBufferWrite(&transmit_fifo, one_byte, true);
 	}
 	if (!interrupt_transmit_queued)
 	{

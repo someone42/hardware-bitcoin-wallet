@@ -8,6 +8,8 @@
 #ifndef PIC32_SSD1306_H_INCLUDED
 #define PIC32_SSD1306_H_INCLUDED
 
+#include <stdbool.h>
+
 extern void initSSD1306(void);
 extern void displayOn(void);
 extern void displayOff(void);
@@ -15,6 +17,6 @@ extern void clearDisplay(void);
 extern void nextLine(void);
 extern void writeStringToDisplay(const char *str);
 extern void writeStringToDisplayWordWrap(const char *str);
-extern int displayCursorAtEnd(void);
+extern bool displayCursorAtEnd(void);
 
 #endif // #ifndef PIC32_SSD1306_H_INCLUDED

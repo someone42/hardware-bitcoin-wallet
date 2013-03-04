@@ -225,11 +225,11 @@ static void configurePeripheralsForSSD1306(void)
 }
 
 /** Write an 8 bit command or data to the SSD1306 using SPI1.
-  * \param is_data This should be non-zero if value is data, zero if value
+  * \param is_data This should be true if value is data, false if value
   *                is a command.
   * \param value The command or data to write.
   */
-static void writeSPI1Byte(int is_data, uint8_t value)
+static void writeSPI1Byte(bool is_data, uint8_t value)
 {
 	uint32_t packet;
 
@@ -249,13 +249,13 @@ static void writeSPI1Byte(int is_data, uint8_t value)
 /** Turn display on. */
 void displayOn(void)
 {
-	writeSPI1Byte(0, 0xaf); // display on
+	writeSPI1Byte(false, 0xaf); // display on
 }
 
 /** Turn display off. */
 void displayOff(void)
 {
-	writeSPI1Byte(0, 0xae); // display off
+	writeSPI1Byte(false, 0xae); // display off
 }
 
 /** Reset and initialise the SSD1306 display controller. This mostly follows
@@ -281,25 +281,25 @@ static void resetSSD1306(void)
 	}
 	LPC_GPIO->PIN[0] |= 4; // set RES# high
 	displayOff();
-	writeSPI1Byte(0, 0xa8); // set multiplex ratio
-	writeSPI1Byte(0, 0x3f); // multiplex ratio = 64MUX
-	writeSPI1Byte(0, 0xd3); // set display offset
-	writeSPI1Byte(0, 0x00); // display offset = 0 (no vertical shift)
-	writeSPI1Byte(0, 0x40); // set display start line to 0
-	writeSPI1Byte(0, 0xa1); // set segment re-map to invert horizontally
-	writeSPI1Byte(0, 0xc8); // set COM scan direction to invert vertically
-	writeSPI1Byte(0, 0xda); // set COM pins hardware configuration
-	writeSPI1Byte(0, 0x12); // COM pins hardware configuration = alternative, no left/right remap
-	writeSPI1Byte(0, 0x81); // set contrast
-	writeSPI1Byte(0, 0xbf); // contrast = 75%
-	writeSPI1Byte(0, 0xa4); // disable entire display on
-	writeSPI1Byte(0, 0xa6); // set normal display
-	writeSPI1Byte(0, 0xd5); // set oscillator frequency
-	writeSPI1Byte(0, 0x80); // oscillator frequency = default
-	writeSPI1Byte(0, 0x8d); // set charge pump
-	writeSPI1Byte(0, 0x14); // charge pump = on
-	writeSPI1Byte(0, 0x20); // set memory addressing mode
-	writeSPI1Byte(0, 0x01); // memory addressing mode = vertical
+	writeSPI1Byte(false, 0xa8); // set multiplex ratio
+	writeSPI1Byte(false, 0x3f); // multiplex ratio = 64MUX
+	writeSPI1Byte(false, 0xd3); // set display offset
+	writeSPI1Byte(false, 0x00); // display offset = 0 (no vertical shift)
+	writeSPI1Byte(false, 0x40); // set display start line to 0
+	writeSPI1Byte(false, 0xa1); // set segment re-map to invert horizontally
+	writeSPI1Byte(false, 0xc8); // set COM scan direction to invert vertically
+	writeSPI1Byte(false, 0xda); // set COM pins hardware configuration
+	writeSPI1Byte(false, 0x12); // COM pins hardware configuration = alternative, no left/right remap
+	writeSPI1Byte(false, 0x81); // set contrast
+	writeSPI1Byte(false, 0xbf); // contrast = 75%
+	writeSPI1Byte(false, 0xa4); // disable entire display on
+	writeSPI1Byte(false, 0xa6); // set normal display
+	writeSPI1Byte(false, 0xd5); // set oscillator frequency
+	writeSPI1Byte(false, 0x80); // oscillator frequency = default
+	writeSPI1Byte(false, 0x8d); // set charge pump
+	writeSPI1Byte(false, 0x14); // charge pump = on
+	writeSPI1Byte(false, 0x20); // set memory addressing mode
+	writeSPI1Byte(false, 0x01); // memory addressing mode = vertical
 }
 
 /** Clear the display and all associated buffers. */
@@ -309,7 +309,7 @@ void clearDisplay(void)
 
 	for (i = 0; i < 1024; i++)
 	{
-		writeSPI1Byte(1, 0);
+		writeSPI1Byte(true, 0);
 	}
 	cursor_line = 0;
 	cursor_pos = 0;
@@ -445,7 +445,7 @@ static void renderDisplay(void)
 				temp_data = lookupFontTable(next_character * CHARACTER_BITS + char_x_offset * CHARACTER_HEIGHT);
 				data |= temp_data << amount;
 			}
-			writeSPI1Byte(1, data);
+			writeSPI1Byte(true, data);
 			// Prepare for next byte.
 			char_y_offset += 8;
 			if (char_y_offset >= CHARACTER_HEIGHT)
@@ -570,13 +570,13 @@ void writeStringToDisplayWordWrap(const char *str)
 }
 
 /** Queries whether the cursor is at (or past) the end of the display.
-  * \return Non-zero if the cursor is at (or past) the end, 0 if not.
+  * \return Whether the cursor is at (or past) the end.
   */
-int displayCursorAtEnd(void)
+bool displayCursorAtEnd(void)
 {
 	if (cursor_line >= NUMBER_OF_LINES)
 	{
-		return 1; // cursor is past last line
+		return true; // cursor is past last line
 	}
 	else
 	{
@@ -584,16 +584,16 @@ int displayCursorAtEnd(void)
 		{
 			if (cursor_pos >= CHARACTERS_PER_LINE)
 			{
-				return 1; // cursor is past end of last line
+				return true; // cursor is past end of last line
 			}
 			else
 			{
-				return 0;
+				return false;
 			}
 		}
 		else
 		{
-			return 0;
+			return false;
 		}
 	}
 }

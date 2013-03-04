@@ -202,15 +202,15 @@ static uint8_t current_column;
 static uint8_t max_line_size;
 /** Scroll position (0 = leftmost) in number of characters. */
 static uint8_t scroll_pos;
-/** 0 = towards the right (text appears to move left), non-zero = towards
+/** false = towards the right (text appears to move left), true = towards
   * the left (text appears to move right). */
-static uint8_t scroll_direction;
+static uint8_t scroll_to_left;
 /** Countdown to next scroll. */
 static uint16_t scroll_counter;
-/** Status of accept button; 0 = not pressed, non-zero = pressed. */
-static volatile uint8_t accept_button;
-/** Status of cancel button; 0 = not pressed, non-zero = pressed. */
-static volatile uint8_t cancel_button;
+/** Status of accept button; false = not pressed, true = pressed. */
+static volatile bool accept_button;
+/** Status of cancel button; false = not pressed, true = pressed. */
+static volatile bool cancel_button;
 /** Debounce counter for accept button. */
 static uint8_t accept_debounce;
 /** Debounce counter for cancel button. */
@@ -223,29 +223,29 @@ static char list_address[MAX_OUTPUTS][TEXT_ADDRESS_LENGTH];
 /** Index into #list_amount and #list_address which specifies where the next
   * output amount/address will be copied into. */
 static uint8_t list_index;
-/** Whether the transaction fee has been set (non-zero) or not (zero). If
+/** Whether the transaction fee has been set. If
   * the transaction fee still hasn't been set after parsing, then the
   * transaction is free. */
-static uint8_t transaction_fee_set;
+static bool transaction_fee_set;
 /** Storage for transaction fee amount. This is only valid
-  * if #transaction_fee_set is non-zero. */
+  * if #transaction_fee_set is true. */
 static char transaction_fee_amount[TEXT_AMOUNT_LENGTH];
 
 /** This does the scrolling and checks the state of the buttons. */
 ISR(TIMER0_COMPA_vect)
 {
-	uint8_t temp;
+	bool temp;
 
 	scroll_counter--;
 	if (scroll_counter == 0)
 	{
 		if (max_line_size > NUM_COLUMNS)
 		{
-			if (scroll_direction)
+			if (scroll_to_left)
 			{
 				if (scroll_pos == 0)
 				{
-					scroll_direction = 0;
+					scroll_to_left = false;
 				}
 				else
 				{
@@ -258,7 +258,7 @@ ISR(TIMER0_COMPA_vect)
 			{
 				if (scroll_pos == (max_line_size - NUM_COLUMNS))
 				{
-					scroll_direction = 1;
+					scroll_to_left = true;
 				}
 				else
 				{
@@ -271,7 +271,14 @@ ISR(TIMER0_COMPA_vect)
 		scroll_counter = SCROLL_SPEED;
 	}
 
-	temp = sampleArduinoPin(ACCEPT_PIN);
+	if (sampleArduinoPin(ACCEPT_PIN) != 0)
+	{
+		temp = true;
+	}
+	else
+	{
+		temp = false;
+	}
 	if ((accept_button && temp) || (!accept_button && !temp))
 	{
 		// Mismatching state; accumulate debounce counter until threshold
@@ -279,7 +286,7 @@ ISR(TIMER0_COMPA_vect)
 		accept_debounce++;
 		if (accept_debounce == DEBOUNCE_COUNT)
 		{
-			accept_button = (uint8_t)!accept_button;
+			accept_button = !accept_button;
 		}
 	}
 	else
@@ -294,7 +301,7 @@ ISR(TIMER0_COMPA_vect)
 		cancel_debounce++;
 		if (cancel_debounce == DEBOUNCE_COUNT)
 		{
-			cancel_button = (uint8_t)!cancel_button;
+			cancel_button = !cancel_button;
 		}
 	}
 	else
@@ -309,7 +316,7 @@ static void clearLcd(void)
 	current_column = 0;
 	max_line_size = 0;
 	scroll_pos = 0;
-	scroll_direction = 0;
+	scroll_to_left = false;
 	scroll_counter = SCROLL_SPEED;
 	writeArduinoPin(RS_PIN, 0);
 	write8(0x01); // clear display
@@ -332,8 +339,8 @@ void initLcdAndInput(void)
 	MCUCR = (uint8_t)(MCUCR & ~_BV(PUD));
 	setArduinoPinInput(ACCEPT_PIN);
 	setArduinoPinInput(CANCEL_PIN);
-	accept_button = 0;
-	cancel_button = 0;
+	accept_button = false;
+	cancel_button = false;
 	accept_debounce = 0;
 	cancel_debounce = 0;
 	sei();
@@ -362,7 +369,7 @@ void initLcdAndInput(void)
 static void gotoStartOfLine(uint8_t line)
 {
 	writeArduinoPin(RS_PIN, 0);
-	if (!line)
+	if (line == 0)
 	{
 		write8(0x80);
 	}
@@ -375,12 +382,12 @@ static void gotoStartOfLine(uint8_t line)
 
 /** Write a null-terminated string to the display.
   * \param str The null-terminated string to write.
-  * \param is_progmem If this is non-zero, then str is treated as a pointer
+  * \param is_progmem If this is true, then str is treated as a pointer
   *                   to program memory (data with the #PROGMEM attribute),
   *                   otherwise str is treated as a pointer to RAM.
   * \warning Characters past column 40 are dropped (ignored).
   */
-static void writeString(char *str, uint8_t is_progmem)
+static void writeString(char *str, bool is_progmem)
 {
 	char c;
 
@@ -421,17 +428,17 @@ static void writeString(char *str, uint8_t is_progmem)
   *                    such as "0.01".
   * \param text_address The output address, as a null-terminated text string
   *                     such as "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn".
-  * \return 0 if no error occurred, non-zero if there was not enough space to
+  * \return false if no error occurred, true if there was not enough space to
   *         store the amount/address pair.
   */
-uint8_t newOutputSeen(char *text_amount, char *text_address)
+bool newOutputSeen(char *text_amount, char *text_address)
 {
 	char *amount_dest;
 	char *address_dest;
 
 	if (list_index >= MAX_OUTPUTS)
 	{
-		return 1; // not enough space to store the amount/address pair
+		return true; // not enough space to store the amount/address pair
 	}
 	amount_dest = list_amount[list_index];
 	address_dest = list_address[list_index];
@@ -440,7 +447,7 @@ uint8_t newOutputSeen(char *text_amount, char *text_address)
 	amount_dest[TEXT_AMOUNT_LENGTH - 1] = '\0';
 	address_dest[TEXT_ADDRESS_LENGTH - 1] = '\0';
 	list_index++;
-	return 0;
+	return false; // success
 }
 
 /** Notify the user interface that the transaction parser has seen the
@@ -453,7 +460,7 @@ void setTransactionFee(char *text_amount)
 {
 	strncpy(transaction_fee_amount, text_amount, TEXT_AMOUNT_LENGTH);
 	transaction_fee_amount[TEXT_AMOUNT_LENGTH - 1] = '\0';
-	transaction_fee_set = 1;
+	transaction_fee_set = true;
 }
 
 /** Notify the user interface that the list of Bitcoin amount/address pairs
@@ -461,7 +468,7 @@ void setTransactionFee(char *text_amount)
 void clearOutputsSeen(void)
 {
 	list_index = 0;
-	transaction_fee_set = 0;
+	transaction_fee_set = false;
 }
 
 /** Wait until neither accept nor cancel buttons are being pressed. */
@@ -474,13 +481,13 @@ static void waitForNoButtonPress(void)
 }
 
 /** Wait until accept or cancel button is pressed.
-  * \return 0 if the accept button was pressed, non-zero if the cancel
+  * \return false if the accept button was pressed, true if the cancel
   *         button was pressed.
   */
-static uint8_t waitForButtonPress(void)
+static bool waitForButtonPress(void)
 {
-	uint8_t current_accept_button;
-	uint8_t current_cancel_button;
+	bool current_accept_button;
+	bool current_cancel_button;
 
 	do
 	{
@@ -490,11 +497,11 @@ static uint8_t waitForButtonPress(void)
 	} while (!current_accept_button && !current_cancel_button);
 	if (current_accept_button)
 	{
-		return 0;
+		return false;
 	}
 	else
 	{
-		return 1;
+		return true;
 	}
 }
 
@@ -502,7 +509,7 @@ static uint8_t waitForButtonPress(void)
  * \defgroup AskStrings String literals for user prompts.
  *
  * The code would be much more readable if the string literals were all
- * implicitly defined within askUser(). However, then they eat up valuable
+ * implicitly defined within userDenied(). However, then they eat up valuable
  * RAM. Declaring them here means that they can have the #PROGMEM attribute
  * added (to place them in program memory).
  *
@@ -553,7 +560,7 @@ static char str_get_master_key_line0[] PROGMEM = "Reveal master";
 /** Second line of #ASKUSER_GET_MASTER_KEY prompt. */
 static char str_get_master_key_line1[] PROGMEM = "public key?";
 /** First line of unknown prompt. */
-static char str_unknown_line0[] PROGMEM = "Unknown command in askUser()";
+static char str_unknown_line0[] PROGMEM = "Unknown command in userDenied()";
 /** Second line of unknown prompt. */
 static char str_unknown_line1[] PROGMEM = "Press any button to continue";
 /** What will be displayed if a stream read or write error occurs. */
@@ -562,31 +569,32 @@ static char str_stream_error[] PROGMEM = "Stream error";
 
 /** Ask user if they want to allow some action.
   * \param command The action to ask the user about. See #AskUserCommandEnum.
-  * \return 0 if the user accepted, non-zero if the user denied.
+  * \return false if the user accepted, true if the user denied.
   */
-uint8_t askUser(AskUserCommand command)
+bool userDenied(AskUserCommand command)
 {
 	uint8_t i;
-	uint8_t r; // what will be returned
+	bool r; // what will be returned
 
 	clearLcd();
 
+	r = true;
 	if (command == ASKUSER_NUKE_WALLET)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_delete_line0, 1);
+		writeString(str_delete_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_delete_line1, 1);
+		writeString(str_delete_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_NEW_ADDRESS)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_new_line0, 1);
+		writeString(str_new_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_new_line1, 1);
+		writeString(str_new_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_SIGN_TRANSACTION)
@@ -596,11 +604,11 @@ uint8_t askUser(AskUserCommand command)
 			clearLcd();
 			waitForNoButtonPress();
 			gotoStartOfLine(0);
-			writeString(str_sign_part0, 1);
-			writeString(list_amount[i], 0);
-			writeString(str_sign_part1, 1);
+			writeString(str_sign_part0, true);
+			writeString(list_amount[i], false);
+			writeString(str_sign_part1, true);
 			gotoStartOfLine(1);
-			writeString(list_address[i], 0);
+			writeString(list_address[i], false);
 			r = waitForButtonPress();
 			if (r)
 			{
@@ -615,10 +623,10 @@ uint8_t askUser(AskUserCommand command)
 			clearLcd();
 			waitForNoButtonPress();
 			gotoStartOfLine(0);
-			writeString(str_fee_part0, 1);
+			writeString(str_fee_part0, true);
 			gotoStartOfLine(1);
-			writeString(transaction_fee_amount, 0);
-			writeString(str_fee_part1, 1);
+			writeString(transaction_fee_amount, false);
+			writeString(str_fee_part1, true);
 			r = waitForButtonPress();
 		}
 	}
@@ -626,65 +634,65 @@ uint8_t askUser(AskUserCommand command)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_format_line0, 1);
+		writeString(str_format_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_format_line1, 1);
+		writeString(str_format_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_CHANGE_NAME)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_change_name_line0, 1);
+		writeString(str_change_name_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_change_name_line1, 1);
+		writeString(str_change_name_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_BACKUP_WALLET)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_backup_line0, 1);
+		writeString(str_backup_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_backup_line1, 1);
+		writeString(str_backup_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_RESTORE_WALLET)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_restore_line0, 1);
+		writeString(str_restore_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_restore_line1, 1);
+		writeString(str_restore_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_CHANGE_KEY)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_change_key_line0, 1);
+		writeString(str_change_key_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_change_key_line1, 1);
+		writeString(str_change_key_line1, true);
 		r = waitForButtonPress();
 	}
 	else if (command == ASKUSER_GET_MASTER_KEY)
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_get_master_key_line0, 1);
+		writeString(str_get_master_key_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_get_master_key_line1, 1);
+		writeString(str_get_master_key_line1, true);
 		r = waitForButtonPress();
 	}
 	else
 	{
 		waitForNoButtonPress();
 		gotoStartOfLine(0);
-		writeString(str_unknown_line0, 1);
+		writeString(str_unknown_line0, true);
 		gotoStartOfLine(1);
-		writeString(str_unknown_line1, 1);
+		writeString(str_unknown_line1, true);
 		waitForButtonPress();
-		r = 1; // unconditionally deny
+		r = true; // unconditionally deny
 	}
 
 	clearLcd();
@@ -726,14 +734,13 @@ static char str_seed_not_encrypted_line1[] PROGMEM = "not encrypted";
   * example would be displaying the seed as a hexadecimal string on a LCD.
   * \param seed A byte array of length #SEED_LENGTH bytes which contains the
   *             backup seed.
-  * \param is_encrypted Specifies whether the seed has been encrypted
-  *                     (non-zero) or not (zero).
+  * \param is_encrypted Specifies whether the seed has been encrypted.
   * \param destination_device Specifies which (platform-dependent) device the
   *                           backup seed should be sent to.
-  * \return 0 on success, or non-zero if the backup seed could not be written
+  * \return false on success, true if the backup seed could not be written
   *         to the destination device.
   */
-uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination_device)
+bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint8_t destination_device)
 {
 	uint8_t i;
 	uint8_t one_byte; // current byte of seed
@@ -742,27 +749,27 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 
 	if (destination_device != 0)
 	{
-		return 1;
+		return true;
 	}
 
 	// Tell user whether seed is encrypted or not.
 	clearLcd();
 	waitForNoButtonPress();
 	gotoStartOfLine(0);
-	writeString(str_seed_encrypted_or_not_line0, 1);
+	writeString(str_seed_encrypted_or_not_line0, true);
 	gotoStartOfLine(1);
 	if (is_encrypted)
 	{
-		writeString(str_seed_encrypted_line1, 1);
+		writeString(str_seed_encrypted_line1, true);
 	}
 	else
 	{
-		writeString(str_seed_not_encrypted_line1, 1);
+		writeString(str_seed_not_encrypted_line1, true);
 	}
 	if (waitForButtonPress())
 	{
 		clearLcd();
-		return 2;
+		return true;
 	}
 	waitForNoButtonPress();
 
@@ -782,7 +789,7 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 			if (waitForButtonPress())
 			{
 				clearLcd();
-				return 2;
+				return true;
 			}
 			clearLcd();
 			byte_counter = 0;
@@ -800,12 +807,12 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 		}
 		if ((byte_counter & 1) == 0)
 		{
-			writeString(str, 0);
+			writeString(str, false);
 		}
 		else
 		{
 			// Don't include space.
-			writeString(&(str[1]), 0);
+			writeString(&(str[1]), false);
 		}
 		byte_counter++;
 	}
@@ -813,10 +820,10 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 	if (waitForButtonPress())
 	{
 		clearLcd();
-		return 2;
+		return true;
 	}
 	clearLcd();
-	return 0;
+	return false;
 }
 
 
@@ -825,5 +832,5 @@ void streamError(void)
 {
 	clearLcd();
 	gotoStartOfLine(0);
-	writeString(str_stream_error, 1);
+	writeString(str_stream_error, true);
 }

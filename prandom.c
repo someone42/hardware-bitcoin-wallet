@@ -45,7 +45,7 @@
 
 /** The parent public key for the BIP 0032 deterministic key generator (see
   * generateDeterministic256()). The contents of this variable are only valid
-  * if #cached_parent_public_key_valid is non-zero.
+  * if #cached_parent_public_key_valid is true.
   *
   * generateDeterministic256() could calculate the parent public key each time
   * a new deterministic key is requested. However, that would slow down
@@ -55,9 +55,8 @@
   * \warning The x and y components are stored in little-endian format.
   */
 static PointAffine cached_parent_public_key;
-/** Specifies whether the contents of #parent_public_key are valid or not.
-  * Non-zero means valid, zero means not valid. */
-static uint8_t cached_parent_public_key_valid;
+/** Specifies whether the contents of #parent_public_key are valid. */
+static bool cached_parent_public_key_valid;
 
 #ifdef TEST_PRANDOM
 /** Hack to allow test to access derived chain code. This is needed for the
@@ -77,7 +76,7 @@ static void setParentPublicKeyFromPrivateKey(BigNum256 parent_private_key)
 {
 	setToG(&cached_parent_public_key);
 	pointMultiply(&cached_parent_public_key, parent_private_key);
-	cached_parent_public_key_valid = 1;
+	cached_parent_public_key_valid = true;
 }
 
 /** Clear the parent public key cache (see #parent_private_key). This should
@@ -88,7 +87,7 @@ void clearParentPublicKeyCache(void)
 {
 	memset(&cached_parent_public_key, 0xff, sizeof(cached_parent_public_key)); // just to be sure
 	memset(&cached_parent_public_key, 0, sizeof(cached_parent_public_key));
-	cached_parent_public_key_valid = 0;
+	cached_parent_public_key_valid = false;
 }
 
 /** Calculate the entropy pool checksum of an entropy pool state.
@@ -121,9 +120,9 @@ static void calculateEntropyPoolChecksum(uint8_t *out, uint8_t *pool_state)
 		ripemd160WriteByte(&hs, pool_state[i]);
 	}
 	ripemd160Finish(&hs);
-	writeHashToByteArray(hash, &hs, 1);
+	writeHashToByteArray(hash, &hs, true);
 #if POOL_CHECKSUM_LENGTH > 20
-#error POOL_CHECKSUM_LENGTH is bigger than RIPEMD-160 hash size
+#error "POOL_CHECKSUM_LENGTH is bigger than RIPEMD-160 hash size"
 #endif
 	memcpy(out, hash, POOL_CHECKSUM_LENGTH);
 }
@@ -132,55 +131,55 @@ static void calculateEntropyPoolChecksum(uint8_t *out, uint8_t *pool_state)
   * \param in_pool_state A byte array specifying the desired contents of the
   *                      persistent entropy pool. This must have a length
   *                      of #ENTROPY_POOL_LENGTH bytes.
-  * \return Zero on success, non-zero if an error (couldn't write to
-  *         non-volatile memory) occurred.
+  * \return false on success, true if an error (couldn't write to non-volatile
+  *         memory) occurred.
   */
-uint8_t setEntropyPool(uint8_t *in_pool_state)
+bool setEntropyPool(uint8_t *in_pool_state)
 {
 	uint8_t checksum[POOL_CHECKSUM_LENGTH];
 
 	if (nonVolatileWrite(in_pool_state, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
 	{
-		return 1; // non-volatile write error
+		return true; // non-volatile write error
 	}
 	calculateEntropyPoolChecksum(checksum, in_pool_state);
 	if (nonVolatileWrite(checksum, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
 	{
-		return 1; // non-volatile write error
+		return true; // non-volatile write error
 	}
 	if (nonVolatileFlush() != NV_NO_ERROR)
 	{
-		return 1; // non-volatile write error
+		return true; // non-volatile write error
 	}
-	return 0; // success
+	return false; // success
 }
 
 /** Obtain the contents of the persistent entropy pool.
   * \param out_pool_state A byte array specifying where the contents of the
   *                       persistent entropy pool should be placed. This must
   *                       have space for #ENTROPY_POOL_LENGTH bytes.
-  * \return Zero on success, non-zero if an error (couldn't read from
+  * \return false on success, true if an error (couldn't read from
   *         non-volatile memory, or invalid checksum) occurred.
   */
-uint8_t getEntropyPool(uint8_t *out_pool_state)
+bool getEntropyPool(uint8_t *out_pool_state)
 {
 	uint8_t checksum_read[POOL_CHECKSUM_LENGTH];
 	uint8_t checksum_calculated[POOL_CHECKSUM_LENGTH];
 
 	if (nonVolatileRead(out_pool_state, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
 	{
-		return 1; // non-volatile read error
+		return true; // non-volatile read error
 	}
 	calculateEntropyPoolChecksum(checksum_calculated, out_pool_state);
 	if (nonVolatileRead(checksum_read, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
 	{
-		return 1; // non-volatile read error
+		return true; // non-volatile read error
 	}
 	if (memcmp(checksum_read, checksum_calculated, POOL_CHECKSUM_LENGTH))
 	{
-		return 1; // checksum doesn't match
+		return true; // checksum doesn't match
 	}
-	return 0; // success
+	return false; // success
 }
 
 /** Initialise the persistent entropy pool to a specified state. If the
@@ -188,10 +187,10 @@ uint8_t getEntropyPool(uint8_t *out_pool_state)
   * the specified state.
   * \param initial_pool_state The initial entropy pool state. This must be a
   *                           byte array of length #ENTROPY_POOL_LENGTH bytes.
-  * \return Zero on success, non-zero if an error (couldn't write to
+  * \return false on success, true if an error (couldn't write to
   *         non-volatile memory) occurred.
   */
-uint8_t initialiseEntropyPool(uint8_t *initial_pool_state)
+bool initialiseEntropyPool(uint8_t *initial_pool_state)
 {
 	HashState hs;
 	uint8_t current_pool_state[ENTROPY_POOL_LENGTH];
@@ -212,7 +211,7 @@ uint8_t initialiseEntropyPool(uint8_t *initial_pool_state)
 			sha256WriteByte(&hs, initial_pool_state[i]);
 		}
 		sha256Finish(&hs);
-		writeHashToByteArray(current_pool_state, &hs, 1);
+		writeHashToByteArray(current_pool_state, &hs, true);
 		return setEntropyPool(current_pool_state);
 	}
 }
@@ -241,24 +240,24 @@ uint8_t initialiseEntropyPool(uint8_t *initial_pool_state)
   * of random bits ensures that outputs will still be unpredictable, albeit
   * not strictly meeting their advertised amount of entropy.
   * \param n The final 256 bit random value will be written here.
-  * \param pool_state If use_pool_state is non-zero, then the the state of the
+  * \param pool_state If use_pool_state is true, then the the state of the
   *                   persistent entropy pool will be read from and written to
   *                   this byte array. The byte array must be of
   *                   length #ENTROPY_POOL_LENGTH bytes. If use_pool_state is
-  *                   zero, this parameter will be ignored.
-  * \param use_pool_state Specifies whether to use RAM (non-zero) or
-  *                       non-volatile memory (zero) to access the persistent
-  *                       entropy pool. If this is non-zero, the persistent
+  *                   false, this parameter will be ignored.
+  * \param use_pool_state Specifies whether to use RAM (true) or
+  *                       non-volatile memory (false) to access the persistent
+  *                       entropy pool. If this is true, the persistent
   *                       entropy pool will be read/written from/to the byte
-  *                       array specified by pool_state. If this is zero, the
+  *                       array specified by pool_state. If this is false, the
   *                       persistent entropy pool will be read/written from/to
   *                       non-volatile memory. The option of using RAM is
   *                       provided for cases where random numbers are needed
   *                       but non-volatile memory is being cleared.
-  * \return Zero on success, non-zero if an error (couldn't access
+  * \return false on success, true if an error (couldn't access
   *         non-volatile memory, or invalid entropy pool checksum) occurred.
   */
-static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t use_pool_state)
+static bool getRandom256Internal(BigNum256 n, uint8_t *pool_state, bool use_pool_state)
 {
 	int r;
 	uint16_t total_entropy;
@@ -276,7 +275,7 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
 		r = hardwareRandom32Bytes(random_bytes);
 		if (r < 0)
 		{
-			return 1; // HWRNG failure
+			return true; // HWRNG failure
 		}
 		// Sometimes hardwareRandom32Bytes() returns 0, which signifies that
 		// more samples are needed in order to do statistical testing.
@@ -299,7 +298,7 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
 	{
 		if (getEntropyPool(random_bytes))
 		{
-			return 1; // error reading from non-volatile memory, or invalid checksum
+			return true; // error reading from non-volatile memory, or invalid checksum
 		}
 	}
 	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
@@ -307,7 +306,7 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
 		sha256WriteByte(&hs, random_bytes[i]);
 	}
 	sha256Finish(&hs);
-	writeHashToByteArray(random_bytes, &hs, 1);
+	writeHashToByteArray(random_bytes, &hs, true);
 
 	// Save the pool state to non-volatile memory immediately as we don't want
 	// it to be possible to reuse the pool state.
@@ -319,7 +318,7 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
 	{
 		if (setEntropyPool(random_bytes))
 		{
-			return 1; // error writing to non-volatile memory
+			return true; // error writing to non-volatile memory
 		}
 	}
 	// Hash the pool twice to generate the random bytes to return.
@@ -335,8 +334,8 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
 		sha256WriteByte(&hs, random_bytes[i]);
 	}
 	sha256FinishDouble(&hs);
-	writeHashToByteArray(n, &hs, 1);
-	return 0; // success
+	writeHashToByteArray(n, &hs, true);
+	return false; // success
 }
 
 /** Version of getRandom256Internal() which uses non-volatile memory to store
@@ -344,9 +343,9 @@ static uint8_t getRandom256Internal(BigNum256 n, uint8_t *pool_state, uint8_t us
   * \param n See getRandom256Internal()
   * \return See getRandom256Internal()
   */
-uint8_t getRandom256(BigNum256 n)
+bool getRandom256(BigNum256 n)
 {
-	return getRandom256Internal(n, NULL, 0);
+	return getRandom256Internal(n, NULL, false);
 }
 
 /** Version of getRandom256Internal() which uses RAM to store
@@ -357,9 +356,9 @@ uint8_t getRandom256(BigNum256 n)
   *                   be both read from and written to.
   * \return See getRandom256Internal()
   */
-uint8_t getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state)
+bool getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state)
 {
-	return getRandom256Internal(n, pool_state, 1);
+	return getRandom256Internal(n, pool_state, true);
 }
 
 /** Use a combination of cryptographic primitives to deterministically
@@ -379,10 +378,10 @@ uint8_t getRandom256TemporaryPool(BigNum256 n, uint8_t *pool_state)
   *             independent).
   * \param num A counter which determines which number the pseudo-random
   *            number generator will output.
-  * \return 0 upon success, non-zero if the specified seed is not valid (will
+  * \return false upon success, true if the specified seed is not valid (will
   *         produce degenerate private keys).
   */
-uint8_t generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint32_t num)
+bool generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint32_t num)
 {
 	BigNum256 i_l;
 	uint8_t k_par[32];
@@ -397,7 +396,7 @@ uint8_t generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint3
 	// will always be 0.
 	if (bigIsZero(k_par))
 	{
-		return 1; // invalid seed
+		return true; // invalid seed
 	}
 	if (!cached_parent_public_key_valid)
 	{
@@ -427,7 +426,7 @@ uint8_t generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint3
 	memcpy(test_chain_code, &(hash[32]), sizeof(test_chain_code));
 #endif // #ifdef TEST_PRANDOM
 
-	return 0; // success
+	return false; // success
 }
 
 #ifdef TEST
@@ -453,8 +452,8 @@ void corruptEntropyPool(void)
 	nonVolatileWrite(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
 }
 
-/** Set this to a non-zero value to simulate the HWRNG breaking. */
-static int broken_hwrng;
+/** Set this to true to simulate the HWRNG breaking. */
+static bool broken_hwrng;
 
 /** The purpose of this "random" byte source is to test the entropy
   * accumulation behaviour of getRandom256().
@@ -594,7 +593,7 @@ static void type2DeterministicTest(uint8_t *seed, uint32_t num)
 
 	// Calculate CKD(x, n) * G.
 	clearParentPublicKeyCache(); // ensure public key cache has been cleared
-	assert(generateDeterministic256(private_key, seed, num) == 0);
+	assert(!generateDeterministic256(private_key, seed, num));
 	setToG(&compare_public_key);
 	pointMultiply(&compare_public_key, private_key);
 	// Calculate CKD'(x * G, n).
@@ -629,7 +628,7 @@ int main(int argc, char **argv)
 	uint8_t r[32];
 	int i, j;
 	int num_samples;
-	int abort;
+	bool abort;
 	int is_broken;
 	unsigned int bytes_written;
 	FILE *f;
@@ -648,24 +647,24 @@ int main(int argc, char **argv)
 	initTests(__FILE__);
 
 	initWalletTest();
-	broken_hwrng = 0;
+	broken_hwrng = false;
 
 	// Before outputting samples, do a sanity check that
 	// generateDeterministic256() actually has different outputs when
 	// each byte of the seed is changed.
-	abort = 0;
+	abort = false;
 	for (i = 0; i < SEED_LENGTH; i++)
 	{
 		memset(seed, 42, SEED_LENGTH); // seed cannot be all 0
 		seed[i] = 1;
 		clearParentPublicKeyCache(); // ensure public key cache has been cleared
-		assert(generateDeterministic256(keys[i], seed, 0) == 0);
+		assert(!generateDeterministic256(keys[i], seed, 0));
 		for (j = 0; j < i; j++)
 		{
 			if (bigCompare(keys[i], keys[j]) == BIGCMP_EQUAL)
 			{
 				printf("generateDeterministic256() is ignoring byte %d of seed\n", i);
-				abort = 1;
+				abort = true;
 				break;
 			}
 		}
@@ -687,14 +686,14 @@ int main(int argc, char **argv)
 	memset(seed, 42, SEED_LENGTH); // seed cannot be all 0
 	seed[0] = 1;
 	clearParentPublicKeyCache(); // ensure public key cache has been cleared
-	assert(generateDeterministic256(key2, seed, 1) == 0);
-	abort = 0;
+	assert(!generateDeterministic256(key2, seed, 1));
+	abort = false;
 	for (j = 0; j < SEED_LENGTH; j++)
 	{
 		if (bigCompare(key2, keys[j]) == BIGCMP_EQUAL)
 		{
 			printf("generateDeterministic256() is ignoring num\n");
-			abort = 1;
+			abort = true;
 			break;
 		}
 	}
@@ -709,7 +708,7 @@ int main(int argc, char **argv)
 
 	// Check that generateDeterministic256() is actually deterministic.
 	clearParentPublicKeyCache(); // ensure public key cache has been cleared
-	assert(generateDeterministic256(key2, seed, 0) == 0);
+	assert(!generateDeterministic256(key2, seed, 0));
 	if (bigCompare(key2, keys[0]) != BIGCMP_EQUAL)
 	{
 		printf("generateDeterministic256() is not deterministic\n");
@@ -726,7 +725,7 @@ int main(int argc, char **argv)
 	for (i = 1; i < SIPA_TEST_ADDRESSES; i++)
 	{
 		clearParentPublicKeyCache(); // ensure public key cache has been cleared
-		assert(generateDeterministic256(key2, seed, (uint32_t)0x12345678) == 0);
+		assert(!generateDeterministic256(key2, seed, (uint32_t)0x12345678));
 		// generateDeterministic256() generates private keys, but the test
 		// vectors include only derived public keys, so the generated private
 		// keys need to be converted into public keys.
@@ -812,7 +811,7 @@ int main(int argc, char **argv)
 
 	// Check that the checksum actually detects modification of the entropy
 	// pool.
-	abort = 0;
+	abort = false;
 	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
 	{
 		nonVolatileRead(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1); // save
@@ -822,7 +821,7 @@ int main(int argc, char **argv)
 		{
 			printf("getEntropyPool() not detecting corruption at i = %d\n", i);
 			reportFailure();
-			abort = 1;
+			abort = true;
 			break;
 		}
 		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1); // restore
@@ -834,7 +833,7 @@ int main(int argc, char **argv)
 
 	// Check that the checksum actually detects modification of the checksum
 	// itself.
-	abort = 0;
+	abort = false;
 	for (i = 0; i < POOL_CHECKSUM_LENGTH; i++)
 	{
 		nonVolatileRead(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1); // save
@@ -844,7 +843,7 @@ int main(int argc, char **argv)
 		{
 			printf("getEntropyPool() not detecting corruption at i = %d\n", i);
 			reportFailure();
-			abort = 1;
+			abort = true;
 			break;
 		}
 		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1); // restore
@@ -857,7 +856,7 @@ int main(int argc, char **argv)
 	// With a known initial pool state and with a broken HWRNG, the random
 	// number generator should produce the same output whether the pool is
 	// stored in non-volatile memory or RAM.
-	broken_hwrng = 1;
+	broken_hwrng = true;
 	memset(pool_state, 42, ENTROPY_POOL_LENGTH);
 	setEntropyPool(pool_state);
 	for (i = 0; i < sizeof(generated_using_nv); i += 32)
@@ -951,11 +950,11 @@ int main(int argc, char **argv)
 	sscanf(argv[2], "%d", &is_broken);
 	if (is_broken)
 	{
-		broken_hwrng = 1;
+		broken_hwrng = true;
 	}
 	else
 	{
-		broken_hwrng = 0;
+		broken_hwrng = false;
 	}
 
 	f = fopen("random.dat", "wb");

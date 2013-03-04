@@ -22,6 +22,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <p32xxxx.h>
 #include "pic32_system.h"
 
@@ -220,11 +221,11 @@ static void configurePeripheralsForSSD1306(void)
 
 /** Write an 8 bit command or data to the SSD1306 by bit-banging GPIO.
   * The PIC32's SPI module isn't used because it can't send 9 bit wide frames.
-  * \param is_data This should be non-zero if value is data, zero if value
+  * \param is_data This should be true if value is data, false if value
   *                is a command.
   * \param value The command or data to write.
   */
-static void writeSPIByte(int is_data, uint8_t value)
+static void writeSPIByte(bool is_data, uint8_t value)
 {
 	uint32_t frame;
 
@@ -242,14 +243,14 @@ static void writeSPIByte(int is_data, uint8_t value)
   * on the screen. */
 void displayOn(void)
 {
-	writeSPIByte(0, 0xaf); // display on
+	writeSPIByte(false, 0xaf); // display on
 }
 
 /** Turn display off. This will cause the SSD1306 controller to enter a
   * low power state. */
 void displayOff(void)
 {
-	writeSPIByte(0, 0xae); // display off
+	writeSPIByte(false, 0xae); // display off
 }
 
 /** Reset and initialise the SSD1306 display controller. This mostly follows
@@ -268,25 +269,25 @@ static void resetSSD1306(void)
 	delayCycles(50 * CYCLES_PER_MICROSECOND); // 50 microseconds just to be sure
 	PORTDSET = OLED_RES;
 	displayOff();
-	writeSPIByte(0, 0xa8); // set multiplex ratio
-	writeSPIByte(0, 0x3f); // multiplex ratio = 64MUX
-	writeSPIByte(0, 0xd3); // set display offset
-	writeSPIByte(0, 0x00); // display offset = 0 (no vertical shift)
-	writeSPIByte(0, 0x40); // set display start line to 0
-	writeSPIByte(0, 0xa1); // set segment re-map to invert horizontally
-	writeSPIByte(0, 0xc8); // set COM scan direction to invert vertically
-	writeSPIByte(0, 0xda); // set COM pins hardware configuration
-	writeSPIByte(0, 0x12); // COM pins hardware configuration = alternative, no left/right remap
-	writeSPIByte(0, 0x81); // set contrast
-	writeSPIByte(0, 0xbf); // contrast = 75%
-	writeSPIByte(0, 0xa4); // disable entire display on
-	writeSPIByte(0, 0xa6); // set normal display
-	writeSPIByte(0, 0xd5); // set oscillator frequency
-	writeSPIByte(0, 0x80); // oscillator frequency = default
-	writeSPIByte(0, 0x8d); // set charge pump
-	writeSPIByte(0, 0x14); // charge pump = on
-	writeSPIByte(0, 0x20); // set memory addressing mode
-	writeSPIByte(0, 0x01); // memory addressing mode = vertical
+	writeSPIByte(false, 0xa8); // set multiplex ratio
+	writeSPIByte(false, 0x3f); // multiplex ratio = 64MUX
+	writeSPIByte(false, 0xd3); // set display offset
+	writeSPIByte(false, 0x00); // display offset = 0 (no vertical shift)
+	writeSPIByte(false, 0x40); // set display start line to 0
+	writeSPIByte(false, 0xa1); // set segment re-map to invert horizontally
+	writeSPIByte(false, 0xc8); // set COM scan direction to invert vertically
+	writeSPIByte(false, 0xda); // set COM pins hardware configuration
+	writeSPIByte(false, 0x12); // COM pins hardware configuration = alternative, no left/right remap
+	writeSPIByte(false, 0x81); // set contrast
+	writeSPIByte(false, 0xbf); // contrast = 75%
+	writeSPIByte(false, 0xa4); // disable entire display on
+	writeSPIByte(false, 0xa6); // set normal display
+	writeSPIByte(false, 0xd5); // set oscillator frequency
+	writeSPIByte(false, 0x80); // oscillator frequency = default
+	writeSPIByte(false, 0x8d); // set charge pump
+	writeSPIByte(false, 0x14); // charge pump = on
+	writeSPIByte(false, 0x20); // set memory addressing mode
+	writeSPIByte(false, 0x01); // memory addressing mode = vertical
 }
 
 /** Clear the display and all associated buffers. */
@@ -296,7 +297,7 @@ void clearDisplay(void)
 
 	for (i = 0; i < 1024; i++)
 	{
-		writeSPIByte(1, 0);
+		writeSPIByte(true, 0);
 	}
 	cursor_line = 0;
 	cursor_pos = 0;
@@ -433,7 +434,7 @@ static void renderDisplay(void)
 				temp_data = lookupFontTable(next_character * CHARACTER_BITS + char_x_offset * CHARACTER_HEIGHT);
 				data |= temp_data << amount;
 			}
-			writeSPIByte(1, data);
+			writeSPIByte(true, data);
 			// Prepare for next byte.
 			char_y_offset += 8;
 			if (char_y_offset >= CHARACTER_HEIGHT)
@@ -558,13 +559,13 @@ void writeStringToDisplayWordWrap(const char *str)
 }
 
 /** Queries whether the cursor is at (or past) the end of the display.
-  * \return Non-zero if the cursor is at (or past) the end, 0 if not.
+  * \return Whether the cursor is at (or past) the end.
   */
-int displayCursorAtEnd(void)
+bool displayCursorAtEnd(void)
 {
 	if (cursor_line >= NUMBER_OF_LINES)
 	{
-		return 1; // cursor is past last line
+		return true; // cursor is past last line
 	}
 	else
 	{
@@ -572,16 +573,16 @@ int displayCursorAtEnd(void)
 		{
 			if (cursor_pos >= CHARACTERS_PER_LINE)
 			{
-				return 1; // cursor is past end of last line
+				return true; // cursor is past end of last line
 			}
 			else
 			{
-				return 0;
+				return false;
 			}
 		}
 		else
 		{
-			return 0;
+			return false;
 		}
 	}
 }

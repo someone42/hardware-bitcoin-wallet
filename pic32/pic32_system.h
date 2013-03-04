@@ -9,6 +9,7 @@
 #define	PIC32_SYSTEM_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /** Virtual addresses are addresses used internally by the CPU to access
   * memory and peripherals. When passing addresses from the CPU to
@@ -28,7 +29,7 @@ extern void __attribute__((nomips16)) restoreInterrupts(uint32_t status);
 extern void __attribute__((nomips16)) delayCycles(uint32_t num_cycles);
 extern void __attribute__((nomips16)) delayCyclesAndIdle(uint32_t num_cycles);
 extern void __attribute__((nomips16)) enterIdleMode(void);
-extern void suppressIdleMode(int do_suppress);
+extern void suppressIdleMode(bool do_suppress);
 extern void pic32SystemInit(void);
 extern void usbActivityLED(void);
 

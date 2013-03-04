@@ -38,10 +38,10 @@
   */
 #define SAMPLE_SCALE_DOWN			64
 
-extern int histogram_overflow;
+extern bool histogram_overflow_occurred;
 extern uint32_t samples_in_histogram;
 extern fix16_t psd_accumulator[FFT_SIZE + 1];
-extern uint8_t psd_accumulator_error;
+extern bool psd_accumulator_error_occurred;
 
 extern void clearHistogram(void);
 extern void incrementHistogram(uint32_t index);
@@ -51,6 +51,6 @@ extern fix16_t estimateEntropy(void);
 extern void subtractMeanFromFftBuffer(ComplexFixed *fft_buffer);
 extern void clearPowerSpectralDensity(void);
 extern void accumulatePowerSpectralDensity(volatile uint16_t *source_buffer);
-extern int calculateAutoCorrelation(ComplexFixed *fft_buffer);
+extern bool calculateAutoCorrelation(ComplexFixed *fft_buffer);
 
 #endif // #ifndef STATISTICS_H_INCLUDED

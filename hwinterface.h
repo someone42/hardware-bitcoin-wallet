@@ -28,7 +28,8 @@ typedef enum NonVolatileReturnEnum
 	NV_IO_ERROR					=	2,
 } NonVolatileReturn;
 
-/** Values for askUser() function which specify what to ask the user about. */
+/** Values for userDenied() function which specify what to ask the user
+  * about. */
 typedef enum AskUserCommandEnum
 {
 	/** Do you want to nuke the current wallet and start afresh? */
@@ -144,10 +145,10 @@ extern void streamPutOneByte(uint8_t one_byte);
   *                    such as "0.01".
   * \param text_address The output address, as a null-terminated text string
   *                     such as "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn".
-  * \return 0 if no error occurred, non-zero if there was not enough space to
+  * \return false if no error occurred, true if there was not enough space to
   *         store the amount/address pair.
   */
-extern uint8_t newOutputSeen(char *text_amount, char *text_address);
+extern bool newOutputSeen(char *text_amount, char *text_address);
 /** Notify the user interface that the transaction parser has seen the
   * transaction fee. If there is no transaction fee, the transaction parser
   * will not call this.
@@ -170,9 +171,9 @@ extern void clearOutputsSeen(void);
 extern void displayAddress(char *address, uint8_t num_sigs, uint8_t num_pubkeys);
 /** Ask user if they want to allow some action.
   * \param command The action to ask the user about. See #AskUserCommandEnum.
-  * \return 0 if the user accepted, non-zero if the user denied.
+  * \return false if the user accepted, true if the user denied.
   */
-extern uint8_t askUser(AskUserCommand command);
+extern bool userDenied(AskUserCommand command);
 
 /** Fill buffer with 32 random bytes from a hardware random number generator.
   * \param buffer The buffer to fill. This should have enough space for 32
@@ -223,13 +224,12 @@ extern void sanitiseRam(void);
   * example would be displaying the seed as a hexadecimal string on a LCD.
   * \param seed A byte array of length #SEED_LENGTH bytes which contains the
   *             backup seed.
-  * \param is_encrypted Specifies whether the seed has been encrypted
-  *                     (non-zero) or not (zero).
+  * \param is_encrypted Specifies whether the seed has been encrypted.
   * \param destination_device Specifies which (platform-dependent) device the
   *                           backup seed should be sent to.
-  * \return 0 on success, or non-zero if the backup seed could not be written
+  * \return false on success, true if the backup seed could not be written
   *         to the destination device.
   */
-extern uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination_device);
+extern bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint8_t destination_device);
 
 #endif // #ifndef HWINTERFACE_H_INCLUDED

@@ -70,7 +70,7 @@ void UART_IRQHandler(void)
 		// Move bytes from RBR into circular buffer until hardware FIFO is empty.
 		while (LPC_USART->LSR & 0x01)
 		{
-			circularBufferWrite(&receive_buffer, (uint8_t)(LPC_USART->RBR), 1);
+			circularBufferWrite(&receive_buffer, (uint8_t)(LPC_USART->RBR), true);
 		}
 	}
 	else if (source == 1)
@@ -79,7 +79,7 @@ void UART_IRQHandler(void)
 		if (!isCircularBufferEmpty(&transmit_buffer) && (LPC_USART->LSR & 0x20))
 		{
 			// There's data to send and THR is empty.
-			LPC_USART->THR = circularBufferRead(&transmit_buffer, 1);
+			LPC_USART->THR = circularBufferRead(&transmit_buffer, true);
 		}
 	}
 	else
@@ -104,7 +104,7 @@ void serialSendNotify(void)
 	if (!isCircularBufferEmpty(&transmit_buffer) && (LPC_USART->LSR & 0x20))
 	{
 		// There's data to send and THR is empty.
-		LPC_USART->THR = circularBufferRead(&transmit_buffer, 0);
+		LPC_USART->THR = circularBufferRead(&transmit_buffer, false);
 		// Warning: circularBufferRead() enables interrupts.
 	}
 	__enable_irq();

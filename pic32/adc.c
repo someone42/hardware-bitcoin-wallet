@@ -12,8 +12,8 @@
   *
   * The results of conversions are written into #adc_sample_buffer using DMA
   * transfers. To begin a series of conversions, call beginFillingADCBuffer(),
-  * then wait until isADCBufferFull() returns a non-zero
-  * value. #adc_sample_buffer will then contain #ADC_SAMPLE_BUFFER_SIZE
+  * then wait until isADCBufferFull() returns
+  * true. #adc_sample_buffer will then contain #ADC_SAMPLE_BUFFER_SIZE
   * samples. This interface allows one buffer of samples to be collected while
   * the previous one is processed, which speeds up entropy collection.
   *
@@ -33,7 +33,7 @@
 #include "pic32_system.h"
 
 /** A place to store samples from the ADC. When isADCBufferFull() returns
-  * a non-zero value, every entry in this array will be filled with ADC samples
+  * true, every entry in this array will be filled with ADC samples
   * taken periodically. */
 volatile uint16_t adc_sample_buffer[ADC_SAMPLE_BUFFER_SIZE];
 
@@ -144,9 +144,16 @@ void beginFillingADCBuffer(void)
 }
 
 /** Check whether ADC buffer (#adc_sample_buffer) is full.
-  * \return 0 if ADC buffer is not full, non-zero if it is.
+  * \return false if ADC buffer is not full, true if it is.
   */
-int isADCBufferFull(void)
+bool isADCBufferFull(void)
 {
-	return DCH0INTbits.CHBCIF;
+	if (DCH0INTbits.CHBCIF != 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }

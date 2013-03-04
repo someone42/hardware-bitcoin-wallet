@@ -20,11 +20,13 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "../fix16.h"
 #include "../fft.h"
 #include "../statistics.h"
 #include "hwrng_limits.h"
 #include "adc.h"
+#include "pic32_system.h"
 
 #ifdef TEST_STATISTICS
 #include "ssd1306.h"
@@ -77,13 +79,13 @@ static const int32_t fir_lowpass_coefficients[FILTER_ORDER] = {
   * been applied. */
 static volatile uint16_t decimated_sample_buffer[DECIMATED_SAMPLE_BUFFER_SIZE];
 
-/** This will be zero if the next sample to be returned by
+/** This will be false if the next sample to be returned by
   * hardwareRandom32Bytes() is the first sample to be placed in a histogram
-  * bin. This will be non-zero if that next sample is not the first
+  * bin. This will be true if that next sample is not the first
   * sample to be placed in a histogram bin. This variable was defined in
-  * that way so that it is initially 0.
+  * that way so that it is initially false.
   */
-static int is_not_first_in_histogram;
+static bool is_not_first_in_histogram;
 /** Number of samples in the sample buffer that hardwareRandom32Bytes() has
   * used up. */
 static uint32_t sample_buffer_consumed;
@@ -202,8 +204,8 @@ static fix16_t findMaximumAutoCorrelation(ComplexFixed *fft_buffer)
 static NOINLINE uint32_t histogramTestsFailed(fix16_t *variance)
 {
 	uint32_t tests_failed;
-	int moment_error;
-	int entropy_error;
+	bool moment_error_occurred;
+	bool entropy_error_occurred;
 	fix16_t mean;
 	fix16_t kappa3; // non-standardised skewness
 	fix16_t kappa4; // non-standardised kurtosis
@@ -214,15 +216,15 @@ static NOINLINE uint32_t histogramTestsFailed(fix16_t *variance)
 	fix16_t term1;
 	fix16_t entropy_estimate;
 
-	fix16_error_flag = 0;
+	fix16_error_occurred = false;
 	mean = calculateCentralMoment(fix16_zero, 1);
 	*variance = calculateCentralMoment(mean, 2);
 	kappa3 = calculateCentralMoment(mean, 3);
 	kappa4 = calculateCentralMoment(mean, 4);
-	moment_error = fix16_error_flag;
-	fix16_error_flag = 0;
+	moment_error_occurred = fix16_error_occurred;
+	fix16_error_occurred = false;
 	entropy_estimate = estimateEntropy();
-	entropy_error = fix16_error_flag;
+	entropy_error_occurred = fix16_error_occurred;
 
 #ifdef TEST_STATISTICS
 	most_recent_mean = mean;
@@ -279,7 +281,7 @@ static NOINLINE uint32_t histogramTestsFailed(fix16_t *variance)
 	{
 		tests_failed |= 8; // kurtosis above maximum
 	}
-	if (moment_error || histogram_overflow)
+	if (moment_error_occurred || histogram_overflow_occurred)
 	{
 		tests_failed |= 15; // arithmetic error (probably overflow)
 	}
@@ -287,7 +289,7 @@ static NOINLINE uint32_t histogramTestsFailed(fix16_t *variance)
 	{
 		tests_failed |= 128; // entropy per sample below minimum
 	}
-	if (entropy_error)
+	if (entropy_error_occurred)
 	{
 		tests_failed |= 128; // arithmetic error (probably overflow)
 	}
@@ -304,16 +306,15 @@ static NOINLINE uint32_t histogramTestsFailed(fix16_t *variance)
 static NOINLINE uint32_t fftTestsFailed(fix16_t variance)
 {
 	uint32_t tests_failed;
-	int autocorrelation_error;
+	bool autocorrelation_error_occurred;
 	int bandwidth; // as FFT bin number
 	int max_bin; // as FFT bin number
 	fix16_t max_autocorrelation;
 	ComplexFixed fft_buffer[FFT_SIZE + 1];
 
-	fix16_error_flag = 0;
 	bandwidth = estimateBandwidth(&max_bin);
-	fix16_error_flag = 0;
-	autocorrelation_error = calculateAutoCorrelation(fft_buffer);
+	fix16_error_occurred = false;
+	autocorrelation_error_occurred = calculateAutoCorrelation(fft_buffer);
 	max_autocorrelation = findMaximumAutoCorrelation(fft_buffer);
 
 #ifdef TEST_STATISTICS
@@ -340,7 +341,7 @@ static NOINLINE uint32_t fftTestsFailed(fix16_t variance)
 	{
 		tests_failed |= 32; // bandwidth of HWRNG below minimum
 	}
-	if (psd_accumulator_error)
+	if (psd_accumulator_error_occurred)
 	{
 		tests_failed |= 48; // arithmetic error (probably overflow)
 	}
@@ -348,7 +349,7 @@ static NOINLINE uint32_t fftTestsFailed(fix16_t variance)
 	{
 		tests_failed |= 64; // maximum autocorrelation amplitude above maximum
 	}
-	if (autocorrelation_error)
+	if (autocorrelation_error_occurred)
 	{
 		tests_failed |= 64; // arithmetic error (probably overflow)
 	}
@@ -409,18 +410,18 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 		// empty, since this may be the first call to hardwareRandom32Bytes()
 		// after power-on.
 		sample_buffer_consumed = 0;
-		is_not_first_in_histogram = 1;
+		is_not_first_in_histogram = true;
 	}
 	if (sample_buffer_consumed == 0)
 	{
 		// Need to wait until next sample buffer has been filled.
-		suppressIdleMode(1); // start suppressing CPU idle mode
+		suppressIdleMode(true); // start suppressing CPU idle mode
 		beginFillingADCBuffer();
 		while (!isADCBufferFull())
 		{
 			// do nothing
 		}
-		suppressIdleMode(0); // stop suppressing CPU idle mode
+		suppressIdleMode(false); // stop suppressing CPU idle mode
 		// Filter ADC samples, placing result into decimated_sample_buffer.
 		for (i = 0; i < DECIMATED_SAMPLE_BUFFER_SIZE; i++)
 		{
@@ -465,7 +466,7 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 	if (samples_in_histogram >= SAMPLE_COUNT)
 	{
 		// Histogram is full. Statistical properties can now be calculated.
-		is_not_first_in_histogram = 0;
+		is_not_first_in_histogram = false;
 		tests_failed = histogramTestsFailed(&variance);
 		tests_failed |= fftTestsFailed(variance);
 #ifdef TEST_STATISTICS
@@ -500,7 +501,7 @@ int hardwareRandom32Bytes(uint8_t *buffer)
   */
 static void sprintFix16(char *buffer, fix16_t in)
 {
-	int suppress_leading_zeroes;
+	bool suppress_leading_zeroes;
 	int i;
 	int index;
 	uint32_t int_part;
@@ -523,13 +524,13 @@ static void sprintFix16(char *buffer, fix16_t in)
 		int_part = int_part / 10;
 		temp[i] = (char)(digit + '0');
 	}
-	suppress_leading_zeroes = 1;
+	suppress_leading_zeroes = true;
 	for (i = 0; i < 5; i++)
 	{
 		if (!suppress_leading_zeroes || (temp[4 - i] != '0'))
 		{
 			buffer[index++] = temp[4 - i];
-			suppress_leading_zeroes = 0;
+			suppress_leading_zeroes = false;
 		}
 	}
 	// If integer part is 0, include one leading zero.
@@ -795,7 +796,7 @@ void __attribute__ ((nomips16)) testStatistics(void)
 		{
 			report_to_stream = 0;
 		}
-		while(1)
+		while (true)
 		{
 			hardwareRandom32Bytes(random_bytes);
 			if (!report_to_stream)
@@ -811,7 +812,7 @@ void __attribute__ ((nomips16)) testStatistics(void)
 	} // end if ((mode >= 'A') && (mode <= 'Z'))
 	else
 	{
-		while(1)
+		while (true)
 		{
 			clearHistogram();
 			for (i = 0; i < SAMPLE_COUNT; i++)
@@ -843,7 +844,7 @@ void __attribute__ ((nomips16)) testStatistics(void)
 			{
 				streamPutOneByte(buffer[i]);
 			}
-		} // end while(1)
+		} // end while (true)
 	} // end else clause of if ((mode >= 'A') && (mode <= 'Z'))
 }
 

@@ -12,7 +12,7 @@
   *
   * The results of conversions go into #adc_sample_buffer. To begin a series
   * of conversions, call beginFillingADCBuffer(), then wait
-  * until #sample_buffer_full is non-zero. #adc_sample_buffer will then
+  * until #sample_buffer_full is true. #adc_sample_buffer will then
   * contain #SAMPLE_BUFFER_SIZE samples. This interface allows one buffer of
   * samples to be collected while the previous one is processed, which speeds
   * up entropy collection.
@@ -27,14 +27,13 @@
 #include "adc.h"
 
 /** A place to store samples from the ADC. When #sample_buffer_full is
-  * non-zero, every entry in this array will be filled with ADC samples
+  * true, every entry in this array will be filled with ADC samples
   * taken periodically. */
 volatile uint16_t adc_sample_buffer[SAMPLE_BUFFER_SIZE];
 /** Index into #sample_buffer where the next sample will be written. */
 static volatile uint32_t sample_buffer_current_index;
-/** This will be zero if #sample_buffer is not full. This will be non-zero
-  * if #sample_buffer is full. */
-volatile int sample_buffer_full;
+/** Whether #sample_buffer is full.  */
+volatile bool sample_buffer_full;
 
 /** Set up ADC to sample from AD5 (pin 19 on mbed) periodically using the
   * 32-bit counter CT32B0. */
@@ -68,7 +67,7 @@ void ADC_IRQHandler(void)
 	if (sample_buffer_current_index >= SAMPLE_BUFFER_SIZE)
 	{
 		LPC_CT32B0->TCR = 0; // disable timer
-		sample_buffer_full = 1;
+		sample_buffer_full = true;
 	}
 	else
 	{
@@ -91,7 +90,7 @@ void beginFillingADCBuffer(void)
 {
 	__disable_irq();
 	sample_buffer_current_index = 0;
-	sample_buffer_full = 0;
+	sample_buffer_full = false;
 	LPC_CT32B0->TCR = 1; // enable timer
 	__enable_irq();
 }

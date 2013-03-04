@@ -21,13 +21,13 @@
 #include "../hwinterface.h"
 #include "sst25x.h"
 
-/** Whether write cache is valid (non-zero) or not (zero). */
-static int write_cache_valid;
+/** Whether write cache is valid. */
+static bool write_cache_valid;
 /** Sector address of current contents of write cache. This is only
-  * well-defined if #write_cache_valid is non-zero. */
+  * well-defined if #write_cache_valid is true. */
 static uint32_t write_cache_tag;
 /** Current contents of write cache. This is only well-defined
-  * if #write_cache_valid is non-zero. */
+  * if #write_cache_valid is true. */
 static uint8_t write_cache[SECTOR_SIZE];
 
 /** Bitmask applied to addresses to get the sector address. */
@@ -75,7 +75,7 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t len
 					return r;
 				}
 			}
-			write_cache_valid = 1;
+			write_cache_valid = true;
 			write_cache_tag = address_tag;
 			sst25xRead(write_cache, address_tag, SECTOR_SIZE);
 		}
@@ -185,7 +185,7 @@ NonVolatileReturn nonVolatileFlush(void)
 			return NV_IO_ERROR; // program did not complete properly
 		}
 
-		write_cache_valid = 0;
+		write_cache_valid = false;
 		write_cache_tag = 0;
 		memset(write_cache, 0, sizeof(write_cache));
 	}

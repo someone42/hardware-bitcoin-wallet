@@ -49,9 +49,9 @@
   * if it has more than one input), the user doesn't have to approve every
   * one. */
 static uint8_t prev_transaction_hash[32];
-/** 0 means disregard #prev_transaction_hash, non-zero means
+/** false means disregard #prev_transaction_hash, true means
   * that #prev_transaction_hash is valid. */
-static uint8_t prev_transaction_hash_valid;
+static bool prev_transaction_hash_valid;
 
 /** Length of current packet's payload. */
 static uint32_t payload_length;
@@ -172,9 +172,7 @@ static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *s
 
 /** Read a transaction from the stream, parse it and ask the user
   * if they approve it.
-  * \param out_approved A non-zero value will be written to here if the
-  *                     user approved the transaction, otherwise a zero value
-  *                     will be written.
+  * \param out_approved Whether the user approved the transaction.
   * \param sig_hash The signature hash of the transaction will be written to
   *                 here by parseTransaction(). This must be an array of 32
   *                 bytes.
@@ -182,13 +180,13 @@ static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *s
   *                           bytes. This can be derived from the payload
   *                           length of a packet.
   */
-static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_hash, uint32_t transaction_length)
+static NOINLINE void parseTransactionAndAsk(bool *out_approved, uint8_t *sig_hash, uint32_t transaction_length)
 {
 	TransactionErrors r;
 	uint8_t transaction_hash[32];
 
 	// Validate transaction and calculate hashes of it.
-	*out_approved = 0;
+	*out_approved = false;
 	clearOutputsSeen();
 	r = parseTransaction(sig_hash, transaction_hash, transaction_length);
 	if (r != TRANSACTION_NO_ERROR)
@@ -199,13 +197,13 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 	}
 
 	// Get permission from user.
-	*out_approved = 0;
+	*out_approved = false;
 	// Does transaction_hash match previous approved transaction?
 	if (prev_transaction_hash_valid)
 	{
 		if (bigCompare(transaction_hash, prev_transaction_hash) == BIGCMP_EQUAL)
 		{
-			*out_approved = 1;
+			*out_approved = true;
 		}
 	}
 	if (!(*out_approved))
@@ -213,16 +211,16 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
 		// Need to explicitly get permission from user.
 		// The call to parseTransaction() should have logged all the outputs
 		// to the user interface.
-		if (askUser(ASKUSER_SIGN_TRANSACTION))
+		if (userDenied(ASKUSER_SIGN_TRANSACTION))
 		{
 			writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 		}
 		else
 		{
 			// User approved transaction.
-			*out_approved = 1;
+			*out_approved = true;
 			memcpy(prev_transaction_hash, transaction_hash, 32);
-			prev_transaction_hash_valid = 1;
+			prev_transaction_hash_valid = true;
 		}
 	} // if (!(*out_approved))
 }
@@ -241,10 +239,10 @@ static NOINLINE void parseTransactionAndAsk(uint8_t *out_approved, uint8_t *sig_
   */
 static NOINLINE void validateAndSignTransaction(AddressHandle ah, uint32_t transaction_length)
 {
-	uint8_t approved;
+	bool approved;
 	uint8_t sig_hash[32];
 
-	approved = 0;
+	approved = false;
 	parseTransactionAndAsk(&approved, sig_hash, transaction_length);
 	if (approved)
 	{
@@ -257,14 +255,14 @@ static NOINLINE void validateAndSignTransaction(AddressHandle ah, uint32_t trans
   * This can generate new addresses as well as obtain old addresses. Both
   * use cases were combined into one function because they involve similar
   * processes.
-  * \param generate_new If this is non-zero, a new address will be generated
+  * \param generate_new If this is true, a new address will be generated
   *                     and the address handle of the generated address will
   *                     be prepended to the output packet.
-  *                     If this is zero, the address handle will be read from
+  *                     If this is false, the address handle will be read from
   *                     the input stream. No address handle will be prepended
   *                     to the output packet.
   */
-static NOINLINE void getAndSendAddressAndPublicKey(uint8_t generate_new)
+static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new)
 {
 	AddressHandle ah;
 	PointAffine public_key;
@@ -372,10 +370,9 @@ static NOINLINE void listWallets(void)
 /** Read name and seed from input stream and restore a wallet using those
   * values. This also prompts the user for approval of the action.
   * \param wallet_spec The wallet number of the wallet to restore.
-  * \param make_hidden Whether to make the restored wallet a hidden wallet
-  *                    (non-zero) or not (zero).
+  * \param make_hidden Whether to make the restored wallet a hidden wallet.
   */
-static NOINLINE void restoreWallet(uint32_t wallet_spec, uint8_t make_hidden)
+static NOINLINE void restoreWallet(uint32_t wallet_spec, bool make_hidden)
 {
 	WalletErrors wallet_return;
 	uint8_t name[NAME_LENGTH];
@@ -383,16 +380,16 @@ static NOINLINE void restoreWallet(uint32_t wallet_spec, uint8_t make_hidden)
 
 	getBytesFromStream(name, NAME_LENGTH);
 	getBytesFromStream(seed, SEED_LENGTH);
-	// askUser() has to be called here (and not processPacket()) because name
-	// and seed must be read from the stream before we're allowed to send
+	// userDenied() has to be called here (and not processPacket()) because
+	// name and seed must be read from the stream before we're allowed to send
 	// anything.
-	if (askUser(ASKUSER_RESTORE_WALLET))
+	if (userDenied(ASKUSER_RESTORE_WALLET))
 	{
 		writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 	}
 	else
 	{
-		wallet_return = newWallet(wallet_spec, name, 1, seed, make_hidden);
+		wallet_return = newWallet(wallet_spec, name, true, seed, make_hidden);
 		translateWalletError(wallet_return, 0, NULL);
 	}
 }
@@ -480,19 +477,19 @@ static void readAndIgnoreInput(void)
   * the file PROTOCOL.
   * \param desired_length The expected payload length (in bytes) of the packet
   *                       currently being received from the stream device.
-  * \return 0 for success, 1 for payload length != desired_length.
+  * \return false for success, true for payload length != desired_length.
   */
-static uint8_t expectLength(const uint8_t desired_length)
+static bool expectLength(const uint8_t desired_length)
 {
 	if (payload_length != desired_length)
 	{
 		readAndIgnoreInput();
 		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
-		return 1; // mismatched length
+		return true; // mismatched length
 	}
 	else
 	{
-		return 0; // success
+		return false; // success
 	}
 }
 
@@ -514,7 +511,9 @@ void processPacket(void)
 	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
 	// right mind would use encryption with smaller than 32 bit keys.
 	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, MAX(ENTROPY_POOL_LENGTH, UUID_LENGTH)))];
-	uint8_t make_hidden;
+	uint8_t make_hidden_byte;
+	bool make_hidden;
+	bool do_encrypt;
 	uint32_t wallet_spec;
 	uint32_t num_addresses;
 	uint32_t num_bytes;
@@ -553,17 +552,25 @@ void processPacket(void)
 		{
 			getBytesFromStream(buffer, 4);
 			wallet_spec = readU32LittleEndian(buffer);
-			getBytesFromStream(&make_hidden, 1);
+			getBytesFromStream(&make_hidden_byte, 1);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
 			getBytesFromStream(buffer, NAME_LENGTH);
-			if (askUser(ASKUSER_NUKE_WALLET))
+			if (userDenied(ASKUSER_NUKE_WALLET))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
-				wallet_return = newWallet(wallet_spec, buffer, 0, NULL, make_hidden);
+				if (make_hidden_byte != 0)
+				{
+					make_hidden = true;
+				}
+				else
+				{
+					make_hidden = false;
+				}
+				wallet_return = newWallet(wallet_spec, buffer, false, NULL, make_hidden);
 				translateWalletError(wallet_return, 0, NULL);
 			}
 		}
@@ -573,13 +580,13 @@ void processPacket(void)
 		// Create new address in wallet.
 		if (!expectLength(0))
 		{
-			if (askUser(ASKUSER_NEW_ADDRESS))
+			if (userDenied(ASKUSER_NEW_ADDRESS))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
-				getAndSendAddressAndPublicKey(1);
+				getAndSendAddressAndPublicKey(true);
 			}
 		}
 		break;
@@ -599,7 +606,7 @@ void processPacket(void)
 		// Get address and public key corresponding to an address handle.
 		if (!expectLength(4))
 		{
-			getAndSendAddressAndPublicKey(0);
+			getAndSendAddressAndPublicKey(false);
 		}
 		break;
 
@@ -638,7 +645,7 @@ void processPacket(void)
 		// Unload wallet.
 		if (!expectLength(0))
 		{
-			prev_transaction_hash_valid = 0;
+			prev_transaction_hash_valid = false;
 			clearEncryptionKey();
 			sanitiseRam();
 			memset(buffer, 0xff, sizeof(buffer));
@@ -653,7 +660,7 @@ void processPacket(void)
 		if (!expectLength(ENTROPY_POOL_LENGTH))
 		{
 			getBytesFromStream(buffer, ENTROPY_POOL_LENGTH);
-			if (askUser(ASKUSER_FORMAT))
+			if (userDenied(ASKUSER_FORMAT))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
@@ -678,7 +685,7 @@ void processPacket(void)
 		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
 		{
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
-			if (askUser(ASKUSER_CHANGE_KEY))
+			if (userDenied(ASKUSER_CHANGE_KEY))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
@@ -695,7 +702,7 @@ void processPacket(void)
 		if (!expectLength(NAME_LENGTH))
 		{
 			getBytesFromStream(buffer, NAME_LENGTH);
-			if (askUser(ASKUSER_CHANGE_NAME))
+			if (userDenied(ASKUSER_CHANGE_NAME))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
@@ -720,13 +727,21 @@ void processPacket(void)
 		if (!expectLength(2))
 		{
 			getBytesFromStream(buffer, 2);
-			if (askUser(ASKUSER_BACKUP_WALLET))
+			if (userDenied(ASKUSER_BACKUP_WALLET))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
 			else
 			{
-				wallet_return = backupWallet(buffer[0], buffer[1]);
+				if(buffer[0] != 0)
+				{
+					do_encrypt = true;
+				}
+				else
+				{
+					do_encrypt = false;
+				}
+				wallet_return = backupWallet(do_encrypt, buffer[1]);
 				translateWalletError(wallet_return, 0, NULL);
 			}
 		}
@@ -738,9 +753,17 @@ void processPacket(void)
 		{
 			getBytesFromStream(buffer, 4);
 			wallet_spec = readU32LittleEndian(buffer);
-			getBytesFromStream(&make_hidden, 1);
+			getBytesFromStream(&make_hidden_byte, 1);
 			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
 			setEncryptionKey(buffer);
+			if (make_hidden_byte != 0)
+			{
+				make_hidden = true;
+			}
+			else
+			{
+				make_hidden = false;
+			}
 			restoreWallet(wallet_spec, make_hidden);
 		}
 		break;
@@ -775,7 +798,7 @@ void processPacket(void)
 		// Get master public key and chain code.
 		if (!expectLength(0))
 		{
-			if (askUser(ASKUSER_GET_MASTER_KEY))
+			if (userDenied(ASKUSER_GET_MASTER_KEY))
 			{
 				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
 			}
@@ -808,9 +831,8 @@ static uint8_t *stream;
 static uint32_t stream_ptr;
 /** Length of the test stream, in number of bytes. */
 static uint32_t stream_length;
-/** Whether (non-zero) or not (zero) to use a test stream consisting of an
-  * infinite stream of zeroes. */
-static int is_infinite_zero_stream;
+/** Whether to use a test stream consisting of an infinite stream of zeroes. */
+static bool is_infinite_zero_stream;
 
 /** Sets input stream (what will be read by streamGetOneByte()) to the
   * contents of a buffer.
@@ -828,14 +850,14 @@ void setTestInputStream(const uint8_t *buffer, uint32_t length)
 	memcpy(stream, buffer, length);
 	stream_length = length;
 	stream_ptr = 0;
-	is_infinite_zero_stream = 0;
+	is_infinite_zero_stream = false;
 }
 
 /** Sets the input stream (what will be read by streamGetOneByte()) to an
   * infinite stream of zeroes. */
 void setInfiniteZeroInputStream(void)
 {
-	is_infinite_zero_stream = 1;
+	is_infinite_zero_stream = true;
 }
 
 /** Get one byte from the contents of the buffer set by setTestInputStream().
@@ -917,6 +939,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 		case WALLET_NOT_THERE:
 			return "Wallet doesn't exist";
 			break;
+		case WALLET_NOT_LOADED:
+			return "Wallet not loaded";
+			break;
 		case WALLET_INVALID_HANDLE:
 			return "Invalid address handle";
 			break;
@@ -957,6 +982,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case TRANSACTION_INVALID_AMOUNT:
 			return "Invalid output amount in transaction";
+			break;
+		case TRANSACTION_INVALID_REFERENCE:
+			return "Invalid transaction reference";
 			break;
 		default:
 			assert(0);
@@ -1005,9 +1033,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 
 /** Ask user if they want to allow some action.
   * \param command The action to ask the user about. See #AskUserCommandEnum.
-  * \return 0 if the user accepted, non-zero if the user denied.
+  * \return false if the user accepted, true if the user denied.
   */
-uint8_t askUser(AskUserCommand command)
+bool userDenied(AskUserCommand command)
 {
 	int c;
 
@@ -1045,7 +1073,7 @@ uint8_t askUser(AskUserCommand command)
 		// GCC is smart enough to realise that the following line will never
 		// be executed.
 #ifndef __GNUC__
-		return 1;
+		return true;
 #endif // #ifndef __GNUC__
 	}
 	printf("y/[n]: ");
@@ -1055,11 +1083,11 @@ uint8_t askUser(AskUserCommand command)
 	} while ((c == '\n') || (c == '\r'));
 	if ((c == 'y') || (c == 'Y'))
 	{
-		return 0;
+		return false;
 	}
 	else
 	{
-		return 1;
+		return true;
 	}
 }
 

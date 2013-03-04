@@ -32,6 +32,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "usb_hal.h"
 #include "usb_defs.h"
 #include "usb_callbacks.h"
@@ -76,9 +77,9 @@ static const uint8_t null_packet[4];
   * "Status stage" of the control transfer. */
 static uint8_t status_packet[2];
 
-/** If this is non-zero, then the device address will be switched
+/** If this is true, then the device address will be switched
   * to #new_address upon the completion of the next Status stage. */
-static unsigned int do_set_new_address;
+static bool do_set_new_address;
 
 /** The device address to switch to upon completion of the next Status
   * stage. */
@@ -89,10 +90,10 @@ static unsigned int new_address;
   * and "Get Configuration" standard requests, respectively. */
 static uint8_t current_configuration_value;
 
-/** If this is non-zero, then the next receive queue for the control endpoint
+/** If this is true, then the next receive queue for the control endpoint
   * will be suppressed. See usbSuppressControlReceive() for more details on why
   * this may be a good idea. */
-static unsigned int do_suppress_next_control_receive;
+static bool do_suppress_next_control_receive;
 
 /** Discard the current control transfer and prepare to deal with a new
   * one. */
@@ -100,9 +101,9 @@ static void abortControlTransfer(void)
 {
 	usbClassAbortControlTransfer();
 	current_stage = STAGE_SETUP;
-	do_set_new_address = 0;
+	do_set_new_address = false;
 	new_address = 0;
-	do_suppress_next_control_receive = 0;
+	do_suppress_next_control_receive = false;
 }
 
 /** This will be called whenever a USB reset is seen. */
@@ -145,7 +146,7 @@ void usbControlNextStage(void)
 		if (do_set_new_address)
 		{
 			usbSetDeviceAddress(new_address);
-			do_set_new_address = 0;
+			do_set_new_address = false;
 		}
 		current_stage = STAGE_SETUP;
 	}
@@ -162,24 +163,24 @@ void usbControlNextStage(void)
   */
 static void getDescriptor(uint8_t type, uint8_t index, uint16_t lang_id, uint16_t request_length)
 {
-	unsigned int valid; // set this only after packet_buffer/length are set
+	bool valid; // set this only after packet_buffer/length are set
 	const uint8_t *packet_buffer;
 	uint32_t packet_length;
 
 	packet_buffer = null_packet;
 	packet_length = 0;
-	valid = 0;
+	valid = false;
 	if ((type == DESCRIPTOR_DEVICE) && (index == 0) && (lang_id == 0))
 	{
 		packet_buffer = device_descriptor;
 		packet_length = sizeof(device_descriptor);
-		valid = 1;
+		valid = true;
 	}
 	else if ((type == DESCRIPTOR_CONFIGURATION) && (index == 0) && (lang_id == 0))
 	{
 		packet_buffer = configuration_descriptor;
 		packet_length = sizeof(configuration_descriptor);
-		valid = 1;
+		valid = true;
 	}
 	else if (type == DESCRIPTOR_STRING)
 	{
@@ -187,7 +188,7 @@ static void getDescriptor(uint8_t type, uint8_t index, uint16_t lang_id, uint16_
 		{
 			packet_buffer = lang_id_list;
 			packet_length = sizeof(lang_id_list);
-			valid = 1;
+			valid = true;
 		}
 		else
 		{
@@ -200,19 +201,19 @@ static void getDescriptor(uint8_t type, uint8_t index, uint16_t lang_id, uint16_
 				{
 					packet_buffer = manufacturer_string;
 					packet_length = sizeof(manufacturer_string);
-					valid = 1;
+					valid = true;
 				}
 				else if (index == PRODUCT_STRING_INDEX)
 				{
 					packet_buffer = product_string;
 					packet_length = sizeof(product_string);
-					valid = 1;
+					valid = true;
 				}
 				else if (index == SERIAL_NO_STRING_INDEX)
 				{
 					packet_buffer = serial_no_string;
 					packet_length = sizeof(serial_no_string);
-					valid = 1;
+					valid = true;
 				}
 			} // end if ((lang_id & 0x3ff) == PRIMARY_LANGUAGE_ID)
 		} // end else clause of if (index == 0)
@@ -228,7 +229,7 @@ static void getDescriptor(uint8_t type, uint8_t index, uint16_t lang_id, uint16_
 		}
 		else
 		{
-			usbQueueTransmitPacket(packet_buffer, packet_length, CONTROL_ENDPOINT_NUMBER, 1);
+			usbQueueTransmitPacket(packet_buffer, packet_length, CONTROL_ENDPOINT_NUMBER, true);
 		}
 	}
 	else
@@ -255,11 +256,11 @@ static void setAddress(uint16_t address)
 	else
 	{
 		new_address = address;
-		do_set_new_address = 1;
+		do_set_new_address = true;
 		usbControlNextStage(); // no Data stage for this request
 		usbControlNextStage();
 		// Send success packet.
-		usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, 0);
+		usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, false);
 	}
 }
 
@@ -285,7 +286,7 @@ static void setConfiguration(uint16_t new_configuration_value)
 		// always clears the halt feature of all endpoints.
 		for (i = 0; i < NUM_ENDPOINTS; i++)
 		{
-			if (usbEndpointEnabled(i))
+			if (usbIsEndpointEnabled(i))
 			{
 				usbUnstallEndpoint(i);
 			}
@@ -293,7 +294,7 @@ static void setConfiguration(uint16_t new_configuration_value)
 		usbControlNextStage(); // no Data stage for this request
 		usbControlNextStage();
 		// Send success packet.
-		usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, 0);
+		usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, false);
 	}
 }
 
@@ -304,7 +305,7 @@ static void setConfiguration(uint16_t new_configuration_value)
 static void getConfiguration(void)
 {
 	usbControlNextStage();
-	usbQueueTransmitPacket(&current_configuration_value, 1, CONTROL_ENDPOINT_NUMBER, 0);
+	usbQueueTransmitPacket(&current_configuration_value, 1, CONTROL_ENDPOINT_NUMBER, false);
 }
 
 /** This implements the endpoint halt feature, which is controlled by the
@@ -313,10 +314,10 @@ static void getConfiguration(void)
   * The host can use the endpoint halt feature to intentionally stall (set)
   * or unstall (clear) an endpoint.
   * \param endpoint The endpoint number to stall or unstall.
-  * \param do_set Non-zero means set halt (stall), zero means clear halt
+  * \param do_set true means set halt (stall), false means clear halt
   *               (unstall).
   */
-static void clearOrSetEndpointHalt(uint16_t endpoint, unsigned int do_set)
+static void clearOrSetEndpointHalt(uint16_t endpoint, bool do_set)
 {
 	endpoint &= 0xff7f; // clear endpoint direction bit
 	if (endpoint >= NUM_ENDPOINTS)
@@ -325,7 +326,7 @@ static void clearOrSetEndpointHalt(uint16_t endpoint, unsigned int do_set)
 	}
 	else
 	{
-		if (!usbEndpointEnabled(endpoint))
+		if (!usbIsEndpointEnabled(endpoint))
 		{
 			usbControlProtocolStall();
 		}
@@ -346,8 +347,8 @@ static void clearOrSetEndpointHalt(uint16_t endpoint, unsigned int do_set)
 			usbControlNextStage(); // no Data stage for this request
 			usbControlNextStage();
 			// Send success packet.
-			usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, 0);
-		} // end if (!usbEndpointEnabled(endpoint))
+			usbQueueTransmitPacket(null_packet, 0, CONTROL_ENDPOINT_NUMBER, false);
+		} // end if (!usbIsEndpointEnabled(endpoint))
 	} // end if (endpoint >= NUM_ENDPOINTS)
 }
 
@@ -364,15 +365,15 @@ static void clearOrSetEndpointHalt(uint16_t endpoint, unsigned int do_set)
   */
 static void getStatus(uint8_t bmRequestType, uint16_t endpoint)
 {
-	unsigned int valid;
+	bool valid;
 
-	valid = 0;
+	valid = false;
 	if ((bmRequestType == 0x80) || (bmRequestType == 0x81))
 	{
 		// Device or interface status. There's nothing interesting to report.
 		status_packet[0] = 0;
 		status_packet[1] = 0;
-		valid = 1;
+		valid = true;
 	}
 	else if (bmRequestType == 0x82)
 	{
@@ -380,9 +381,9 @@ static void getStatus(uint8_t bmRequestType, uint16_t endpoint)
 		endpoint &= 0xff7f; // clear endpoint direction bit
 		if (endpoint < NUM_ENDPOINTS)
 		{
-			if (usbEndpointEnabled(endpoint))
+			if (usbIsEndpointEnabled(endpoint))
 			{
-				if (usbGetStallStatus(endpoint))
+				if (usbIsEndpointStalled(endpoint))
 				{
 					status_packet[0] = 1;
 				}
@@ -391,7 +392,7 @@ static void getStatus(uint8_t bmRequestType, uint16_t endpoint)
 					status_packet[0] = 0;
 				}
 				status_packet[1] = 0;
-				valid = 1;
+				valid = true;
 			}
 		}
 	}
@@ -399,7 +400,7 @@ static void getStatus(uint8_t bmRequestType, uint16_t endpoint)
 	if (valid)
 	{
 		usbControlNextStage();
-		usbQueueTransmitPacket(status_packet, 2, CONTROL_ENDPOINT_NUMBER, 0);
+		usbQueueTransmitPacket(status_packet, 2, CONTROL_ENDPOINT_NUMBER, false);
 	}
 	else
 	{
@@ -419,16 +420,16 @@ static void getStatus(uint8_t bmRequestType, uint16_t endpoint)
   * \param wLength Maximum number of bytes to transfer during the Data stage.
   *                This is allowed to be zero. If it is zero, then there is
   *                no Data stage.
-  * \return Zero if the request was handled, non-zero if the request was not
+  * \return false if the request was handled, true if the request was not
   *         handled (i.e. the request did not match any supported standard
   *         request).
   */
-static unsigned int handleControlSetup(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength)
+static bool handleControlSetup(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength)
 {
 	if ((bmRequestType == 0x02) && (bRequest == CLEAR_FEATURE)
 		&& (wValue == 0) && (wLength == 0))
 	{
-		clearOrSetEndpointHalt(wIndex, 0);
+		clearOrSetEndpointHalt(wIndex, false);
 	}
 	else if ((bmRequestType == 0x80) && (bRequest == GET_CONFIGURATION)
 		&& (wValue == 0) && (wIndex == 0) && (wLength == 1))
@@ -458,23 +459,23 @@ static unsigned int handleControlSetup(uint8_t bmRequestType, uint8_t bRequest, 
 	else if ((bmRequestType == 0x02) && (bRequest == SET_FEATURE)
 		&& (wValue == 0) && (wLength == 0))
 	{
-		clearOrSetEndpointHalt(wIndex, 1);
+		clearOrSetEndpointHalt(wIndex, true);
 	}
 	else
 	{
-		return 1; // unknown or unsupported request.
+		return true; // unknown or unsupported request.
 	}
-	return 0; // success
+	return false; // success
 }
 
 /** Callback that is called whenever the control endpoint receives a packet.
   * It is this function which handles the USB device standard requests.
   * \param packet_buffer The contents of the received packet.
   * \param length The length, in bytes, of the received packet.
-  * \param is_setup Will be non-zero if a SETUP token was received, will
-  *                 be zero if a OUT or IN token was received.
+  * \param is_setup Will be true if a SETUP token was received, will
+  *                 be false if a OUT or IN token was received.
   */
-void controlReceiveCallback(uint8_t *packet_buffer, uint32_t length, unsigned int is_setup)
+void controlReceiveCallback(uint8_t *packet_buffer, uint32_t length, bool is_setup)
 {
 	uint8_t bmRequestType;
 	uint8_t bRequest;
@@ -539,7 +540,7 @@ void controlReceiveCallback(uint8_t *packet_buffer, uint32_t length, unsigned in
 	}
 	if (do_suppress_next_control_receive)
 	{
-		do_suppress_next_control_receive = 0;
+		do_suppress_next_control_receive = false;
 	}
 	else
 	{
@@ -586,5 +587,5 @@ void usbSetupControlEndpoint(void)
   * request. */
 void usbSuppressControlReceive(void)
 {
-	do_suppress_next_control_receive = 1;
+	do_suppress_next_control_receive = true;
 }

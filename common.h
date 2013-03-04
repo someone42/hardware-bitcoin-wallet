@@ -20,20 +20,43 @@
 // the comments.
 /** Unsigned 8 bit integer. */
 typedef unsigned char uint8_t;
+/** Signed 8 bit integer. */
+typedef signed char int8_t;
 /** Unsigned 16 bit integer. */
 typedef unsigned short uint16_t;
+/** Signed 16 bit integer. */
+typedef signed short int16_t;
 /** Unsigned 32 bit integer. */
 typedef unsigned long uint32_t;
 /** Signed 32 bit integer. */
 typedef signed long int32_t;
 /** Unsigned 64 bit integer. */
 typedef unsigned __int64 uint64_t;
+/** Signed 64 bit integer. */
+typedef signed __int64 int64_t;
 
 #else
 
 #include <stdint.h>
 
 #endif // #ifdef NO_STDINT_H
+
+// Some platforms or toolchains lack stdbool.h. Please define NO_STDBOOL_H
+// if this is the case.
+#ifdef NO_STDBOOL_H
+
+/** Boolean data type definition for platforms which lack stdbool.h. */
+typedef enum BoolEnum
+{
+	false = 0,
+	true = 1
+} bool;
+
+#else
+
+#include <stdbool.h>
+
+#endif // #ifdef NO_STDBOOL_H
 
 // The only functions from string.h used by hardware Bitcoin wallet
 // are memcpy(), memset() and memcmp(). If string.h is not available on the

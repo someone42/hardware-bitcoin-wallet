@@ -362,12 +362,12 @@ static void scanTestVectors(const char *filename)
 {
 	FILE *test_vector_file;
 	int test_number;
-	int is_encrypt;
+	bool is_encrypt;
 	int i;
 	int j;
 	int value;
-	int seen_count;
-	int test_failed;
+	bool seen_count;
+	bool test_failed;
 	char buffer[16];
 	uint8_t key[16];
 	uint8_t plaintext[16];
@@ -389,12 +389,12 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 	{
 		skipLine(test_vector_file);
 	}
-	is_encrypt = 1;
+	is_encrypt = true;
 	while (!feof(test_vector_file))
 	{
 		// Check for [DECRYPT].
 		skipWhiteSpace(test_vector_file);
-		seen_count = 0;
+		seen_count = false;
 		while (!seen_count)
 		{
 			fgets(buffer, 6, test_vector_file);
@@ -402,11 +402,11 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			skipWhiteSpace(test_vector_file);
 			if (!strcmp(buffer, "[DECR"))
 			{
-				is_encrypt = 0;
+				is_encrypt = false;
 			}
 			else if (!strcmp(buffer, "COUNT"))
 			{
-				seen_count = 1;
+				seen_count = true;
 			}
 			else
 			{
@@ -466,13 +466,13 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 		} // end for (j = 0; j < 2; j++)
 		// Do encryption/decryption and compare.
 		aesExpandKey(expanded_key, key);
-		test_failed = 0;
+		test_failed = false;
 		if (is_encrypt)
 		{
 			aesEncrypt(compare_text, plaintext, expanded_key);
 			if (memcmp(compare_text, ciphertext, 16))
 			{
-				test_failed = 1;
+				test_failed = true;
 			}
 		}
 		else
@@ -480,7 +480,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#01", filename);
 			aesDecrypt(compare_text, ciphertext, expanded_key);
 			if (memcmp(compare_text, plaintext, 16))
 			{
-				test_failed = 1;
+				test_failed = true;
 			}
 		}
 		if (!test_failed)

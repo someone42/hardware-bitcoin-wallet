@@ -9,6 +9,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <p32xxxx.h>
 #include "pic32_system.h"
 
@@ -43,9 +44,9 @@ static volatile unsigned int usb_activity_counter;
   * a reasonable rate. */
 static uint32_t timer2_interrupt_counter;
 
-/** This is non-zero if the CPU should not enter idle mode. This is zero if
+/** This is true if the CPU should not enter idle mode. This is false if
   * the CPU is allowed to enter idle mode. */
-static int idleModeSuppressed;
+static bool idle_mode_suppressed;
 
 /** Disable interrupts.
   * \return Saved value of Status CP0 register, to pass to restoreInterrupts().
@@ -105,7 +106,7 @@ void __attribute__((nomips16)) delayCyclesAndIdle(uint32_t num_cycles)
 	asm volatile("mfc0 %0, $9" : "=r"(start_count));
 	do
 	{
-		if (!idleModeSuppressed)
+		if (!idle_mode_suppressed)
 		{
 			enterIdleMode();
 		}
@@ -148,7 +149,7 @@ static void __attribute__ ((nomips16)) prefetchInit(void)
   */
 void __attribute__((nomips16)) enterIdleMode(void)
 {
-	if (!idleModeSuppressed)
+	if (!idle_mode_suppressed)
 	{
 		asm volatile("wait");
 	}
@@ -157,12 +158,12 @@ void __attribute__((nomips16)) enterIdleMode(void)
 /** This function can be used to temporarily prevent the CPU from entering
   * idle mode. This is useful when collecting samples using the ADC, as
   * entering/exiting idle mode causes a lot of interference.
-  * \param do_suppress Use a non-zero value to suppress idle mode, use zero
+  * \param do_suppress Use true to suppress idle mode, use false
   *                    to allow idle mode.
   */
-void suppressIdleMode(int do_suppress)
+void suppressIdleMode(bool do_suppress)
 {
-	idleModeSuppressed = do_suppress;
+	idle_mode_suppressed = do_suppress;
 }
 
 /** Interrupt service handler for Timer2. See enterIdleMode() for

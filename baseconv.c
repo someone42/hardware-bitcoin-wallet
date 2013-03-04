@@ -69,7 +69,7 @@ static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, con
 {
 	uint8_t i;
 	uint8_t j;
-	uint8_t bit;
+	uint8_t one_bit;
 
 	memset(temp, 0, (uint16_t)(size + 1));
 	memset(r, 0, size);
@@ -77,7 +77,7 @@ static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, con
 
 	for (i = (uint8_t)(size - 1); i < size; i--)
 	{
-		bit = 0x80;
+		one_bit = 0x80;
 		for (j = 0; j < 8; j++)
 		{
 			temp[i] = LOOKUP_BYTE(shift_list[j * 2]);
@@ -85,9 +85,9 @@ static void bigDivide(uint8_t *r, uint8_t *op1, uint8_t *temp, uint8_t size, con
 			if (bigCompareVariableSize(temp, op1, (uint8_t)(size + 1)) != BIGCMP_GREATER)
 			{
 				bigSubtractVariableSizeNoModulo(op1, op1, temp, (uint8_t)(size + 1));
-				r[i] |= bit;
+				r[i] |= one_bit;
 			}
-			bit >>= 1;
+			one_bit >>= 1;
 		}
 		temp[i + 1] = 0;
 	}
@@ -440,7 +440,7 @@ int main(void)
 		{
 			printf("Base10 test number %d failed\n", i);
 			printf("Input: ");
-			bigPrintVariableSize((uint8_t *)base10_tests[i].value, 8, 0);
+			bigPrintVariableSize((uint8_t *)base10_tests[i].value, 8, false);
 			printf("\n");
 			printf("Got: %s\n", amount);
 			printf("Expected: %s\n", base10_tests[i].text);
@@ -460,7 +460,7 @@ int main(void)
 		{
 			printf("Base58 test number %d failed\n", i);
 			printf("Input: ");
-			bigPrintVariableSize((uint8_t *)base58_tests[i].hash, 20, 1);
+			bigPrintVariableSize((uint8_t *)base58_tests[i].hash, 20, true);
 			printf("\n");
 			printf("Got:      %s\n", addr);
 			printf("Expected: %s\n", base58_tests[i].addr);

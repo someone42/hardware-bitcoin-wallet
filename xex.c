@@ -81,10 +81,9 @@ static void doubleInGF(uint8_t *op1)
   * \param seq See xexEncryptInternal().
   * \param tweak_key See xexEncryptInternal().
   * \param encrypt_key See xexEncryptInternal().
-  * \param is_decrypt To decrypt, use a non-zero value for this parameter. To
-  *                   encrypt, use zero for this parameter.
+  * \param is_decrypt To decrypt, use true. To encrypt, use false.
   */
-static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key, uint8_t is_decrypt)
+static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key, bool is_decrypt)
 {
 	uint8_t expanded_key[EXPANDED_KEY_SIZE];
 	uint8_t delta[16];
@@ -134,7 +133,7 @@ static void xexEnDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uin
   */
 static void xexEncryptInternal(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
 {
-	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 0);
+	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, false);
 }
 
 /** Decrypt the 16 byte block using AES in XEX mode. This uses an arbitrary
@@ -150,7 +149,7 @@ static void xexEncryptInternal(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t se
   */
 static void xexDecryptInternal(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq, uint8_t *tweak_key, uint8_t *encrypt_key)
 {
-	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, 1);
+	xexEnDecrypt(out, in, n, seq, tweak_key, encrypt_key, true);
 }
 
 /** Encrypt one 16 byte block using AES in XEX mode. This uses the encryption
@@ -207,10 +206,10 @@ void getEncryptionKey(uint8_t *out)
 /** Check if the current combined encryption key is all zeroes. This has
   * implications for whether a wallet is considered encrypted or
   * not (see wallet.c).
-  * \return Non-zero if the encryption key is not made up of all zeroes,
-  *         zero if the encryption key is made up of all zeroes.
+  * \return true if the encryption key is not made up of all zeroes,
+  *         false if the encryption key is made up of all zeroes.
   */
-uint8_t isEncryptionKeyNonZero(void)
+bool isEncryptionKeyNonZero(void)
 {
 	uint8_t r;
 	uint8_t i;
@@ -221,7 +220,14 @@ uint8_t isEncryptionKeyNonZero(void)
 		r |= nv_storage_encrypt_key[i];
 		r |= nv_storage_tweak_key[i];
 	}
-	return r;
+	if (r != 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 /** Clear out memory which stores encryption keys.
@@ -362,12 +368,12 @@ static void scanTestVectors(char *filename, int is_data_unit_seq_number)
 	FILE *f;
 	int test_number;
 	unsigned int data_unit_length;
-	int is_encrypt;
+	bool is_encrypt;
 	unsigned int i;
 	int j;
 	int value;
-	int seen_count;
-	int test_failed;
+	bool seen_count;
+	bool test_failed;
 	char buffer[100];
 	uint8_t tweak_key[16];
 	uint8_t encrypt_key[16];
@@ -394,12 +400,12 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 	{
 		skipLine(f);
 	}
-	is_encrypt = 1;
+	is_encrypt = true;
 	while (!feof(f))
 	{
 		// Check for [DECRYPT].
 		skipWhiteSpace(f);
-		seen_count = 0;
+		seen_count = false;
 		while (!seen_count)
 		{
 			fgets(buffer, 6, f);
@@ -407,11 +413,11 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			skipWhiteSpace(f);
 			if (!strcmp(buffer, "[DECR"))
 			{
-				is_encrypt = 0;
+				is_encrypt = false;
 			}
 			else if (!strcmp(buffer, "COUNT"))
 			{
-				seen_count = 1;
+				seen_count = true;
 			}
 			else
 			{
@@ -435,7 +441,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 		}
 		skipWhiteSpace(f);
 
-		if (data_unit_length & 0x7f)
+		if ((data_unit_length & 0x7f) != 0)
 		{
 			// Skip tests which require ciphertext stealing, since ciphertext
 			// stealing isn't implemented here (because it's not necessary).
@@ -543,7 +549,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 			} // end for (j = 0; j < 2; j++)
 
 			// Do encryption/decryption and compare
-			test_failed = 0;
+			test_failed = false;
 			if (is_encrypt)
 			{
 				for (i = 0; i < data_unit_length; i += 16)
@@ -551,7 +557,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 					xexEncryptInternal(&(compare[i]), &(plaintext[i]), tweak_value, (uint8_t)(i >> 4), tweak_key, encrypt_key);
 					if (memcmp(&(compare[i]), &(ciphertext[i]), 16))
 					{
-						test_failed = 1;
+						test_failed = true;
 						break;
 					}
 				}
@@ -563,7 +569,7 @@ from http://csrc.nist.gov/groups/STM/cavp/#08\n", filename);
 					xexDecryptInternal(&(compare[i]), &(ciphertext[i]), tweak_value, (uint8_t)(i >> 4), tweak_key, encrypt_key);
 					if (memcmp(&(compare[i]), &(plaintext[i]), 16))
 					{
-						test_failed = 1;
+						test_failed = true;
 						break;
 					}
 				}

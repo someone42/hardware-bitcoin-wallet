@@ -169,7 +169,7 @@ static ComplexFixed getTwiddleFactor(uint32_t tf_index)
 		// tf_index too large.
 		r.real = fix16_zero;
 		r.imag = fix16_zero;
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return r;
 	}
 	// tf_index must now be in [0, FFT_SIZE].
@@ -223,12 +223,12 @@ static ComplexFixed getTwiddleFactor(uint32_t tf_index)
   *
   * \param data The input data array. The output of the FFT will also be
   *             written here. This must be an array of size #FFT_SIZE.
-  * \param is_inverse Use zero to perform a forward FFT, non-zero to perform
-  *                   an inverse FFT.
-  * \return 0 for success, non-zero if an arithmetic error (eg. overflow)
+  * \param is_inverse Whether to perform an inverse FFT instead of a forward
+  *                   FFT.
+  * \return false for success, true if an arithmetic error (eg. overflow)
   *         occurred.
   */
-int fft(ComplexFixed *data, int is_inverse)
+bool fft(ComplexFixed *data, bool is_inverse)
 {
 	uint32_t i;
 	uint32_t j;
@@ -241,7 +241,7 @@ int fft(ComplexFixed *data, int is_inverse)
 	ComplexFixed product;
 	ComplexFixed temp;
 
-	fix16_error_flag = 0;
+	fix16_error_occurred = false;
 
 	// Do in-place input data reordering.
 	for (i = 0; i < FFT_SIZE; i++)
@@ -298,14 +298,7 @@ int fft(ComplexFixed *data, int is_inverse)
 		}
 	}
 
-	if (fix16_error_flag)
-	{
-		return 1; // error occurred
-	}
-	else
-	{
-		return 0; // success
-	}
+	return fix16_error_occurred;
 }
 
 /** Post-process the results of a complex FFT to get the results of a real FFT
@@ -328,15 +321,15 @@ int fft(ComplexFixed *data, int is_inverse)
   *
   * \param data The data array which fft() has operated on. This must be an
   *             array of size #FFT_SIZE + 1.
-  * \param is_inverse Use zero if performing a forward FFT, non-zero if
-  *                   performing an inverse FFT.
-  * \return 0 for success, non-zero if an arithmetic error (eg. overflow)
+  * \param is_inverse Whether to perform an inverse FFT instead of a forward
+  *                   FFT.
+  * \return false for success, true if an arithmetic error (eg. overflow)
   *         occurred.
   * \warning The size of the data array must be #FFT_SIZE + 1, not #FFT_SIZE,
   *          because this function requires one extra entry for the Nyquist
   *          frequency bin.
   */
-int fftPostProcessReal(ComplexFixed *data, int is_inverse)
+bool fftPostProcessReal(ComplexFixed *data, bool is_inverse)
 {
 	uint32_t i;
 	uint32_t j;
@@ -346,12 +339,12 @@ int fftPostProcessReal(ComplexFixed *data, int is_inverse)
 	ComplexFixed twiddled;
 	ComplexFixed twiddle_factor;
 
-	fix16_error_flag = 0;
+	fix16_error_occurred = false;
 
 	// Split the real and imaginary spectra.
 	i = FFT_SIZE / 2;
 	j = FFT_SIZE / 2;
-	while(i != 0)
+	while (i != 0)
 	{
 		real_sum = fix16_add(data[i].real, data[j].real);
 		twiddled.real = fix16_sub(data[i].real, data[j].real); // real_diff
@@ -390,14 +383,7 @@ int fftPostProcessReal(ComplexFixed *data, int is_inverse)
 		}
 	}
 
-	if (fix16_error_flag)
-	{
-		return 1; // error occurred
-	}
-	else
-	{
-		return 0; // success
-	}
+	return fix16_error_occurred;
 }
 
 

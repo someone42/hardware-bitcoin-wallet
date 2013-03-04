@@ -60,7 +60,7 @@ NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t leng
 	// The (void *)(int) is there because pointers on AVR are 16 bit, so
 	// just doing (void *) would result in a "cast to pointer from integer
 	// of different size" warning.
-	eeprom_read_block(data, (void *)(int)address, length);
+	eeprom_read_block(data, (void *)(int)address, (size_t)length);
 	return NV_NO_ERROR;
 }
 

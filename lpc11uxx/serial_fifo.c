@@ -52,11 +52,11 @@
 #define USBRAM_END			((volatile uint8_t *)0x20004800)
 
 /** Storage for the transmit buffer.
-  * \warning This is stored in USB RAM. See #USBRAM_START for more details.
+  * \warning This is stored in USB RAM. See #USBRAM_END for more details.
   */
 static volatile uint8_t *transmit_buffer_storage = USBRAM_END - RECEIVE_BUFFER_SIZE - TRANSMIT_BUFFER_SIZE;
 /** Storage for the receive buffer.
-  * \warning This is stored in USB RAM. See #USBRAM_START for more details.
+  * \warning This is stored in USB RAM. See #USBRAM_END for more details.
   */
 static volatile uint8_t *receive_buffer_storage = USBRAM_END - RECEIVE_BUFFER_SIZE;
 /** The transmit buffer. */
@@ -86,12 +86,12 @@ void initSerialFIFO(void)
 	transmit_buffer.next = 0;
 	transmit_buffer.remaining = 0;
 	transmit_buffer.size = TRANSMIT_BUFFER_SIZE;
-	transmit_buffer.error = 0;
+	transmit_buffer.error_occurred = 0;
 	transmit_buffer.storage = transmit_buffer_storage;
 	receive_buffer.next = 0;
 	receive_buffer.remaining = 0;
 	receive_buffer.size = RECEIVE_BUFFER_SIZE;
-	receive_buffer.error = 0;
+	receive_buffer.error_occurred = 0;
 	receive_buffer.storage = receive_buffer_storage;
 	receive_acknowledge = INITIAL_ACKNOWLEDGE;
 	transmit_acknowledge = INITIAL_ACKNOWLEDGE;
@@ -107,11 +107,18 @@ static void enterSleepMode(void)
 
 /** Check whether a circular buffer is empty.
   * \param buffer The circular buffer to check.
-  * \return Non-zero if it is empty, zero if it is non-empty.
+  * \return true if it is empty, false if it is non-empty.
   */
-int isCircularBufferEmpty(volatile CircularBuffer *buffer)
+bool isCircularBufferEmpty(volatile CircularBuffer *buffer)
 {
-	return buffer->remaining == 0;
+	if (buffer->remaining == 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 /** Tell the reader of the buffer that an error occurred.
@@ -119,17 +126,17 @@ int isCircularBufferEmpty(volatile CircularBuffer *buffer)
   */
 void circularBufferSignalError(volatile CircularBuffer *buffer)
 {
-	buffer->error = 1;
+	buffer->error_occurred = true;
 }
 
 /** Read a byte from a circular buffer. This will block until a byte is
   * read.
   * \param buffer The circular buffer to read from.
-  * \param is_irq Pass a non-zero value if calling this from an interrupt
-  *               request handler, otherwise pass zero.
+  * \param is_irq Use true if calling this from an interrupt
+  *               request handler, otherwise use false.
   * \return The byte that was read from the buffer.
   */
-uint8_t circularBufferRead(volatile CircularBuffer *buffer, int is_irq)
+uint8_t circularBufferRead(volatile CircularBuffer *buffer, bool is_irq)
 {
 	uint8_t r;
 
@@ -137,11 +144,11 @@ uint8_t circularBufferRead(volatile CircularBuffer *buffer, int is_irq)
 	{
 		enterSleepMode();
 	}
-	if (buffer->error)
+	if (buffer->error_occurred)
 	{
 		streamError();
 		__disable_irq();
-		while(1)
+		while (true)
 		{
 			// do nothing
 		}
@@ -161,25 +168,25 @@ uint8_t circularBufferRead(volatile CircularBuffer *buffer, int is_irq)
 }
 
 /** Write a byte to a circular buffer. If the buffer is full and is_irq is
-  * zero, this will block until the buffer is not full. If the buffer is
-  * full and is_irq is non-zero, this will give up and flag a buffer
+  * false, this will block until the buffer is not full. If the buffer is
+  * full and is_irq is true, this will give up and flag a buffer
   * overflow.
   * \param buffer The circular buffer to write to.
   * \param data The byte to write to the buffer.
-  * \param is_irq Pass a non-zero value if calling this from an interrupt
-  *               request handler, otherwise pass zero.
+  * \param is_irq Use true if calling this from an interrupt
+  *               request handler, otherwise use false.
   */
-void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, int is_irq)
+void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, bool is_irq)
 {
 	uint32_t index;
 
 	if (!is_irq)
 	{
-		if (buffer->error)
+		if (buffer->error_occurred)
 		{
 			streamError();
 			__disable_irq();
-			while(1)
+			while (true)
 			{
 				// do nothing
 			}
@@ -245,17 +252,17 @@ uint8_t streamGetOneByte(void)
 	uint8_t buffer[4];
 	uint32_t i;
 
-	one_byte = circularBufferRead(&receive_buffer, 0);
+	one_byte = circularBufferRead(&receive_buffer, false);
 	receive_acknowledge--;
 	if (receive_acknowledge == 0)
 	{
 		// Send acknowledgement to other side.
 		receive_acknowledge = RECEIVE_BUFFER_SIZE;
 		writeU32LittleEndian(buffer, receive_acknowledge);
-		circularBufferWrite(&transmit_buffer, 0xff, 0);
+		circularBufferWrite(&transmit_buffer, 0xff, false);
 		for (i = 0; i < 4; i++)
 		{
-			circularBufferWrite(&transmit_buffer, buffer[i], 0);
+			circularBufferWrite(&transmit_buffer, buffer[i], false);
 		}
 		serialSendNotify();
 	}
@@ -277,7 +284,7 @@ void streamPutOneByte(uint8_t one_byte)
 	uint8_t buffer[4];
 	uint32_t i;
 
-	circularBufferWrite(&transmit_buffer, one_byte, 0);
+	circularBufferWrite(&transmit_buffer, one_byte, false);
 	serialSendNotify();
 	transmit_acknowledge--;
 	if (transmit_acknowledge == 0)
@@ -286,10 +293,10 @@ void streamPutOneByte(uint8_t one_byte)
 		do
 		{
 			// do nothing
-		} while (circularBufferRead(&receive_buffer, 0) != 0xff);
+		} while (circularBufferRead(&receive_buffer, false) != 0xff);
 		for (i = 0; i < 4; i++)
 		{
-			buffer[i] = circularBufferRead(&receive_buffer, 0);
+			buffer[i] = circularBufferRead(&receive_buffer, false);
 		}
 		transmit_acknowledge = readU32LittleEndian(buffer);
 	}

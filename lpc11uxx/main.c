@@ -6,6 +6,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include "LPC11Uxx.h"
 #include "usart.h"
 #include "serial_fifo.h"
@@ -79,13 +80,13 @@ int main(void)
 
 #if defined(TEST_FFT)
 	testFFT();
-	while(1)
+	while (true)
 	{
 		// do nothing
 	}
 #elif defined(TEST_STATISTICS)
 	testStatistics();
-	while(1)
+	while (true)
 	{
 		// do nothing
 	}
@@ -109,6 +110,6 @@ int main(void)
 			}
 		}
 #endif // #ifdef CHECK_STACK_USAGE
-	} while (1);
+	} while (true);
 #endif // #ifdef TEST_FFT
 }

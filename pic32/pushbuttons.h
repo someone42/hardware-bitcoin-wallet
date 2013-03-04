@@ -8,8 +8,10 @@
 #ifndef PIC32_PUSHBUTTONS_H_INCLUDED
 #define PIC32_PUSHBUTTONS_H_INCLUDED
 
+#include <stdbool.h>
+
 extern void initPushButtons(void);
 extern void waitForNoButtonPress(void);
-extern int waitForButtonPress(void);
+extern bool waitForButtonPress(void);
 
 #endif // #ifndef PIC32_PUSHBUTTONS_H_INCLUDED

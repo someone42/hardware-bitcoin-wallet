@@ -56,14 +56,14 @@ void skipLine(FILE *f)
 /** Display a multi-precision integer of arbitrary size as a hex string.
   * \param number The byte array containing the integer.
   * \param size The size, in number of bytes, of the byte array.
-  * \param big_endian This should be non-zero if the integer is stored in
-  *                   big-endian format and should be zero if the number is
-  *                   stored in little-endian format.
+  * \param is_big_endian This should be true if the integer is stored in
+  *                      big-endian format and should be false if the number
+  *                      is stored in little-endian format.
   */
-void bigPrintVariableSize(uint8_t *number, uint8_t size, uint8_t big_endian)
+void bigPrintVariableSize(uint8_t *number, uint8_t size, bool is_big_endian)
 {
 	uint8_t i;
-	if (big_endian)
+	if (is_big_endian)
 	{
 		for (i = 0; i < size; i++)
 		{
@@ -84,7 +84,7 @@ void bigPrintVariableSize(uint8_t *number, uint8_t size, uint8_t big_endian)
   */
 void printBigEndian16(uint8_t *buffer)
 {
-	bigPrintVariableSize(buffer, 16, 1);
+	bigPrintVariableSize(buffer, 16, true);
 }
 
 /** Display a 256 bit little-endian multi-precision integer as a hex string.
@@ -92,7 +92,7 @@ void printBigEndian16(uint8_t *buffer)
   */
 void printLittleEndian32(BigNum256 buffer)
 {
-	bigPrintVariableSize(buffer, 32, 0);
+	bigPrintVariableSize(buffer, 32, false);
 }
 
 /** Call this whenever a test case succeeds. */

@@ -21,6 +21,6 @@ extern volatile uint16_t adc_sample_buffer[ADC_SAMPLE_BUFFER_SIZE];
 
 extern void initADC(void);
 extern void beginFillingADCBuffer(void);
-extern int isADCBufferFull(void);
+extern bool isADCBufferFull(void);
 
 #endif // #ifndef PIC32_ADC_H_INCLUDED

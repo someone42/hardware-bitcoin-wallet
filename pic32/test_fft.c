@@ -14,6 +14,7 @@
 #include "../fix16.h"
 #include "../fft.h"
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include "../hwinterface.h"
 #include "../endian.h"
@@ -68,11 +69,11 @@ void __attribute__ ((nomips16)) testFFT(void)
 	uint32_t end_count;
 	uint32_t cycles;
 	int test_number;
-	int is_inverse;
-	int failed;
+	bool is_inverse;
+	bool failed;
 	uint8_t buffer[4];
 
-	while(1)
+	while (true)
 	{
 		// Order of tests:
 		// 0 = forward, normal-sized
@@ -94,11 +95,11 @@ void __attribute__ ((nomips16)) testFFT(void)
 			asm volatile("mfc0 %0, $9" : "=r"(start_count));
 			if ((test_number == 1) || (test_number == 3))
 			{
-				is_inverse = 1;
+				is_inverse = true;
 			}
 			else
 			{
-				is_inverse = 0;
+				is_inverse = false;
 			}
 			failed = fft(data, is_inverse);
 			if (test_number >= 2)
@@ -146,7 +147,7 @@ void __attribute__ ((nomips16)) testFFT(void)
 				streamPutOneByte(buffer[i]);
 			}
 		} // end for (test_number = 0; test_number < 4; test_number++)
-	} // end while(1)
+	} // end while (true)
 }
 
 #endif // #ifdef TEST_FFT

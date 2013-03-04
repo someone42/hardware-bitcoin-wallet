@@ -36,7 +36,7 @@ typedef struct ComplexFixed_struct
 	fix16_t imag;
 } ComplexFixed;
 
-extern int fft(ComplexFixed *data, int is_inverse);
-extern int fftPostProcessReal(ComplexFixed *data, int is_inverse);
+extern bool fft(ComplexFixed *data, bool is_inverse);
+extern bool fftPostProcessReal(ComplexFixed *data, bool is_inverse);
 
 #endif // #ifndef FFT_H_INCLUDED

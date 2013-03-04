@@ -22,11 +22,11 @@ typedef struct HashStateStruct
 	  * functions, 0 = MSB, 3 = LSB. For little-endian hash functions,
 	  * 0 = LSB, 3 = MSB. */
 	uint8_t byte_position_m;
-	/** If this is non-zero, each (32 bit) word in the message buffer will be
-	  * loaded in a big-endian manner. If this is zero, the words will be
+	/** If this is true, each (32 bit) word in the message buffer will be
+	  * loaded in a big-endian manner. If this is false, the words will be
 	  * loaded in a little-endian manner. This also affects how the final hash
 	  * value is calculated. */
-	uint8_t is_big_endian;
+	bool is_big_endian;
 	/** 512 bit message buffer. */
 	uint32_t m[16];
 	/** Total length of message; updated as bytes are written. */
@@ -38,6 +38,6 @@ typedef struct HashStateStruct
 extern void clearM(HashState *hs);
 extern void hashWriteByte(HashState *hs, uint8_t byte);
 extern void hashFinish(HashState *hs);
-extern void writeHashToByteArray(uint8_t *out, HashState *hs, uint8_t big_endian);
+extern void writeHashToByteArray(uint8_t *out, HashState *hs, bool do_write_big_endian);
 
 #endif // #ifndef HASH_H_INCLUDED

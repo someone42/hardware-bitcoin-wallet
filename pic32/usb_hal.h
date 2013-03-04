@@ -13,6 +13,7 @@
 #define	PIC32_USB_HAL_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /** Maximum packet size, in bytes, which this implementation can handle. */
 #define MAX_PACKET_SIZE				64
@@ -44,17 +45,17 @@ typedef struct EndpointStateStruct
 	/** Callback which is called whenever a packet is received.
 	  * \param packet_buffer The contents of the packet are placed here.
 	  * \param length The length (in bytes) of the received packet.
-	  * \param is_setup Will be non-zero if a SETUP token was received, will
-	  *                 be zero if a OUT or IN token was received. For
+	  * \param is_setup Will be true if a SETUP token was received, will
+	  *                 be false if a OUT or IN token was received. For
 	  *                 anything which isn't a control transfer, this should
-	  *                 always be 0.
+	  *                 always be false.
 	  * \warning After return from the callback, the contents of packet_buffer
 	  *          are undefined.
 	  * \warning The usbQueueReceivePacket() function must be called to tell
 	  *          the USB module that it can accept another packet. If you
 	  *          forget to call it, the USB module will NAK packets forever!
 	  */
-	void (*receiveCallback)(uint8_t *packet_buffer, uint32_t length, unsigned int is_setup);
+	void (*receiveCallback)(uint8_t *packet_buffer, uint32_t length, bool is_setup);
 	/** Callback which is called whenever a packet is transmitted. For
 	  * extended packets, this will only be called after the last packet is
 	  * successfully transmitted. */
@@ -66,12 +67,12 @@ typedef struct EndpointStateStruct
 	  * module's "ping-pong buffering" feature.
 	  */
 	unsigned int data_sequence;
-	/** Non-zero if currently in an extended transmit, zero if not in an
+	/** true if currently in an extended transmit, false if not in an
 	  * extended transmit. An extended transmit is a transmission which is
 	  * as large as or larger than #MAX_PACKET_SIZE. Such large transmit
 	  * requests are split up into multiple packets, as described in section
 	  * 5.5.3 of the USB specification. */
-	unsigned int is_extended_transmit;
+	bool is_extended_transmit;
 	/** The number of bytes remaining in a transmit, including any currently
 	  * queued packet. */
 	uint32_t transmit_remaining;
@@ -84,13 +85,13 @@ extern void usbConnect(void);
 extern void usbDisconnect(void);
 extern void usbDisableEndpoint(unsigned int endpoint);
 extern void usbEnableEndpoint(unsigned int endpoint, EndpointType type, EndpointState *state);
-extern unsigned int usbEndpointEnabled(unsigned int endpoint);
+extern bool usbIsEndpointEnabled(unsigned int endpoint);
 extern void usbQueueReceivePacket(unsigned int endpoint);
-extern void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsigned int endpoint, unsigned int is_extended);
+extern void usbQueueTransmitPacket(const uint8_t *packet_buffer, uint32_t length, unsigned int endpoint, bool is_extended);
 extern void usbCancelTransmit(unsigned int endpoint);
 extern void usbStallEndpoint(unsigned int endpoint);
 extern void usbUnstallEndpoint(unsigned int endpoint);
-extern unsigned int usbGetStallStatus(unsigned int endpoint);
+extern bool usbIsEndpointStalled(unsigned int endpoint);
 extern void usbSetDeviceAddress(unsigned int address);
 extern void usbOverrideDataSequence(unsigned int endpoint, unsigned int new_data_sequence);
 

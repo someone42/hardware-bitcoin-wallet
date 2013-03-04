@@ -252,7 +252,7 @@ static uint32_t receiveBytes(uint8_t *buffer, uint32_t length)
 	unsigned int i;
 	unsigned int j;
 	unsigned int bits_received;
-	int timeout_seen;
+	bool timeout_seen;
 	uint8_t current_byte;
 	uint8_t current_bit;
 	uint32_t actual_length;
@@ -261,7 +261,7 @@ static uint32_t receiveBytes(uint8_t *buffer, uint32_t length)
 	status = disableInterrupts();
 	TRISFbits.TRISF0 = 1;
 
-	timeout_seen = 0;
+	timeout_seen = false;
 	actual_length = 0;
 	for (i = 0; i < length; i++)
 	{
@@ -273,7 +273,7 @@ static uint32_t receiveBytes(uint8_t *buffer, uint32_t length)
 			token = receiveToken();
 			if (token == RECEIVED_TOKEN_TIMEOUT)
 			{
-				timeout_seen = 1;
+				timeout_seen = true;
 				break;
 			}
 			else
@@ -366,7 +366,7 @@ static void appendCRC16(uint8_t *buffer, uint32_t length)
 }
 
 /** Check whether an I/O block received from the ATSHA204 is valid.
-  * \return 0 if the block is not valid, non-zero if it is valid.
+  * \return false if the block is not valid, true if it is valid.
   */
 static int isBlockValid(uint8_t *buffer, uint32_t length)
 {
@@ -375,20 +375,20 @@ static int isBlockValid(uint8_t *buffer, uint32_t length)
 
 	if (length < 3)
 	{
-		return 0; // block is too small
+		return false; // block is too small
 	}
 	if (buffer[0] != length)
 	{
-		return 0; // block length doesn't match received length
+		return false; // block length doesn't match received length
 	}
 	received_crc16 = (uint16_t)(((uint16_t)buffer[length - 2])
 			| (((uint16_t)buffer[length - 1]) << 8));
 	calculated_crc16 = calculateCRC16(buffer, length - 2);
 	if (received_crc16 != calculated_crc16)
 	{
-		return 0; // bad CRC
+		return false; // bad CRC
 	}
-	return 1;
+	return true;
 }
 
 /** Convenience function that combines the sendBytes() and receiveBytes()
@@ -431,9 +431,9 @@ void initATSHA204(void)
   * Waking is necessary because the ATSHA204 features a watchdog timer which
   * will cause the ATSHA204 to sleep if there is no bus activity.
   * This function will also check if the wake was successful.
-  * \return 0 on success, non-zero if the wake failed for any reason.
+  * \return false on success, true if the wake failed for any reason.
   */
-int atsha204Wake(void)
+bool atsha204Wake(void)
 {
 	uint32_t received_length;
 	uint8_t buffer[8];
@@ -443,17 +443,17 @@ int atsha204Wake(void)
 	received_length = sendAndReceiveBytes(buffer, 1, sizeof(buffer));
 	if(!isBlockValid(buffer, received_length))
 	{
-		return 1; // invalid block received
+		return true; // invalid block received
 	}
 	if (received_length != 4)
 	{
-		return 1; // just after wake, the ATSHA204 should return a 4 byte block
+		return true; // just after wake, the ATSHA204 should return a 4 byte block
 	}
 	if (buffer[1] != STATUS_WAKE)
 	{
-		return 1; // ATSHA204 returned unexpected error/status
+		return true; // ATSHA204 returned unexpected error/status
 	}
-	return 0; // success
+	return false; // success
 }
 
 /** Send the ATSHA204 to sleep, so it consumes very little power and ignores
@@ -470,9 +470,9 @@ void atsha204Sleep(void)
   * generator.
   * \param random_bytes Byte array which, on success, will be written with
   *                     32 random bytes.
-  * \return 0 on success, non-zero on failure.
+  * \return false on success, true on failure.
   */
-int atsha204Random(uint8_t *random_bytes)
+bool atsha204Random(uint8_t *random_bytes)
 {
 	uint32_t received_length;
 	uint8_t buffer[64];
@@ -502,16 +502,16 @@ int atsha204Random(uint8_t *random_bytes)
 	} while ((received_length == 0) && (timeout_counter < 75));
 	if (received_length == 0)
 	{
-		return 1; // timeout
+		return true; // timeout
 	}
-	if(!isBlockValid(buffer, received_length))
+	if (!isBlockValid(buffer, received_length))
 	{
-		return 1; // invalid block received
+		return true; // invalid block received
 	}
 	if (received_length != 35)
 	{
-		return 1; // unexpected packet size
+		return true; // unexpected packet size
 	}
 	memcpy(random_bytes, &(buffer[1]), 32);
-	return 0; // success
+	return false; // success
 }

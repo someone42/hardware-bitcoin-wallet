@@ -9,7 +9,7 @@
   * http://code.google.com/p/libfixmath/source/browse/trunk/libfixmath/.
   * The main modifications are:
   * - Removed code of unused functions.
-  * - Changed overflow code to set #fix16_error_flag instead of just
+  * - Changed overflow code to set #fix16_error_occurred instead of just
   *   returning #fix16_overflow.
   * - Moved fix16_log2() into fix16.c.
   * - Changed fix16_log2() to avoid division.
@@ -27,12 +27,12 @@
 #include "int64.h"
 #endif
 
-/** At the beginning of a series of computations, this will be set to zero.
-  * If it is set to some non-zero value during the computations, then
+/** At the beginning of a series of computations, this will be set to false.
+  * If it is set to true during the computations, then
   * something unexpected occurred (eg. arithmetic overflow) and the result
   * should be considered invalid.
   */
-uint8_t fix16_error_flag;
+bool fix16_error_occurred;
 
 /* Subtraction and addition with overflow detection.
 */
@@ -47,7 +47,10 @@ fix16_t fix16_add(fix16_t a, fix16_t b)
 	// Overflow can only happen if sign of a == sign of b, and then
 	// it causes sign of sum != sign of a.
 	if (!((_a ^ _b) & 0x80000000) && ((_a ^ sum) & 0x80000000))
-		fix16_error_flag = 1;
+	{
+		fix16_error_occurred = true;
+		return fix16_overflow;
+	}
 #endif
 
 	return sum;
@@ -62,7 +65,10 @@ fix16_t fix16_sub(fix16_t a, fix16_t b)
 	// Overflow can only happen if sign of a != sign of b, and then
 	// it causes sign of diff != sign of a.
 	if (((_a ^ _b) & 0x80000000) && ((_a ^ diff) & 0x80000000))
-		fix16_error_flag = 1;
+	{
+		fix16_error_occurred = true;
+		return fix16_overflow;
+	}
 #endif
 
 	return diff;
@@ -89,7 +95,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 		#ifndef FIXMATH_NO_OVERFLOW
 		if (~upper)
 		{
-			fix16_error_flag = 1;
+			fix16_error_occurred = true;
 			return fix16_overflow;
 		}
 		#endif
@@ -104,7 +110,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 		#ifndef FIXMATH_NO_OVERFLOW
 		if (upper)
 		{
-			fix16_error_flag = 1;
+			fix16_error_occurred = true;
 			return fix16_overflow;
 		}
 		#endif
@@ -158,7 +164,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	// The upper 17 bits should all be the same (the sign).
 	if (product_hi >> 31 != product_hi >> 15)
 	{
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return fix16_overflow;
 	}
 #endif
@@ -209,7 +215,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	// i = 6
 	if (va[3] && vb[3])
 	{
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return fix16_overflow;
 	}
 	#endif
@@ -227,7 +233,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	#ifndef FIXMATH_NO_OVERFLOW
 	if (mid & 0xFF000000)
 	{
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return fix16_overflow;
 	}
 	#endif
@@ -242,7 +248,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	#ifndef FIXMATH_NO_OVERFLOW
 	if (mid & 0xFF000000)
 	{
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return fix16_overflow;
 	}
 	#endif
@@ -269,7 +275,7 @@ fix16_t fix16_mul(fix16_t inArg0, fix16_t inArg1)
 	#ifndef FIXMATH_NO_OVERFLOW
 	if (mid & 0x80000000)
 	{
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return fix16_overflow;
 	}
 	#endif
@@ -301,8 +307,8 @@ static fix16_t fix16_rs(fix16_t x)
 
 /**
  * Calculates the log base 2 of input.
- * Note that negative inputs are invalid! (will set #fix16_error_flag, since
- * there are no exceptions)
+ * Note that negative inputs are invalid! (will set #fix16_error_occurred,
+ * since there are no exceptions)
  * 
  * i.e. 2 to the power output = input.
  * It's equivalent to the log or ln functions, except it uses base 2 instead
@@ -322,7 +328,7 @@ fix16_t fix16_log2(fix16_t x)
 	// log2(-ve) gives a complex result.
 	if (x <= 0)
 	{
-		fix16_error_flag = 1;
+		fix16_error_occurred = true;
 		return fix16_overflow;
 	}
 

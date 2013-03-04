@@ -80,7 +80,7 @@ static const fix16_t fix16_zero = 0x00000000; /*!< fix16_t value of 0 */
 */
 #define F16(x) ((fix16_t)(((x) >= 0) ? ((x) * 65536.0 + 0.5) : ((x) * 65536.0 - 0.5)))
 
-extern uint8_t fix16_error_flag;
+extern bool fix16_error_occurred;
 
 /*! Adds the two given fix16_t's and returns the result.
 */

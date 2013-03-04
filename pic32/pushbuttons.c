@@ -8,6 +8,8 @@
   * This file is licensed as described by the file LICENCE.
   */
 
+#include <stdbool.h>
+#include <stdint.h>
 #include <p32xxxx.h>
 #include "pic32_system.h"
 
@@ -32,31 +34,31 @@ void initPushButtons(void)
 	TRISDSET = ACCEPT_PIN | CANCEL_PIN;
 }
 
-/** Returns 1 if the accept button is being pressed, 0 if it is not. This
-  * function does not do debouncing. */
-static int isAcceptPressed(void)
+/** Returns true if the accept button is being pressed, false if it is not.
+  * This function does not do debouncing. */
+static bool isAcceptPressed(void)
 {
 	if ((PORTD & ACCEPT_PIN) == 0)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
-/** Returns 1 if the cancel button is being pressed, 0 if it is not. This
-  * function does not do debouncing. */
-static int isCancelPressed(void)
+/** Returns true if the cancel button is being pressed, false if it is not.
+  * This function does not do debouncing. */
+static bool isCancelPressed(void)
 {
 	if ((PORTD & CANCEL_PIN) == 0)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
@@ -89,15 +91,15 @@ void waitForNoButtonPress(void)
 
 /** Wait until accept or cancel button is pressed. This function does do
   * debouncing.
-  * \return 0 if the accept button was pressed, non-zero if the cancel
+  * \return false if the accept button was pressed, true if the cancel
   *         button was pressed. If both buttons were pressed simultaneously,
-  *         non-zero will be returned.
+  *         true will be returned.
   */
-int waitForButtonPress(void)
+bool waitForButtonPress(void)
 {
 	uint32_t counter;
-	int accept_pressed;
-	int cancel_pressed;
+	bool accept_pressed;
+	bool cancel_pressed;
 
 	counter = DEBOUNCE_COUNT;
 	while (counter > 0)
@@ -116,10 +118,10 @@ int waitForButtonPress(void)
 	}
 	if (cancel_pressed)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }

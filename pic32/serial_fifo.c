@@ -14,6 +14,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <p32xxxx.h>
 #include "pic32_system.h"
 #include "serial_fifo.h"
@@ -39,20 +40,34 @@ void initCircularBuffer(volatile CircularBuffer *buffer, volatile uint8_t *stora
 
 /** Check whether a circular buffer is empty.
   * \param buffer The circular buffer to check.
-  * \return Non-zero if it is empty, zero if it is non-empty.
+  * \return true if it is empty, false if it is non-empty.
   */
-int isCircularBufferEmpty(volatile CircularBuffer *buffer)
+bool isCircularBufferEmpty(volatile CircularBuffer *buffer)
 {
-	return buffer->remaining == 0;
+	if (buffer->remaining == 0)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 /** Check whether a circular buffer is full.
   * \param buffer The circular buffer to check.
-  * \return Non-zero if it is full, zero if it is not full.
+  * \return true if it is full, false if it is not full.
   */
-int isCircularBufferFull(volatile CircularBuffer *buffer)
+bool isCircularBufferFull(volatile CircularBuffer *buffer)
 {
-	return buffer->remaining == buffer->size;
+	if (buffer->remaining == buffer->size)
+	{
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 /** Obtain the remaining space (in number of bytes) in a circular buffer.
@@ -71,11 +86,11 @@ uint32_t circularBufferSpaceRemaining(volatile CircularBuffer *buffer)
 /** Read a byte from a circular buffer. This will block until a byte is
   * read.
   * \param buffer The circular buffer to read from.
-  * \param is_irq Pass a non-zero value if calling this from an interrupt
-  *               request handler, otherwise pass zero.
+  * \param is_irq Use true if calling this from an interrupt
+  *               request handler, otherwise use false.
   * \return The byte that was read from the buffer.
   */
-uint8_t circularBufferRead(volatile CircularBuffer *buffer, int is_irq)
+uint8_t circularBufferRead(volatile CircularBuffer *buffer, bool is_irq)
 {
 	uint32_t status;
 	uint8_t r;
@@ -105,10 +120,10 @@ uint8_t circularBufferRead(volatile CircularBuffer *buffer, int is_irq)
   * until the buffer is not full.
   * \param buffer The circular buffer to write to.
   * \param data The byte to write to the buffer.
-  * \param is_irq Pass a non-zero value if calling this from an interrupt
-  *               request handler, otherwise pass zero.
+  * \param is_irq Use true if calling this from an interrupt
+  *               request handler, otherwise use false.
   */
-void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, int is_irq)
+void circularBufferWrite(volatile CircularBuffer *buffer, uint8_t data, bool is_irq)
 {
 	uint32_t status;
 	uint32_t index;

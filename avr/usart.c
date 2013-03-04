@@ -49,12 +49,12 @@ static volatile uint8_t rx_buffer_start;
 static volatile uint8_t tx_buffer_end;
 /** Index + 1 in the receive buffer of the last character to get. */
 static volatile uint8_t rx_buffer_end;
-/** Set to non-zero if transmit buffer is full, otherwise set to 0. */
-static volatile uint8_t tx_buffer_full;
-/** Set to non-zero if receive buffer is full, otherwise set to 0. */
-static volatile uint8_t rx_buffer_full;
-/** Set to non-zero if a receive buffer overrun occurs, otherwise set to 0. */
-static volatile uint8_t rx_buffer_overrun;
+/** Is transmit buffer is full? */
+static volatile bool tx_buffer_full;
+/** Is receive buffer is full? */
+static volatile bool rx_buffer_full;
+/** Has a receive buffer overrun occurred? */
+static volatile bool rx_buffer_overrun;
 
 /** Number of bytes which can be received until the next acknowledgement must
   * be sent. */
@@ -74,11 +74,11 @@ void initUsart(void)
 	cli();
 	tx_buffer_start = 0;
 	tx_buffer_end = 0;
-	tx_buffer_full = 0;
+	tx_buffer_full = false;
 	rx_buffer_start = 0;
 	rx_buffer_end = 0;
-	rx_buffer_full = 0;
-	rx_buffer_overrun = 0;
+	rx_buffer_full = false;
+	rx_buffer_overrun = false;
 	rx_acknowledge = 16;
 	tx_acknowledge = 16;
 #define BAUD 57600
@@ -110,7 +110,7 @@ ISR(USART_RX_vect)
 		// to make USART happy.
 		uint8_t temp;
 		temp = UDR0;
-		rx_buffer_overrun = 1;
+		rx_buffer_overrun = true;
 	}
 	else
 	{
@@ -119,7 +119,7 @@ ISR(USART_RX_vect)
 		rx_buffer_end = (uint8_t)(rx_buffer_end & RX_BUFFER_MASK);
 		if (rx_buffer_start == rx_buffer_end)
 		{
-			rx_buffer_full = 1;
+			rx_buffer_full = true;
 		}
 	}
 }
@@ -136,7 +136,7 @@ ISR(USART_UDRE_vect)
 		UDR0 = tx_buffer[tx_buffer_start];
 		tx_buffer_start++;
 		tx_buffer_start = (uint8_t)(tx_buffer_start & TX_BUFFER_MASK);
-		tx_buffer_full = 0;
+		tx_buffer_full = false;
 	}
 	else
 	{
@@ -152,14 +152,14 @@ ISR(USART_UDRE_vect)
   */
 static void usartSend(uint8_t data)
 {
-	uint8_t send_immediately;
+	bool send_immediately;
 
 	cli();
-	send_immediately = 0;
+	send_immediately = false;
 	if (!tx_buffer_full && (tx_buffer_start == tx_buffer_end)
 		&& (UCSR0A & _BV(UDRE0)))
 	{
-		send_immediately = 1;
+		send_immediately = true;
 	}
 	sei();
 	if (send_immediately)
@@ -179,7 +179,7 @@ static void usartSend(uint8_t data)
 		tx_buffer_end = (uint8_t)(tx_buffer_end & TX_BUFFER_MASK);
 		if (tx_buffer_start == tx_buffer_end)
 		{
-			tx_buffer_full = 1;
+			tx_buffer_full = true;
 		}
 		UCSR0B |= _BV(UDRIE0);
 		sei();
@@ -204,7 +204,7 @@ static uint8_t usartReceive(void)
 	r = rx_buffer[rx_buffer_start];
 	rx_buffer_start++;
 	rx_buffer_start = (uint8_t)(rx_buffer_start & RX_BUFFER_MASK);
-	rx_buffer_full = 0;
+	rx_buffer_full = false;
 	sei();
 	return r;
 }

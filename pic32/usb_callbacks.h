@@ -13,6 +13,7 @@
 #define	USB_CALLBACKS_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /** This will be called whenever an unrecoverable error occurs. This should
   * not return. */
@@ -32,21 +33,21 @@ extern void usbFatalError(void);
   * \param wLength Maximum number of bytes to transfer during the Data stage.
   *                This is allowed to be zero. If it is zero, then there is
   *                no Data stage.
-  * \return Zero if the request was handled, non-zero if the request was not
+  * \return false if the request was handled, true if the request was not
   *         handled (i.e. the request did not match any supported
   *         class-specific request).
   */
-extern unsigned int usbClassHandleControlSetup(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength);
+extern bool usbClassHandleControlSetup(uint8_t bmRequestType, uint8_t bRequest, uint16_t wValue, uint16_t wIndex, uint16_t wLength);
 /** This callback will be called if the control endpoint (endpoint 0)
   * receives data during the Data stage of a class-specific request. This
   * callback gives class drivers the opportunity to handle data sent to the
   * control endpoint.
   * \param packet_buffer The contents of the data packet are placed here.
   * \param length The length (in bytes) of the received data packet.
-  * \return Zero if the data was accepted, non-zero if the data was not
+  * \return false if the data was accepted, true if the data was not
   *         handled (i.e. the class driver did not expect any data).
   */
-extern unsigned int usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length);
+extern bool usbClassHandleControlData(uint8_t *packet_buffer, uint32_t length);
 /** This will be called whenever a control transfer needs to be aborted (for
   * any reason, including reset). This allows class drivers to reset their
   * control transfer-specific state. */

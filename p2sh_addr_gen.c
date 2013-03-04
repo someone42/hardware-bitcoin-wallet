@@ -42,38 +42,38 @@ static uint32_t public_key_list_index;
 
 /** Checks whether the public key list parser is at the end of the list
   * data.
-  * \return 0 if not at the end of the list data, 1 if at the end of
-  *         the list data.
+  * \return Whether the public key list parser is at the end of the list
+  *         data.
   */
-static uint8_t isEndOfPublicKeyListData(void)
+static bool isEndOfPublicKeyListData(void)
 {
 	if (public_key_list_index >= public_key_list_length)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
 /** Get one byte from the public key list, being careful not to read past the
   * end of the list.
   * \param out The byte that was obtained will be written here.
-  * \return 0 on success, non-zero if trying to read past the end of the list.
+  * \return false on success, true if trying to read past the end of the list.
   */
-static uint8_t getPublicKeyListByte(uint8_t *out)
+static bool getPublicKeyListByte(uint8_t *out)
 {
 	if (isEndOfPublicKeyListData())
 	{
 		*out = 0;
-		return 1; // trying to read past end of list data
+		return true; // trying to read past end of list data
 	}
 	else
 	{
 		*out = streamGetOneByte();
 		public_key_list_index++;
-		return 0;
+		return false;
 	}
 }
 
@@ -183,14 +183,14 @@ static P2SHGeneratorErrors generateMultiSigAddressInternal(uint8_t num_sigs, uin
 
 	// Generate and display P2SH address.
 	sha256Finish(&hs);
-	writeHashToByteArray(buffer, &hs, 1);
+	writeHashToByteArray(buffer, &hs, true);
 	ripemd160Begin(&hs);
 	for (i = 0; i < 32; i++)
 	{
 		ripemd160WriteByte(&hs, buffer[i]);
 	}
 	ripemd160Finish(&hs);
-	writeHashToByteArray(buffer, &hs, 1);
+	writeHashToByteArray(buffer, &hs, true);
 	hashToAddr(address, buffer, ADDRESS_VERSION_P2SH);
 	displayAddress(address, num_sigs, num_pubkeys);
 
@@ -244,9 +244,9 @@ P2SHGeneratorErrors generateMultiSigAddress(uint8_t num_sigs, uint8_t num_pubkey
   * being displayed is correct. */
 static char last_displayed_address[1024];
 
-/** Set this to non-zero to stop displayAddress() from outputting to stdout.
-  * This is used to stop stdout spam when running th fuzzer. */
-static int suppress_display_address;
+/** Set this to true to stop displayAddress() from outputting to stdout.
+  * This is used to stop stdout spam when running the fuzzer. */
+static bool suppress_display_address;
 
 void displayAddress(char *address, uint8_t num_sigs, uint8_t num_pubkeys)
 {
@@ -588,7 +588,7 @@ static void oneFuzzTest(unsigned int test_number)
 	int num_mutations;
 	int mutation_number;
 	int mutation_location;
-	int failed;
+	bool failed;
 	P2SHGeneratorErrors return_value;
 	struct P2SHAddrGenTestCase *source_test_case;
 	struct P2SHAddrGenTestCase fuzzed_test_case;
@@ -647,17 +647,17 @@ static void oneFuzzTest(unsigned int test_number)
 			fuzzed_test_case.size_of_stream);
 	if (return_value != P2SHGEN_NO_ERROR)
 	{
-		failed = 1;
+		failed = true;
 	}
 	else
 	{
 		if (strcmp(fuzzed_test_case.expected_result, last_displayed_address))
 		{
-			failed = 1;
+			failed = true;
 		}
 		else
 		{
-			failed = 0; // the parser did succeed in generating the correct address!
+			failed = false; // the parser did succeed in generating the correct address!
 		}
 	}
 	if (!failed)
@@ -768,12 +768,12 @@ int main(void)
 	runTest(&test_case, test_case.size_of_stream, P2SHGEN_BAD_NUMBER, "bad_pubkey_num3");
 
 	// Run fuzzer.
-	suppress_display_address = 1;
+	suppress_display_address = true;
 	for (i = 0; i < 100000; i++)
 	{
 		oneFuzzTest(i);
 	}
-	suppress_display_address = 0;
+	suppress_display_address = false;
 
 	finishTests();
 	exit(0);

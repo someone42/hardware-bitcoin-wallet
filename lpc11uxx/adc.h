@@ -17,7 +17,7 @@
 #define SAMPLE_BUFFER_SIZE		(FFT_SIZE * 2)
 
 extern volatile uint16_t adc_sample_buffer[SAMPLE_BUFFER_SIZE];
-extern volatile int sample_buffer_full;
+extern volatile bool sample_buffer_full;
 
 extern void initADC(void);
 extern void beginFillingADCBuffer(void);

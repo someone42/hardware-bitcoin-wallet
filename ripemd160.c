@@ -213,7 +213,7 @@ void ripemd160Begin(HashState *hs)
 {
 	hs->message_length = 0;
 	hs->hashBlock = ripemd160Block;
-	hs->is_big_endian = 0;
+	hs->is_big_endian = false;
 	hs->h[0] = 0x67452301;
 	hs->h[1] = 0xefcdab89;
 	hs->h[2] = 0x98badcfe;

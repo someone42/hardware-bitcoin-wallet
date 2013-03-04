@@ -164,7 +164,7 @@ void sha256Begin(HashState *hs)
 {
 	hs->message_length = 0;
 	hs->hashBlock = sha256Block;
-	hs->is_big_endian = 1;
+	hs->is_big_endian = true;
 	hs->h[0] = 0x6a09e667;
 	hs->h[1] = 0xbb67ae85;
 	hs->h[2] = 0x3c6ef372;
@@ -208,7 +208,7 @@ void sha256FinishDouble(HashState *hs)
 	uint8_t i;
 
 	sha256Finish(hs);
-	writeHashToByteArray(temp, hs, 1);
+	writeHashToByteArray(temp, hs, true);
 	sha256Begin(hs);
 	for (i = 0; i < 32; i++)
 	{

@@ -215,7 +215,7 @@ static void clearM(HashState64 *hs64)
 {
 	hs64->index_m = 0;
 	hs64->byte_position_m = 0;
-	memset(hs64->m, 0, 128);
+	memset(hs64->m, 0, sizeof(hs64->m));
 }
 
 /** Begin calculating hash for new message.
@@ -395,7 +395,7 @@ http://csrc.nist.gov/groups/STM/cavp/index.html#07", filename);
 
 	// Skip to past [L=64] (since we want the SHA-512 based tests).
 	test_number = 1;
-	while(!feof(f))
+	while (!feof(f))
 	{
 		fgets(buffer, sizeof(buffer), f);
 		if (!strcmp(buffer, "[L=64]\n"))

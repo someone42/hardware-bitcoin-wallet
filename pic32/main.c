@@ -6,6 +6,7 @@
   */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include <p32xxxx.h>
 #include "usb_hal.h"
@@ -34,7 +35,7 @@ void usbFatalError(void)
 {
 	disableInterrupts();
 	PORTDSET = 0x10; // turn on red LED
-	while (1)
+	while (true)
 	{
 		// do nothing
 	}
@@ -93,7 +94,7 @@ int main(void)
 		displayOn();
 	}
 	counter = 0;
-	while (1)
+	while (true)
 	{
 		if ((mode == 'g') || (mode == 'i') || (mode == 'j'))
 		{
@@ -204,21 +205,21 @@ int main(void)
 			// Unknown test mode.
 			usbFatalError();
 		}
-	} // end while (1)
+	} // end while (true)
 #elif TEST_FFT
 	testFFT();
-	while(1)
+	while (true)
 	{
 		// do nothing
 	}
 #elif TEST_STATISTICS
 	testStatistics();
-	while(1)
+	while (true)
 	{
 		// do nothing
 	}
 #else
-	while(1)
+	while (true)
 	{
 		processPacket();
 	}

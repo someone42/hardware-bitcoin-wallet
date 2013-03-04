@@ -68,29 +68,29 @@ static uint8_t transaction_fee_amount[8];
 static uint32_t transaction_data_index;
 /** The total length of the transaction being parsed, in number of bytes. */
 static uint32_t transaction_length;
-/** If this is non-zero, then as the transaction contents are read from the
+/** If this is true, then as the transaction contents are read from the
   * stream device, they will not be included in the calculation of the
   * transaction hash (see parseTransaction() for what this is all about).
-  * If this is zero, then they will be included. */
-static uint8_t suppress_transaction_hash;
-/** If this is zero, then as the transaction contents are read from the
+  * If this is false, then they will be included. */
+static bool suppress_transaction_hash;
+/** If this is false, then as the transaction contents are read from the
   * stream device, they will not be included in the calculation of the
-  * transaction hash or the signature hash. If this is non-zero, then they
+  * transaction hash or the signature hash. If this is true, then they
   * will be included. This is used to stop #sig_hash_hs_ptr
   * and #transaction_hash_hs_ptr from being written to if they don't point
   * to a valid hash state. */
-static uint8_t hs_ptr_valid;
+static bool hs_ptr_valid;
 /** Pointer to hash state used to calculate the signature
   * hash (see parseTransaction() for what this is all about).
   * \warning If this does not point to a valid hash state structure, ensure
-  *          that #hs_ptr_valid is set to zero to
+  *          that #hs_ptr_valid is false to
   *          stop getTransactionBytes() from attempting to dereference this.
   */
 static HashState *sig_hash_hs_ptr;
 /** Pointer to hash state used to calculate the transaction
   * hash (see parseTransaction() for what this is all about).
   * \warning If this does not point to a valid hash state structure, ensure
-  *          that #hs_ptr_valid is set to zero to
+  *          that #hs_ptr_valid is false to
   *          stop getTransactionBytes() from attempting to dereference this.
   */
 static HashState *transaction_hash_hs_ptr;
@@ -104,10 +104,10 @@ static HashState *transaction_hash_hs_ptr;
   *               data (if everything goes well). It must have space for
   *               length bytes.
   * \param length The number of bytes to read from the stream device.
-  * \return 0 on success, 1 if a stream read error occurred or if the read
-  *         would go beyond the end of the transaction data.
+  * \return false on success, true if a stream read error occurred or if the
+  *         read would go beyond the end of the transaction data.
   */
-static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
+static bool getTransactionBytes(uint8_t *buffer, uint8_t length)
 {
 	uint8_t i;
 	uint8_t one_byte;
@@ -117,11 +117,11 @@ static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 		// transaction_data_index + (uint32_t)length will overflow.
 		// Since transaction_length <= 0xffffffff, this implies that the read
 		// will go past the end of the transaction.
-		return 1; // trying to read past end of transaction
+		return true; // trying to read past end of transaction
 	}
 	if (transaction_data_index + (uint32_t)length > transaction_length)
 	{
-		return 1; // trying to read past end of transaction
+		return true; // trying to read past end of transaction
 	}
 	else
 	{
@@ -139,24 +139,24 @@ static uint8_t getTransactionBytes(uint8_t *buffer, uint8_t length)
 			}
 			transaction_data_index++;
 		}
-		return 0;
+		return false;
 	}
 }
 
 /** Checks whether the transaction parser is at the end of the transaction
   * data.
-  * \return 0 if not at the end of the transaction data, 1 if at the end of
-  *         the transaction data.
+  * \return false if not at the end of the transaction data, true if at the
+  *         end of the transaction data.
   */
-static uint8_t isEndOfTransactionData(void)
+static bool isEndOfTransactionData(void)
 {
 	if (transaction_data_index >= transaction_length)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
@@ -166,16 +166,16 @@ static uint8_t isEndOfTransactionData(void)
   * This only supports unsigned variable-sized integers up to a maximum
   * value of 2 ^ 32 - 1.
   * \param out The value of the integer will be written to here.
-  * \return 0 on success, 1 to indicate an unexpected end of transaction
-  *         data or 2 to indicate that the value of the integer is too large.
+  * \return false on success, true to indicate an error occurred (unexpected
+  *         end of transaction data or the value of the integer is too large).
   */
-static uint8_t getVarInt(uint32_t *out)
+static bool getVarInt(uint32_t *out)
 {
 	uint8_t temp[4];
 
 	if (getTransactionBytes(temp, 1))
 	{
-		return 1; // unexpected end of transaction data
+		return true; // unexpected end of transaction data
 	}
 	if (temp[0] < 0xfd)
 	{
@@ -185,7 +185,7 @@ static uint8_t getVarInt(uint32_t *out)
 	{
 		if (getTransactionBytes(temp, 2))
 		{
-			return 1; // unexpected end of transaction data
+			return true; // unexpected end of transaction data
 		}
 		*out = (uint32_t)(temp[0]) | ((uint32_t)(temp[1]) << 8);
 	}
@@ -193,15 +193,15 @@ static uint8_t getVarInt(uint32_t *out)
 	{
 		if (getTransactionBytes(temp, 4))
 		{
-			return 1; // unexpected end of transaction data
+			return true; // unexpected end of transaction data
 		}
 		*out = readU32LittleEndian(temp);
 	}
 	else
 	{
-		return 2; // varint is too large
+		return true; // varint is too large
 	}
-	return 0;
+	return false; // success
 }
 
 /** See comments for parseTransaction() for description of what this does
@@ -212,17 +212,17 @@ static uint8_t getVarInt(uint32_t *out)
   * transaction.
   * \param sig_hash See parseTransaction().
   * \param transaction_hash See parseTransaction().
-  * \param is_ref_out On success, this will be written with a non-zero value
+  * \param is_ref_out On success, this will be written with true
   *                   if the transaction parser parsed an input (i.e.
   *                   referenced by input of spending) transaction. This will
-  *                   be written with zero if the transaction parser parsed
+  *                   be written with false if the transaction parser parsed
   *                   the main (i.e. spending) transaction.
   * \param ref_compare_hs Reference compare hash. This is used to check that
   *                       the input transactions match the references in the
   *                       main transaction.
   * \return See parseTransaction().
   */
-static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 transaction_hash, uint8_t *is_ref_out, HashState *ref_compare_hs)
+static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 transaction_hash, bool *is_ref_out, HashState *ref_compare_hs)
 {
 	uint8_t temp[32];
 	uint8_t ref_compare_hash[32];
@@ -232,9 +232,9 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	uint8_t input_reference_num_buffer[4];
 	uint16_t i;
 	uint8_t j;
-	uint32_t i32;
+	uint32_t k;
 	uint32_t output_num_select;
-	uint8_t is_ref;
+	bool is_ref;
 	char text_amount[TEXT_AMOUNT_LENGTH];
 	char text_address[TEXT_ADDRESS_LENGTH];
 
@@ -246,11 +246,19 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	// Suppress hashing of input stream, otherwise the is_ref byte and
 	// output number (which are not part of the transaction data) will
 	// be included in the signature/transaction hash.
-	hs_ptr_valid = 0;
+	hs_ptr_valid = false;
 
-	if (getTransactionBytes(&is_ref, 1))
+	if (getTransactionBytes(temp, 1))
 	{
 		return TRANSACTION_INVALID_FORMAT; // transaction truncated
+	}
+	if (temp[0] != 0)
+	{
+		is_ref = true;
+	}
+	else
+	{
+		is_ref = false;
 	}
 	*is_ref_out = is_ref;
 
@@ -272,14 +280,14 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	{
 		// Generate hash of input transaction references for comparison.
 		sha256FinishDouble(ref_compare_hs);
-		writeHashToByteArray(ref_compare_hash, ref_compare_hs, 0);
+		writeHashToByteArray(ref_compare_hash, ref_compare_hs, false);
 		sha256Begin(ref_compare_hs);
 	}
 
 	sha256Begin(sig_hash_hs_ptr);
 	sha256Begin(transaction_hash_hs_ptr);
-	hs_ptr_valid = 1;
-	suppress_transaction_hash = 0;
+	hs_ptr_valid = true;
+	suppress_transaction_hash = false;
 
 	// Check version.
 	if (getTransactionBytes(temp, 4))
@@ -336,21 +344,21 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 		// for. The transaction hash is supposed to be the same regardless of
 		// which input is being signed for, so the calculation of the
 		// transaction hash ignores input scripts.
-		suppress_transaction_hash = 1;
+		suppress_transaction_hash = true;
 		// Get input script length.
 		if (getVarInt(&script_length))
 		{
 			return TRANSACTION_INVALID_FORMAT; // transaction truncated or varint too big
 		}
 		// Skip the script because it's useless here.
-		for (i32 = 0; i32 < script_length; i32++)
+		for (k = 0; k < script_length; k++)
 		{
 			if (getTransactionBytes(temp, 1))
 			{
 				return TRANSACTION_INVALID_FORMAT; // transaction truncated
 			}
 		}
-		suppress_transaction_hash = 0;
+		suppress_transaction_hash = false;
 		// Check sequence. Since locktime is checked below, this check
 		// is probably superfluous. But it's better to be safe than sorry.
 		if (getTransactionBytes(temp, 4))
@@ -367,7 +375,7 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	{
 		// Compare input references with input transactions.
 		sha256FinishDouble(ref_compare_hs);
-		writeHashToByteArray(temp, ref_compare_hs, 0);
+		writeHashToByteArray(temp, ref_compare_hs, false);
 		if (memcmp(temp, ref_compare_hash, 32))
 		{
 			return TRANSACTION_INVALID_REFERENCE; // references don't match input transactions
@@ -434,7 +442,7 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 		{
 			// The actual output scripts of input transactions don't need to
 			// be parsed (only the amount matters), so skip the script.
-			for (i32 = 0; i32 < script_length; i32++)
+			for (k = 0; k < script_length; k++)
 			{
 				if (getTransactionBytes(temp, 1))
 				{
@@ -550,9 +558,9 @@ static TransactionErrors parseTransactionInternal(BigNum256 sig_hash, BigNum256 
 	// The signature hash is written in a little-endian format because it
 	// is used as a little-endian multi-precision integer in
 	// signTransaction().
-	writeHashToByteArray(sig_hash, sig_hash_hs_ptr, 0);
+	writeHashToByteArray(sig_hash, sig_hash_hs_ptr, false);
 	sha256FinishDouble(transaction_hash_hs_ptr);
-	writeHashToByteArray(transaction_hash, transaction_hash_hs_ptr, 0);
+	writeHashToByteArray(transaction_hash, transaction_hash_hs_ptr, false);
 
 	if (is_ref)
 	{
@@ -608,12 +616,12 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 {
 	TransactionErrors r;
 	uint8_t junk;
-	uint8_t is_ref;
+	bool is_ref;
 	HashState sig_hash_hs;
 	HashState transaction_hash_hs;
 	HashState ref_compare_hs;
 
-	hs_ptr_valid = 0;
+	hs_ptr_valid = false;
 	transaction_data_index = 0;
 	transaction_length = length;
 	memset(transaction_fee_amount, 0, sizeof(transaction_fee_amount));
@@ -621,12 +629,12 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 	transaction_hash_hs_ptr = &transaction_hash_hs;
 	sha256Begin(&ref_compare_hs);
 
-	hs_ptr_valid = 1;
+	hs_ptr_valid = true;
 	do
 	{
 		r = parseTransactionInternal(sig_hash, transaction_hash, &is_ref, &ref_compare_hs);
 	} while ((r == TRANSACTION_NO_ERROR) && is_ref);
-	hs_ptr_valid = 0;
+	hs_ptr_valid = false;
 
 	// Always try to consume the entire stream.
 	while (!isEndOfTransactionData())
@@ -764,10 +772,10 @@ static uint8_t encapsulateSignature(uint8_t *signature, BigNum256 r, BigNum256 s
   *                 parseTransaction()).
   * \param private_key The private key to sign the transaction with. This must
   *                    be a 32 byte little-endian multi-precision integer.
-  * \return Zero on success, or non-zero if an error occurred while trying to
+  * \return false on success, or true if an error occurred while trying to
   *         obtain a random number.
   */
-uint8_t signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key)
+bool signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key)
 {
 	uint8_t k[32];
 	uint8_t r[32];
@@ -778,12 +786,12 @@ uint8_t signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_h
 	{
 		if (getRandom256(k))
 		{
-			return 1; // problem with RNG system
+			return true; // problem with RNG system
 		}
 	} while (ecdsaSign(r, s, sig_hash, private_key, k));
 
 	*out_length = encapsulateSignature(signature, r, s);
-	return 0; // success
+	return false; // success
 }
 
 #ifdef TEST
@@ -791,12 +799,12 @@ uint8_t signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_h
 /** Number of outputs seen. */
 static int num_outputs_seen;
 
-uint8_t newOutputSeen(char *text_amount, char *text_address)
+bool newOutputSeen(char *text_amount, char *text_address)
 {
 	printf("Amount: %s\n", text_amount);
 	printf("Address: %s\n", text_address);
 	num_outputs_seen++;
-	return 0; // success
+	return false; // success
 }
 
 void setTransactionFee(char *text_amount)
@@ -2715,9 +2723,9 @@ int main(void)
 {
 	int i;
 	int j;
-	int abort;
-	int abort_error;
-	int abort_no_write;
+	bool abort;
+	bool abort_error;
+	bool abort_no_write;
 	int num_tests;
 	char name[1024];
 	uint8_t bad_full_transaction[sizeof(good_full_transaction)];
@@ -3058,7 +3066,7 @@ int main(void)
 		sha256WriteByte(&test_hs, good_main_transaction[i]);
 	}
 	sha256FinishDouble(&test_hs);
-	writeHashToByteArray(calculated_sig_hash, &test_hs, 0);
+	writeHashToByteArray(calculated_sig_hash, &test_hs, false);
 	if (memcmp(calculated_sig_hash, sig_hash, 32))
 	{
 		printf("parseTransaction() isn't calculating signature hash properly\n");
@@ -3081,7 +3089,7 @@ int main(void)
 		sha256WriteByte(&test_hs, good_main_transaction[i]);
 	}
 	sha256FinishDouble(&test_hs);
-	writeHashToByteArray(calculated_transaction_hash, &test_hs, 0);
+	writeHashToByteArray(calculated_transaction_hash, &test_hs, false);
 	if (memcmp(calculated_transaction_hash, transaction_hash, 32))
 	{
 		printf("parseTransaction() isn't calculating transaction hash properly\n");
@@ -3175,9 +3183,9 @@ int main(void)
 	// isn't using a different k for each signature.
 	signatures_buffer = calloc(10, MAX_SIGNATURE_LENGTH);
 	signatures_length = calloc(10, 1);
-	abort = 0;
-	abort_error = 0;
-	abort_no_write = 0;
+	abort = false;
+	abort_error = false;
+	abort_no_write = false;
 	for (i = 0; i < 10; i++)
 	{
 		memset(sig_hash, 42, 32);
@@ -3188,7 +3196,7 @@ int main(void)
 		{
 			printf("signTransaction() failed unexpectedly\n");
 			reportFailure();
-			abort_error = 1;
+			abort_error = true;
 			break;
 		}
 		// Check that signTransaction() wrote to the signature buffer and
@@ -3198,7 +3206,7 @@ int main(void)
 		{
 			printf("signTransaction() isn't writing to its outputs\n");
 			reportFailure();
-			abort_no_write = 1;
+			abort_no_write = true;
 			break;
 		}
 		for (j = 0; j < i; j++)
@@ -3211,7 +3219,7 @@ int main(void)
 				{
 					printf("signTransaction() is producing repeating signatures\n");
 					reportFailure();
-					abort = 1;
+					abort = true;
 					break;
 				}
 			}

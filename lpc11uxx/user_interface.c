@@ -36,12 +36,12 @@ static char list_address[MAX_OUTPUTS][TEXT_ADDRESS_LENGTH];
 /** Index into #list_amount and #list_address which specifies where the next
   * output amount/address will be copied into. */
 static uint32_t list_index;
-/** Whether the transaction fee has been set (non-zero) or not (zero). If
+/** Whether the transaction fee has been set. If
   * the transaction fee still hasn't been set after parsing, then the
   * transaction is free. */
-static int transaction_fee_set;
+static bool transaction_fee_set;
 /** Storage for transaction fee amount. This is only valid
-  * if #transaction_fee_set is non-zero. */
+  * if #transaction_fee_set is true. */
 static char transaction_fee_amount[TEXT_AMOUNT_LENGTH];
 
 /** Set up LPC11Uxx peripherals to get input from two pushbuttons. The
@@ -58,31 +58,31 @@ void initUserInterface(void)
 	LPC_GPIO->DIR[0] &= ~0x20000; // set PIO0.17 as input
 }
 
-/** Returns 1 if the accept button is being pressed, 0 if it is not. This
-  * function does not do debouncing. */
-static int isAcceptPressed(void)
+/** Returns true if the accept button is being pressed, false if it is not.
+  * This function does not do debouncing. */
+static bool isAcceptPressed(void)
 {
 	if ((LPC_GPIO->PIN[0] & 0x20000) == 0)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
-/** Returns 1 if the cancel button is being pressed, 0 if it is not. This
-  * function does not do debouncing. */
-static int isCancelPressed(void)
+/** Returns true if the cancel button is being pressed, false if it is not.
+  * This function does not do debouncing. */
+static bool isCancelPressed(void)
 {
 	if ((LPC_GPIO->PIN[0] & 0x80) == 0)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
@@ -94,7 +94,7 @@ static void wait1ms(void)
 	SysTick->LOAD = 24000; // set timer reload to 1 ms (48000000 / (1000 * 2))
 	SysTick->CTRL = 1; // enable system tick timer
 	// Wait until timer counts to 0.
-	while((SysTick->CTRL & (1 << SysTick_CTRL_COUNTFLAG_Pos)) == 0)
+	while ((SysTick->CTRL & (1 << SysTick_CTRL_COUNTFLAG_Pos)) == 0)
 	{
 		// do nothing
 	}
@@ -124,15 +124,15 @@ static void waitForNoButtonPress(void)
 
 /** Wait until accept or cancel button is pressed. This function does do
   * debouncing.
-  * \return 0 if the accept button was pressed, non-zero if the cancel
+  * \return false if the accept button was pressed, true if the cancel
   *         button was pressed. If both buttons were pressed simultaneously,
-  *         non-zero will be returned.
+  *         true will be returned.
   */
-static uint8_t waitForButtonPress(void)
+static bool waitForButtonPress(void)
 {
 	uint32_t counter;
-	int accept_pressed;
-	int cancel_pressed;
+	bool accept_pressed;
+	bool cancel_pressed;
 
 	counter = DEBOUNCE_COUNT;
 	while (counter > 0)
@@ -151,11 +151,11 @@ static uint8_t waitForButtonPress(void)
 	}
 	if (cancel_pressed)
 	{
-		return 1;
+		return true;
 	}
 	else
 	{
-		return 0;
+		return false;
 	}
 }
 
@@ -165,17 +165,17 @@ static uint8_t waitForButtonPress(void)
   *                    such as "0.01".
   * \param text_address The output address, as a null-terminated text string
   *                     such as "1RaTTuSEN7jJUDiW1EGogHwtek7g9BiEn".
-  * \return 0 if no error occurred, non-zero if there was not enough space to
+  * \return false if no error occurred, true if there was not enough space to
   *         store the amount/address pair.
   */
-uint8_t newOutputSeen(char *text_amount, char *text_address)
+bool newOutputSeen(char *text_amount, char *text_address)
 {
 	char *amount_dest;
 	char *address_dest;
 
 	if (list_index >= MAX_OUTPUTS)
 	{
-		return 1; // not enough space to store the amount/address pair
+		return true; // not enough space to store the amount/address pair
 	}
 	amount_dest = list_amount[list_index];
 	address_dest = list_address[list_index];
@@ -184,7 +184,7 @@ uint8_t newOutputSeen(char *text_amount, char *text_address)
 	amount_dest[TEXT_AMOUNT_LENGTH - 1] = '\0';
 	address_dest[TEXT_ADDRESS_LENGTH - 1] = '\0';
 	list_index++;
-	return 0;
+	return false; // success
 }
 
 /** Notify the user interface that the transaction parser has seen the
@@ -197,7 +197,7 @@ void setTransactionFee(char *text_amount)
 {
 	strncpy(transaction_fee_amount, text_amount, TEXT_AMOUNT_LENGTH);
 	transaction_fee_amount[TEXT_AMOUNT_LENGTH - 1] = '\0';
-	transaction_fee_set = 1;
+	transaction_fee_set = true;
 }
 
 /** Notify the user interface that the list of Bitcoin amount/address pairs
@@ -205,21 +205,22 @@ void setTransactionFee(char *text_amount)
 void clearOutputsSeen(void)
 {
 	list_index = 0;
-	transaction_fee_set = 0;
+	transaction_fee_set = false;
 }
 
 /** Ask user if they want to allow some action.
   * \param command The action to ask the user about. See #AskUserCommandEnum.
-  * \return 0 if the user accepted, non-zero if the user denied.
+  * \return false if the user accepted, true if the user denied.
   */
-uint8_t askUser(AskUserCommand command)
+bool userDenied(AskUserCommand command)
 {
 	uint8_t i;
-	uint8_t r; // what will be returned
+	bool r; // what will be returned
 
 	clearDisplay();
 	displayOn();
 
+	r = true;
 	if (command == ASKUSER_NUKE_WALLET)
 	{
 		waitForNoButtonPress();
@@ -320,9 +321,9 @@ uint8_t askUser(AskUserCommand command)
 	else
 	{
 		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Unknown command in askUser(). Press any button to continue...");
+		writeStringToDisplayWordWrap("Unknown command in userDenied(). Press any button to continue...");
 		waitForButtonPress();
-		r = 1; // unconditionally deny
+		r = true; // unconditionally deny
 	}
 
 	clearDisplay();
@@ -355,26 +356,25 @@ static char nibbleToHex(uint8_t nibble)
   * example would be displaying the seed as a hexadecimal string on a LCD.
   * \param seed A byte array of length #SEED_LENGTH bytes which contains the
   *             backup seed.
-  * \param is_encrypted Specifies whether the seed has been encrypted
-  *                     (non-zero) or not (zero).
+  * \param is_encrypted Specifies whether the seed has been encrypted.
   * \param destination_device Specifies which (platform-dependent) device the
   *                           backup seed should be sent to.
-  * \return 0 on success, or non-zero if the backup seed could not be written
+  * \return false on success, true if the backup seed could not be written
   *         to the destination device.
   */
-uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination_device)
+bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint8_t destination_device)
 {
 	uint8_t i;
 	uint8_t one_byte; // current byte of seed
 	uint8_t byte_counter; // current byte on line, 0 = first, 1 = second etc.
 	uint8_t line_number;
-	uint8_t r;
+	bool r;
 	char str[3];
 	char leader[3];
 
 	if (destination_device != 0)
 	{
-		return 1;
+		return true;
 	}
 
 	// Tell user whether seed is encrypted or not.
@@ -394,7 +394,7 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 	if (r)
 	{
 		displayOff();
-		return 2;
+		return true;
 	}
 	waitForNoButtonPress();
 
@@ -438,7 +438,7 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 			if (r)
 			{
 				displayOff();
-				return 2;
+				return true;
 			}
 			byte_counter = 0;
 		}
@@ -449,9 +449,9 @@ uint8_t writeBackupSeed(uint8_t *seed, uint8_t is_encrypted, uint8_t destination
 	displayOff();
 	if (r)
 	{
-		return 2;
+		return true;
 	}
-	return 0;
+	return false;
 }
 
 /** Notify user of stream error via. display. */

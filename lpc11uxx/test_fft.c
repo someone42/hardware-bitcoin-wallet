@@ -14,6 +14,7 @@
 #include "../fix16.h"
 #include "../fft.h"
 #include <stdint.h>
+#include <stdbool.h>
 #include <string.h>
 #include "../hwinterface.h"
 #include "../endian.h"
@@ -67,11 +68,11 @@ void testFFT(void)
 	uint32_t size;
 	uint32_t cycles;
 	int test_number;
-	int is_inverse;
-	int failed;
+	bool is_inverse;
+	bool failed;
 	uint8_t buffer[4];
 
-	while(1)
+	while (true)
 	{
 		// Order of tests:
 		// 0 = forward, normal-sized
@@ -96,11 +97,11 @@ void testFFT(void)
 			SysTick->CTRL = 5; // enable system tick timer, frequency = CPU
 			if ((test_number == 1) || (test_number == 3))
 			{
-				is_inverse = 1;
+				is_inverse = true;
 			}
 			else
 			{
-				is_inverse = 0;
+				is_inverse = false;
 			}
 			failed = fft(data, is_inverse);
 			if (test_number >= 2)
@@ -148,7 +149,7 @@ void testFFT(void)
 				streamPutOneByte(buffer[i]);
 			}
 		} // end for (test_number = 0; test_number < 4; test_number++)
-	} // end while(1)
+	} // end while (true)
 }
 
 #endif // #ifdef TEST_FFT
