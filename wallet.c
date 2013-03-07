@@ -32,6 +32,7 @@
 #include "test_helpers.h"
 #endif // #ifdef TEST_WALLET
 
+#include <stddef.h>
 #include "common.h"
 #include "endian.h"
 #include "wallet.h"
@@ -48,11 +49,6 @@
   * is used to calculate the checksum and the output of SHA-256 is 32 bytes
   * long. */
 #define CHECKSUM_LENGTH			32
-
-/** Get the byte offset of a field (specified by "x") within a structure
-  * (specified by "base"). Because this uses pointer arithmetic to get the
-  * offset, the base needs to be a variable. */
-#define OFFSET_OF(base, x)			((unsigned int)(((uint8_t *)&((base).x)) - ((uint8_t *)&(base))))
 
 /** Possible values for the version field of a wallet record. */
 typedef enum WalletVersionEnum
@@ -195,7 +191,7 @@ static void calculateWalletChecksum(uint8_t *hash)
 	for (i = 0; i < sizeof(WalletRecord); i++)
 	{
 		// Skip checksum when calculating the checksum.
-		if (i == OFFSET_OF(current_wallet, encrypted.checksum))
+		if (i == offsetof(WalletRecord, encrypted.checksum))
 		{
 			i += sizeof(current_wallet.encrypted.checksum);
 		}
@@ -472,7 +468,7 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 		}
 		address /= sizeof(WalletRecord);
 		address *= sizeof(WalletRecord);
-		address += (ADDRESS_WALLET_START + OFFSET_OF(current_wallet, unencrypted.version));
+		address += (ADDRESS_WALLET_START + offsetof(WalletRecord, unencrypted.version));
 		// address is now rounded down to the first possible address where
 		// the version field of a wallet could be stored.
 		r = NV_NO_ERROR;
@@ -2439,9 +2435,9 @@ int main(void)
 	initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 	minimum_address_written = 0xffffffff;
 	maximum_address_written = 0;
-	// Use ADDRESS_WALLET_START + OFFSET_OF(current_wallet, unencrypted.version) to try and
+	// Use ADDRESS_WALLET_START + offsetof(WalletRecord, unencrypted.version) to try and
 	// trick the "clear version field" logic.
-	start_address = ADDRESS_WALLET_START + OFFSET_OF(current_wallet, unencrypted.version);
+	start_address = ADDRESS_WALLET_START + offsetof(WalletRecord, unencrypted.version);
 	sanitiseNonVolatileStorage(start_address, start_address);
 	if ((minimum_address_written != 0xffffffff) || (maximum_address_written != 0))
 	{

@@ -34,6 +34,18 @@ void writeU32LittleEndian(uint8_t *out, uint32_t in)
 	out[3] = (uint8_t)(in >> 24);
 }
 
+/** Read a 32 bit unsigned integer from a byte array in big-endian format.
+  * \param in The source byte array.
+  * \return The integer.
+  */
+uint32_t readU32BigEndian(uint8_t *in)
+{
+	return ((uint32_t)in[0] << 24)
+		| ((uint32_t)in[1] << 16)
+		| ((uint32_t)in[2] << 8)
+		| ((uint32_t)in[3]);
+}
+
 /** Read a 32 bit unsigned integer from a byte array in little-endian format.
   * \param in The source byte array.
   * \return The integer.

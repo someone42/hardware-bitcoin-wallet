@@ -36,6 +36,19 @@
 #include "xex.h"
 #include "ecdsa.h"
 #include "storage_common.h"
+#include "pb.h"
+#include "pb_decode.h"
+#include "pb_encode.h"
+#include "messages.pb.h"
+
+// Prototypes for forward-referenced functions.
+bool mainInputStreamCallback(pb_istream_t *stream, uint8_t *buf, size_t count);
+bool mainOutputStreamCallback(pb_ostream_t *stream, const uint8_t *buf, size_t count);
+static void writeFailureString(StringSet set, uint8_t spec);
+
+/** Maximum size (in bytes) of any protocol buffer message send by functions
+  * in this file. */
+#define MAX_SEND_SIZE			255
 
 /** Because stdlib.h might not be included, NULL might be undefined. NULL
   * is only used as a placeholder pointer for translateWalletError() if
@@ -43,6 +56,15 @@
 #ifndef NULL
 #define NULL ((void *)0) 
 #endif // #ifndef NULL
+
+/** Union of field buffers for all protocol buffer messages. They're placed
+  * in a union to make memory access more efficient, since the functions in
+  * this file only need to deal with one message at any one time. */
+union MessageBufferUnion
+{
+	Ping ping;
+	PingResponse ping_response;
+};
 
 /** The transaction hash of the most recently approved transaction. This is
   * stored so that if a transaction needs to be signed multiple times (eg.
@@ -56,13 +78,43 @@ static bool prev_transaction_hash_valid;
 /** Length of current packet's payload. */
 static uint32_t payload_length;
 
+/** String set (see getString()) of next string to be outputted by
+  * writeStringCallback(). */
+static StringSet next_set;
+/** String specifier (see getString()) of next string to be outputted by
+  * writeStringCallback(). */
+static uint8_t next_spec;
+
+/** nanopb input stream which uses mainInputStreamCallback() as a stream
+  * callback. */
+pb_istream_t main_input_stream = {&mainInputStreamCallback, NULL, 0, NULL};
+/** nanopb output stream which uses mainOutputStreamCallback() as a stream
+  * callback. */
+pb_ostream_t main_output_stream = {&mainOutputStreamCallback, NULL, 0, 0};
+
+/** Read bytes from the stream.
+  * \param buffer The byte array where the bytes will be placed. This must
+  *               have enough space to store length bytes.
+  * \param length The number of bytes to read.
+  */
+static void getBytesFromStream(uint8_t *buffer, uint8_t length)
+{
+	uint8_t i;
+
+	for (i = 0; i < length; i++)
+	{
+		buffer[i] = streamGetOneByte();
+	}
+	payload_length -= length;
+}
+
 /** Write a number of bytes to the output stream.
   * \param buffer The array of bytes to be written.
   * \param length The number of bytes to write.
   */
-static void writeBytesToStream(uint8_t *buffer, uint16_t length)
+static void writeBytesToStream(const uint8_t *buffer, size_t length)
 {
-	uint16_t i;
+	size_t i;
 
 	for (i = 0; i < length; i++)
 	{
@@ -70,27 +122,173 @@ static void writeBytesToStream(uint8_t *buffer, uint16_t length)
 	}
 }
 
-/** Sends a packet with a string as payload.
-  * \param set See getString().
-  * \param spec See getString().
-  * \param command The type of the packet, as defined in the file PROTOCOL.
+/** nanopb input stream callback which uses streamGetOneByte() to get the
+  * requested bytes.
+  * \param stream Input stream object that issued the callback.
+  * \param buf Buffer to fill with requested bytes.
+  * \param count Requested number of bytes.
+  * \return true on success, false on failure (nanopb convention).
   */
-static void writeString(StringSet set, uint8_t spec, uint8_t command)
+bool mainInputStreamCallback(pb_istream_t *stream, uint8_t *buf, size_t count)
+{
+	size_t i;
+
+	if (buf == NULL)
+	{
+		fatalError(); // this should never happen
+	}
+	for (i = 0; i < count; i++)
+	{
+		if (payload_length == 0)
+		{
+			// Attempting to read past end of payload.
+			stream->bytes_left = 0;
+			return false;
+		}
+		buf[i] = streamGetOneByte();
+		payload_length--;
+	}
+	return true;
+}
+
+/** nanopb output stream callback which uses streamPutOneByte() to send a byte
+  * buffer.
+  * \param stream Output stream object that issued the callback.
+  * \param buf Buffer with bytes to send.
+  * \param count Number of bytes to send.
+  * \return true on success, false on failure (nanopb convention).
+  */
+bool mainOutputStreamCallback(pb_ostream_t *stream, const uint8_t *buf, size_t count)
+{
+	writeBytesToStream(buf, count);
+	return true;
+}
+
+/** Read but ignore #payload_length bytes from input stream. This will also
+  * set #payload_length to 0 (if everything goes well). This function is
+  * useful for ensuring that the entire payload of a packet is read from the
+  * stream device.
+  */
+static void readAndIgnoreInput(void)
+{
+	if (payload_length > 0)
+	{
+		for (; payload_length > 0; payload_length--)
+		{
+			streamGetOneByte();
+		}
+	}
+}
+
+/** Receive a message from the stream #main_input_stream.
+  * \param fields Field description array.
+  * \param dest_struct Where field data will be stored.
+  * \return false on success, true if a parse error occurred.
+  */
+static bool receiveMessage(const pb_field_t fields[], void *dest_struct)
+{
+	bool r;
+
+	r = pb_decode(&main_input_stream, fields, dest_struct);
+	// In order for the message to be considered valid, it must also occupy
+	// the entire payload of the packet.
+	if ((payload_length > 0) || !r)
+	{
+		readAndIgnoreInput();
+		writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+		return true;
+	}
+	else
+	{
+		return false;
+	}
+}
+
+/** Send a packet.
+  * \param command The message ID of the packet.
+  * \param fields Field description array.
+  * \param src_struct Field data which will be serialised and sent.
+  */
+static void sendPacket(uint16_t command, const pb_field_t fields[], const void *src_struct)
 {
 	uint8_t buffer[4];
-	uint8_t one_char;
-	uint16_t length;
-	uint16_t i;
+	pb_ostream_t substream;
 
-	streamPutOneByte(command); // type
-	length = getStringLength(set, spec);
-	writeU32LittleEndian(buffer, length);
-	writeBytesToStream(buffer, 4); // length
+	// Use a non-writing substream to get the length of the message without
+	// storing it anywhere.
+	substream.callback = NULL;
+	substream.state = NULL;
+	substream.max_size = MAX_SEND_SIZE;
+	substream.bytes_written = 0;
+	if (!pb_encode(&substream, fields, src_struct))
+	{
+		fatalError();
+	}
+
+	// Send packet header.
+	streamPutOneByte('#');
+	streamPutOneByte('#');
+	streamPutOneByte((uint8_t)(command >> 8));
+	streamPutOneByte((uint8_t)command);
+	writeU32BigEndian(buffer, substream.bytes_written);
+	writeBytesToStream(buffer, 4);
+	// Send actual message.
+	main_output_stream.bytes_written = 0;
+	main_output_stream.max_size = substream.bytes_written;
+	if (!pb_encode(&main_output_stream, fields, src_struct))
+	{
+		fatalError();
+	}
+}
+
+/** nanopb field callback which will write the string specified
+  * by #next_set and #next_spec.
+  * \param stream Output stream to write to.
+  * \param field Field which contains the string.
+  * \param arg Unused.
+  * \return true on success, false on failure (nanopb convention).
+  */
+bool writeStringCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
+{
+	uint16_t i;
+	uint16_t length;
+	char c;
+
+	length = getStringLength(next_set, next_spec);
+	if (!pb_encode_tag_for_field(stream, field))
+	{
+		return false;
+	}
+	// Cannot use pb_encode_string() because it expects a pointer to the
+	// contents of an entire string; getString() does not return such a
+	// pointer.
+	if (!pb_encode_varint(stream, (uint64_t)length))
+	{
+		return false;
+	}
 	for (i = 0; i < length; i++)
 	{
-		one_char = (uint8_t)getString(set, spec, i);
-		streamPutOneByte(one_char); // value
+		c = getString(next_set, next_spec, i);
+		if (!pb_write(stream, (uint8_t *)&c, 1))
+		{
+			return false;
+		}
 	}
+	return true;
+}
+
+/** Sends a Failure message with the specified error message.
+  * \param set See getString().
+  * \param spec See getString().
+  */
+static void writeFailureString(StringSet set, uint8_t spec)
+{
+	Failure message_buffer;
+
+	next_set = set;
+	next_spec = spec;
+	message_buffer.error_message.funcs.encode = &writeStringCallback;
+	sendPacket(PACKET_TYPE_FAILURE, Failure_fields, &message_buffer);
 }
 
 /** Translates a return value from one of the wallet functions into a response
@@ -117,24 +315,8 @@ static void translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
 	}
 	else
 	{
-		writeString(STRINGSET_WALLET, (uint8_t)r, PACKET_TYPE_FAILURE);
+		writeFailureString(STRINGSET_WALLET, (uint8_t)r);
 	}
-}
-
-/** Read bytes from the stream.
-  * \param buffer The byte array where the bytes will be placed. This must
-  *               have enough space to store length bytes.
-  * \param length The number of bytes to read.
-  */
-static void getBytesFromStream(uint8_t *buffer, uint8_t length)
-{
-	uint8_t i;
-
-	for (i = 0; i < length; i++)
-	{
-		buffer[i] = streamGetOneByte();
-	}
-	payload_length -= length;
 }
 
 /** Sign a transaction and (if everything goes well) send the signature in a
@@ -192,7 +374,7 @@ static NOINLINE void parseTransactionAndAsk(bool *out_approved, uint8_t *sig_has
 	if (r != TRANSACTION_NO_ERROR)
 	{
 		// Transaction parse error.
-		writeString(STRINGSET_TRANSACTION, (uint8_t)r, PACKET_TYPE_FAILURE);
+		writeFailureString(STRINGSET_TRANSACTION, (uint8_t)r);
 		return;
 	}
 
@@ -213,7 +395,7 @@ static NOINLINE void parseTransactionAndAsk(bool *out_approved, uint8_t *sig_has
 		// to the user interface.
 		if (userDenied(ASKUSER_SIGN_TRANSACTION))
 		{
-			writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
+			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
 		}
 		else
 		{
@@ -385,7 +567,7 @@ static NOINLINE void restoreWallet(uint32_t wallet_spec, bool make_hidden)
 	// anything.
 	if (userDenied(ASKUSER_RESTORE_WALLET))
 	{
-		writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
+		writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
 	}
 	else
 	{
@@ -407,7 +589,7 @@ static NOINLINE void getBytesOfEntropy(uint32_t num_bytes)
 	if (num_bytes > 0x7FFFFFFF)
 	{
 		// Huge num_bytes. Probably a transmission error.
-		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
+		writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
 	}
 	else
 	{
@@ -454,45 +636,6 @@ static NOINLINE void getAndSendMasterPublicKey(void)
 	translateWalletError(wallet_return, sizeof(buffer), buffer);
 }
 
-/** Read but ignore #payload_length bytes from input stream. This will also
-  * set #payload_length to 0 (if everything goes well). This function is
-  * useful for ensuring that the entire payload of a packet is read from the
-  * stream device.
-  */
-static void readAndIgnoreInput(void)
-{
-	if (payload_length)
-	{
-		for (; payload_length > 0; payload_length--)
-		{
-			streamGetOneByte();
-		}
-	}
-}
-
-/** Expect the payload length of a packet to be equal to desired_length, and
-  * send an error message (and read but ignore #payload_length bytes from the
-  * stream) if that is not the case. This function is used to enforce the
-  * payload length of packets to be compliant with the protocol described in
-  * the file PROTOCOL.
-  * \param desired_length The expected payload length (in bytes) of the packet
-  *                       currently being received from the stream device.
-  * \return false for success, true for payload length != desired_length.
-  */
-static bool expectLength(const uint8_t desired_length)
-{
-	if (payload_length != desired_length)
-	{
-		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
-		return true; // mismatched length
-	}
-	else
-	{
-		return false; // success
-	}
-}
-
 /** Get packet from stream and deal with it. This basically implements the
   * protocol described in the file PROTOCOL.
   * 
@@ -505,24 +648,23 @@ static bool expectLength(const uint8_t desired_length)
   */
 void processPacket(void)
 {
-	uint8_t command;
-	// Technically, the length of buffer should also be >= 4, since it is used
-	// in a couple of places to obtain 32 bit values. This is guaranteed by
-	// the reference to WALLET_ENCRYPTION_KEY_LENGTH, since no-one in their
-	// right mind would use encryption with smaller than 32 bit keys.
-	uint8_t buffer[MAX(NAME_LENGTH, MAX(WALLET_ENCRYPTION_KEY_LENGTH, MAX(ENTROPY_POOL_LENGTH, UUID_LENGTH)))];
-	uint8_t make_hidden_byte;
-	bool make_hidden;
-	bool do_encrypt;
-	uint32_t wallet_spec;
-	uint32_t num_addresses;
-	uint32_t num_bytes;
-	AddressHandle ah;
-	WalletErrors wallet_return;
+	uint16_t command;
+	uint8_t buffer[4];
+	union MessageBufferUnion message_buffer;
+	bool receive_failure;
 
-	command = streamGetOneByte();
+	// Receive packet header.
+	getBytesFromStream(buffer, 2);
+	if ((buffer[0] != '#') || (buffer[1] != '#'))
+	{
+		fatalError(); // invalid header
+	}
+	getBytesFromStream(buffer, 2);
+	command = (uint16_t)(((uint16_t)buffer[0] << 8) | ((uint16_t)buffer[1]));
 	getBytesFromStream(buffer, 4);
-	payload_length = readU32LittleEndian(buffer);
+	payload_length = readU32BigEndian(buffer);
+	// TODO: size_t not generally uint32_t
+	main_input_stream.bytes_left = payload_length;
 
 	// Checklist for each case:
 	// 1. Have you checked or dealt with length?
@@ -538,281 +680,21 @@ void processPacket(void)
 
 	case PACKET_TYPE_PING:
 		// Ping request.
-		// Just throw away the data and then send response.
-		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_VERSION, PACKET_TYPE_SUCCESS);
-		break;
-
-	// Commands PACKET_TYPE_SUCCESS and PACKET_TYPE_FAILURE should never be
-	// received; they are only sent.
-
-	case PACKET_TYPE_NEW_WALLET:
-		// Create new wallet.
-		if (!expectLength(4 + 1 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH))
+		message_buffer.ping.greeting.funcs.decode = NULL; // throw away greeting
+		receive_failure = receiveMessage(Ping_fields, &(message_buffer.ping));
+		if (!receive_failure)
 		{
-			getBytesFromStream(buffer, 4);
-			wallet_spec = readU32LittleEndian(buffer);
-			getBytesFromStream(&make_hidden_byte, 1);
-			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
-			setEncryptionKey(buffer);
-			getBytesFromStream(buffer, NAME_LENGTH);
-			if (userDenied(ASKUSER_NUKE_WALLET))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				if (make_hidden_byte != 0)
-				{
-					make_hidden = true;
-				}
-				else
-				{
-					make_hidden = false;
-				}
-				wallet_return = newWallet(wallet_spec, buffer, false, NULL, make_hidden);
-				translateWalletError(wallet_return, 0, NULL);
-			}
-		}
-		break;
-
-	case PACKET_TYPE_NEW_ADDRESS:
-		// Create new address in wallet.
-		if (!expectLength(0))
-		{
-			if (userDenied(ASKUSER_NEW_ADDRESS))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				getAndSendAddressAndPublicKey(true);
-			}
-		}
-		break;
-
-	case PACKET_TYPE_GET_NUM_ADDRESSES:
-		// Get number of addresses in wallet.
-		if (!expectLength(0))
-		{
-			num_addresses = getNumAddresses();
-			writeU32LittleEndian(buffer, num_addresses);
-			wallet_return = walletGetLastError();
-			translateWalletError(wallet_return, 4, buffer);
-		}
-		break;
-
-	case PACKET_TYPE_GET_ADDRESS_PUBKEY:
-		// Get address and public key corresponding to an address handle.
-		if (!expectLength(4))
-		{
-			getAndSendAddressAndPublicKey(false);
-		}
-		break;
-
-	case PACKET_TYPE_SIGN_TRANSACTION:
-		// Sign a transaction.
-		if (payload_length <= 4)
-		{
-			readAndIgnoreInput();
-			writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
-		}
-		else
-		{
-			getBytesFromStream(buffer, 4);
-			ah = readU32LittleEndian(buffer);
-			// Don't need to subtract 4 off payload_length because
-			// getBytesFromStream() has already done so.
-			validateAndSignTransaction(ah, payload_length);
-			payload_length = 0;
-		}
-		break;
-
-	case PACKET_TYPE_LOAD_WALLET:
-		// Load wallet.
-		if (!expectLength(4 + WALLET_ENCRYPTION_KEY_LENGTH))
-		{
-			getBytesFromStream(buffer, 4);
-			wallet_spec = readU32LittleEndian(buffer);
-			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
-			setEncryptionKey(buffer);
-			wallet_return = initWallet(wallet_spec);
-			translateWalletError(wallet_return, 0, NULL);
-		}
-		break;
-
-	case PACKET_TYPE_UNLOAD_WALLET:
-		// Unload wallet.
-		if (!expectLength(0))
-		{
-			prev_transaction_hash_valid = false;
-			clearEncryptionKey();
-			sanitiseRam();
-			memset(buffer, 0xff, sizeof(buffer));
-			memset(buffer, 0, sizeof(buffer));
-			wallet_return = uninitWallet();
-			translateWalletError(wallet_return, 0, NULL);
-		}
-		break;
-
-	case PACKET_TYPE_FORMAT:
-		// Format storage.
-		if (!expectLength(ENTROPY_POOL_LENGTH))
-		{
-			getBytesFromStream(buffer, ENTROPY_POOL_LENGTH);
-			if (userDenied(ASKUSER_FORMAT))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				if (initialiseEntropyPool(buffer))
-				{
-					translateWalletError(WALLET_RNG_FAILURE, 0, NULL);
-				}
-				else
-				{
-					wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
-					translateWalletError(wallet_return, 0, NULL);
-					uninitWallet(); // force wallet to unload
-				}
-			}
-		}
-		break;
-
-	case PACKET_TYPE_CHANGE_KEY:
-		// Change wallet encryption key.
-		if (!expectLength(WALLET_ENCRYPTION_KEY_LENGTH))
-		{
-			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
-			if (userDenied(ASKUSER_CHANGE_KEY))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				wallet_return = changeEncryptionKey(buffer);
-				translateWalletError(wallet_return, 0, NULL);
-			}
-		}
-		break;
-
-	case PACKET_TYPE_CHANGE_NAME:
-		// Change wallet name.
-		if (!expectLength(NAME_LENGTH))
-		{
-			getBytesFromStream(buffer, NAME_LENGTH);
-			if (userDenied(ASKUSER_CHANGE_NAME))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				wallet_return = changeWalletName(buffer);
-				translateWalletError(wallet_return, 0, NULL);
-			}
-		}
-		break;
-
-	case PACKET_TYPE_LIST_WALLETS:
-		// List wallets.
-		if (!expectLength(0))
-		{
-			listWallets();
-		}
-		break;
-
-	case PACKET_TYPE_BACKUP_WALLET:
-		// Backup wallet.
-		if (!expectLength(2))
-		{
-			getBytesFromStream(buffer, 2);
-			if (userDenied(ASKUSER_BACKUP_WALLET))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				if(buffer[0] != 0)
-				{
-					do_encrypt = true;
-				}
-				else
-				{
-					do_encrypt = false;
-				}
-				wallet_return = backupWallet(do_encrypt, buffer[1]);
-				translateWalletError(wallet_return, 0, NULL);
-			}
-		}
-		break;
-
-	case PACKET_TYPE_RESTORE_WALLET:
-		// Restore wallet.
-		if (!expectLength(4 + 1 + WALLET_ENCRYPTION_KEY_LENGTH + NAME_LENGTH + SEED_LENGTH))
-		{
-			getBytesFromStream(buffer, 4);
-			wallet_spec = readU32LittleEndian(buffer);
-			getBytesFromStream(&make_hidden_byte, 1);
-			getBytesFromStream(buffer, WALLET_ENCRYPTION_KEY_LENGTH);
-			setEncryptionKey(buffer);
-			if (make_hidden_byte != 0)
-			{
-				make_hidden = true;
-			}
-			else
-			{
-				make_hidden = false;
-			}
-			restoreWallet(wallet_spec, make_hidden);
-		}
-		break;
-
-	case PACKET_TYPE_GET_DEVICE_UUID:
-		// Get device UUID.
-		if (!expectLength(0))
-		{
-			if (nonVolatileRead(buffer, ADDRESS_DEVICE_UUID, UUID_LENGTH) == NV_NO_ERROR)
-			{
-				wallet_return = WALLET_NO_ERROR;
-			}
-			else
-			{
-				wallet_return = WALLET_READ_ERROR;
-			}
-			translateWalletError(wallet_return, UUID_LENGTH, buffer);
-		}
-		break;
-
-	case PACKET_TYPE_GET_ENTROPY:
-		// Get an arbitrary number of bytes of entropy.
-		if (!expectLength(4))
-		{
-			getBytesFromStream(buffer, 4);
-			num_bytes = readU32LittleEndian(buffer);
-			getBytesOfEntropy(num_bytes);
-		}
-		break;
-
-	case PACKET_TYPE_GET_MASTER_KEY:
-		// Get master public key and chain code.
-		if (!expectLength(0))
-		{
-			if (userDenied(ASKUSER_GET_MASTER_KEY))
-			{
-				writeString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED, PACKET_TYPE_FAILURE);
-			}
-			else
-			{
-				getAndSendMasterPublicKey();
-			}
+			next_set = STRINGSET_MISC;
+			next_spec = MISCSTR_VERSION;
+			message_buffer.ping_response.version.funcs.encode = &writeStringCallback;
+			sendPacket(PACKET_TYPE_PING_RESPONSE, PingResponse_fields, &(message_buffer.ping_response));
 		}
 		break;
 
 	default:
 		// Unknown command.
 		readAndIgnoreInput();
-		writeString(STRINGSET_MISC, MISCSTR_INVALID_PACKET, PACKET_TYPE_FAILURE);
+		writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
 		break;
 
 	}
@@ -820,7 +702,6 @@ void processPacket(void)
 #ifdef TEST_STREAM_COMM
 	assert(payload_length == 0);
 #endif
-
 }
 
 #ifdef TEST
@@ -1091,6 +972,16 @@ bool userDenied(AskUserCommand command)
 	}
 }
 
+/** This will be called whenever something very unexpected occurs. This
+  * function must not return. */
+void fatalError(void)
+{
+	printf("************\n");
+	printf("FATAL ERROR!\n");
+	printf("************\n");
+	exit(1);
+}
+
 #endif // #ifdef TEST
 
 #ifdef TEST_STREAM_COMM
@@ -1284,7 +1175,7 @@ static const uint8_t test_stream_get_entropy100[] = {
 
 /** Ping (get version). */
 static const uint8_t test_stream_ping[] = {
-0x00, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x0a, 0x03, 0x4d, 0x6f, 0x6f};
 
 /** Get master public key. */
 static const uint8_t test_get_master_public_key[] = {
@@ -1307,67 +1198,12 @@ static void sendOneTestStream(const uint8_t *test_stream, uint32_t size)
 
 int main(void)
 {
-	int i;
-
 	initTests(__FILE__);
 
 	initWalletTest();
 
-	printf("Formatting...\n");
-	SEND_ONE_TEST_STREAM(test_stream_format);
-	printf("Listing wallets...\n");
-	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
-	printf("Creating new wallet...\n");
-	SEND_ONE_TEST_STREAM(test_stream_new_wallet);
-	printf("Listing wallets...\n");
-	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
-	for(i = 0; i < 4; i++)
-	{
-		printf("Creating new address...\n");
-		SEND_ONE_TEST_STREAM(test_stream_new_address);
-	}
-	printf("Getting number of addresses...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_num_addresses);
-	printf("Getting address 1...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_address1);
-	printf("Getting address 0...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_address0);
-	printf("Signing transaction...\n");
-	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
-	printf("Signing transaction again...\n");
-	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
-	printf("Loading wallet using incorrect key...\n");
-	SEND_ONE_TEST_STREAM(test_stream_load_incorrect);
-	printf("Loading wallet using correct key...\n");
-	SEND_ONE_TEST_STREAM(test_stream_load_correct);
-	printf("Changing wallet key...\n");
-	SEND_ONE_TEST_STREAM(test_stream_change_key);
-	printf("Unloading wallet...\n");
-	SEND_ONE_TEST_STREAM(test_stream_unload);
-	printf("Loading wallet using changed key...\n");
-	SEND_ONE_TEST_STREAM(test_stream_load_with_changed_key);
-	printf("Changing name...\n");
-	SEND_ONE_TEST_STREAM(test_stream_change_name);
-	printf("Listing wallets...\n");
-	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
-	printf("Backing up a wallet...\n");
-	SEND_ONE_TEST_STREAM(test_stream_backup_wallet);
-	printf("Restoring a wallet...\n");
-	SEND_ONE_TEST_STREAM(test_stream_restore_wallet);
-	printf("Getting device UUID...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_device_uuid);
-	printf("Getting 0 bytes of entropy...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_entropy0);
-	printf("Getting 1 byte of entropy...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_entropy1);
-	printf("Getting 32 bytes of entropy...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_entropy32);
-	printf("Getting 100 bytes of entropy...\n");
-	SEND_ONE_TEST_STREAM(test_stream_get_entropy100);
 	printf("Pinging...\n");
 	SEND_ONE_TEST_STREAM(test_stream_ping);
-	printf("Getting master public key...\n");
-	SEND_ONE_TEST_STREAM(test_get_master_public_key);
 
 	finishTests();
 	exit(0);

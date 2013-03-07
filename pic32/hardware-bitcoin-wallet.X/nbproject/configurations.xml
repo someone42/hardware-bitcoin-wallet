@@ -46,6 +46,10 @@
         <itemPath>../../transaction.h</itemPath>
         <itemPath>../../wallet.h</itemPath>
         <itemPath>../../xex.h</itemPath>
+        <itemPath>../../messages.pb.h</itemPath>
+        <itemPath>../../pb.h</itemPath>
+        <itemPath>../../pb_decode.h</itemPath>
+        <itemPath>../../pb_encode.h</itemPath>
       </logicalFolder>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
@@ -58,6 +62,7 @@
       <itemPath>../../PROTOCOL</itemPath>
       <itemPath>../../README</itemPath>
       <itemPath>../../Makefile</itemPath>
+      <itemPath>../../messages.proto</itemPath>
     </logicalFolder>
     <logicalFolder name="SourceFiles"
                    displayName="Source Files"
@@ -103,6 +108,9 @@
         <itemPath>../../transaction.c</itemPath>
         <itemPath>../../wallet.c</itemPath>
         <itemPath>../../xex.c</itemPath>
+        <itemPath>../../messages.pb.c</itemPath>
+        <itemPath>../../pb_decode.c</itemPath>
+        <itemPath>../../pb_encode.c</itemPath>
       </logicalFolder>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"
@@ -124,7 +132,7 @@
         <targetPluginBoard></targetPluginBoard>
         <platformTool>PICkit3PlatformTool</platformTool>
         <languageToolchain>XC32</languageToolchain>
-        <languageToolchainVersion>1.11</languageToolchainVersion>
+        <languageToolchainVersion>1.20</languageToolchainVersion>
         <platform>3</platform>
       </toolsSet>
       <compileType>
@@ -156,7 +164,6 @@
         <property key="extra-include-directories" value=""/>
         <property key="generate-16-bit-code" value="false"/>
         <property key="isolate-each-function" value="false"/>
-        <property key="keep-inline" value="false"/>
         <property key="make-warnings-into-errors" value="false"/>
         <property key="optimization-level" value=""/>
         <property key="place-data-into-section" value="false"/>

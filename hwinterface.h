@@ -219,6 +219,10 @@ extern NonVolatileReturn nonVolatileFlush(void);
   */
 extern void sanitiseRam(void);
 
+/** This will be called whenever something very unexpected occurs. This
+  * function must not return. */
+extern void fatalError(void);
+
 /** Write backup seed to some output device. The choice of output device and
   * seed representation is up to the platform-dependent code. But a typical
   * example would be displaying the seed as a hexadecimal string on a LCD.

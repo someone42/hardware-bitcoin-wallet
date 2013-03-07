@@ -20,8 +20,9 @@
 
 # List C source files here.
 SRC = aes.c baseconv.c bignum256.c ecdsa.c endian.c fft.c fix16.c hash.c \
-hmac_sha512.c p2sh_addr_gen.c prandom.c ripemd160.c sha256.c statistics.c \
-stream_comm.c test_helpers.c transaction.c wallet.c xex.c
+hmac_sha512.c messages.pb.c p2sh_addr_gen.c pb_decode.c pb_encode.c prandom.c \
+ripemd160.c sha256.c statistics.c stream_comm.c test_helpers.c transaction.c \
+wallet.c xex.c
 
 # List file names (without .c extension) which have unit tests.
 TESTLIST = aes baseconv bignum256 ecdsa hmac_sha512 p2sh_addr_gen prandom \

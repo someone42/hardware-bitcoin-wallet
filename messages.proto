@@ -1,0 +1,174 @@
+import "nanopb.proto";
+
+// Responses: PingResponse
+message Ping
+{
+	optional string greeting = 1;
+}
+
+// Responses: none
+message PingResponse
+{
+	required string version = 1;
+}
+
+// Responses: none
+message Success
+{
+}
+
+// Responses: none
+message Failure
+{
+	required string error_message = 1;
+}
+
+// Responses: Success of Failure
+message NewWallet
+{
+	optional uint32 wallet_number = 1 [default = 0];
+	optional bytes encryption_key = 2 [(nanopb).max_size = 32];
+	optional string wallet_name = 3 [(nanopb).max_size = 40];
+	optional bool is_hidden = 4 [default = false];
+}
+
+// Responses: Address or Failure
+message NewAddress
+{
+}
+
+// Responses: none
+message Address
+{
+	required uint32 address_handle = 1;
+	required bytes public_key = 2 [(nanopb).max_size = 65];
+	required bytes address = 3 [(nanopb).max_size = 20];
+}
+
+// Responses: NumberOfAddresses or Failure
+message GetNumberOfAddresses
+{
+}
+
+// Responses: none
+message NumberOfAddresses
+{
+	required uint32 number_of_addresses = 1;
+}
+
+// Responses: Address or Failure
+message GetAddressAndPublicKey
+{
+	required uint32 address_handle = 1;
+}
+
+// Responses: Signature or Failure
+message SignTransaction
+{
+	required uint32 address_handle = 1;
+	required bytes transaction_data = 2;
+}
+
+// Responses: none
+message Signature
+{
+	required bytes signature_data = 1 [(nanopb).max_size = 73];
+}
+
+// Responses: Success or Failure
+message LoadWallet
+{
+	optional uint32 wallet_number = 1 [default = 0];
+	optional bytes encryption_key = 2 [(nanopb).max_size = 32];
+}
+
+// Responses: Success or Failure
+message UnloadWallet
+{
+}
+
+// Responses: Success or Failure
+message FormatWalletArea
+{
+	required bytes initial_entropy_pool = 1 [(nanopb).max_size = 32];
+}
+
+// Responses: Success or Failure
+message ChangeEncryptionKey
+{
+	required bytes encryption_key = 1 [(nanopb).max_size = 32];
+}
+
+// Responses: Success or Failure
+message ChangeWalletName
+{
+	required string wallet_name = 1 [(nanopb).max_size = 40];
+}
+
+// Responses:Wallets or Failure
+message ListWallets
+{
+}
+
+// Responses: none
+message WalletInfo
+{
+	required uint32 version = 1;
+	required string wallet_name = 2 [(nanopb).max_size = 40];
+	required bytes wallet_uuid = 3 [(nanopb).max_size = 16];
+}
+
+// Responses: none
+message Wallets
+{
+	repeated WalletInfo wallet_info = 1;
+}
+
+// Responses: Success or Failure
+message BackupWallet
+{
+	optional bool is_encrypted = 1 [default = false];
+	optional uint32 device = 2 [default = 0];
+}
+
+// Responses: Success or Failure
+message RestoreWallet
+{
+	required NewWallet new_wallet = 1;
+	required bytes seed = 2 [(nanopb).max_size = 64];
+}
+
+// Responses: DeviceUUID or Failure
+message GetDeviceUUID
+{
+}
+
+// Responses: none
+message DeviceUUID
+{
+	required bytes device_uuid = 1 [(nanopb).max_size = 16];
+}
+
+// Responses: Entropy or Failure
+message GetEntropy
+{
+	required uint32 number_of_bytes = 1;
+}
+
+// Responses: none
+message Entropy
+{
+	required bytes entropy = 1;
+}
+
+// Responses: MasterPublicKey or Failure
+message GetMasterPublicKey
+{
+}
+
+// Responses: none
+message MasterPublicKey
+{
+	required bytes public_key = 1 [(nanopb).max_size = 65];
+	required bytes chain_code = 2 [(nanopb).max_size = 32];
+}

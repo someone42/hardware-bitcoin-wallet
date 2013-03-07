@@ -33,6 +33,13 @@
   * not return. */
 void usbFatalError(void)
 {
+	fatalError();
+}
+
+/** This will be called whenever something very unexpected occurs. This
+  * function must not return. */
+void fatalError(void)
+{
 	disableInterrupts();
 	PORTDSET = 0x10; // turn on red LED
 	while (true)

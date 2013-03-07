@@ -12,6 +12,7 @@
 
 extern void writeU32BigEndian(uint8_t *out, uint32_t in);
 extern void writeU32LittleEndian(uint8_t *out, uint32_t in);
+extern uint32_t readU32BigEndian(uint8_t *in);
 extern uint32_t readU32LittleEndian(uint8_t *in);
 extern void swapEndian(uint32_t *v);
 

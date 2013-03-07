@@ -13,6 +13,18 @@
 #include "hwinit.h"
 #include "lcd_and_input.h"
 
+/** This will be called whenever something very unexpected occurs. This
+  * function must not return. */
+void fatalError(void)
+{
+	streamError();
+	cli();
+	for (;;)
+	{
+		// do nothing
+	}
+}
+
 /** Entry point. This is the first thing which is called after startup code.
   * This never returns. */
 int main(void)

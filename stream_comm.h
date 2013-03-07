@@ -21,6 +21,8 @@
  */
 /** Request a response from the wallet. */
 #define PACKET_TYPE_PING				0x00
+/** Response from wallet. */
+#define PACKET_TYPE_PING_RESPONSE		0x01
 /** Packet signifying successful completion of an operation. */
 #define PACKET_TYPE_SUCCESS				0x02
 /** Packet signifying failure of an operation. */

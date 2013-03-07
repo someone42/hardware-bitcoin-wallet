@@ -48,6 +48,18 @@ static void initSystemClock(void)
 	LPC_SYSCON->SYSAHBCLKDIV = 1; // set system clock divider = 1
 }
 
+/** This will be called whenever something very unexpected occurs. This
+  * function must not return. */
+void fatalError(void)
+{
+	streamError();
+	__disable_irq();
+	while (true)
+	{
+		// do nothing
+	}
+}
+
 #ifdef CHECK_STACK_USAGE
 #include "../endian.h"
 extern void *__stack_start;

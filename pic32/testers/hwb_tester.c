@@ -30,13 +30,13 @@
 static hid_device *handle;
 
 // Read a 32-bit unsigned integer from the byte array specified by in.
-// The bytes will be read in a little-endian format.
-static uint32_t readU32LittleEndian(uint8_t *in)
+// The bytes will be read in a big-endian format.
+static uint32_t readU32BigEndian(uint8_t *in)
 {
-	return ((uint32_t)in[0])
-		| ((uint32_t)in[1] << 8)
-		| ((uint32_t)in[2] << 16)
-		| ((uint32_t)in[3] << 24);
+	return ((uint32_t)in[0] << 24)
+		| ((uint32_t)in[1] << 16)
+		| ((uint32_t)in[2] << 8)
+		| ((uint32_t)in[3]);
 }
 
 // Convert command number into text string
@@ -45,43 +45,9 @@ static char *packetCommandToText(int command)
 	switch (command)
 	{
 	case 0x00:
-		return "ping";
-	case 0x02:
-		return "return success";
-	case 0x03:
-		return "return failure";
-	case 0x04:
-		return "create new wallet";
-	case 0x05:
-		return "create new address in wallet";
-	case 0x06:
-		return "get number of addresses";
-	case 0x09:
-		return "get address and public key";
-	case 0x0a:
-		return "sign transaction";
-	case 0x0b:
-		return "load wallet";
-	case 0x0c:
-		return "unload wallet";
-	case 0x0d:
-		return "format storage";
-	case 0x0e:
-		return "change encryption key";
-	case 0x0f:
-		return "change name";
-	case 0x10:
-		return "list wallets";
-	case 0x11:
-		return "backup wallet";
-	case 0x12:
-		return "restore wallet";
-	case 0x13:
-		return "get device UUID";
-	case 0x14:
-		return "get entropy";
-	case 0x15:
-		return "get master public key";
+		return "Ping";
+	case 0x01:
+		return "PingResponse";
 	default:
 		return "unknown";
 	}
@@ -90,15 +56,15 @@ static char *packetCommandToText(int command)
 // Display packet contents on screen
 static void displayPacket(uint8_t *packet_data, uint32_t buffer_length)
 {
-	uint8_t command;
+	uint16_t command;
 	uint8_t one_byte;
 	uint32_t length;
 	uint32_t i;
 
-	command = packet_data[0];
-	length = readU32LittleEndian(&(packet_data[1]));
-	printf("command 0x%02x (%s)\n", command, packetCommandToText(command));
-	printf("Payload length: %d\n", length);
+	command = (uint16_t)(((uint16_t)packet_data[2] << 8) | ((uint16_t)packet_data[3]));
+	length = readU32BigEndian(&(packet_data[4]));
+	printf("command 0x%04x (%s)\n", (unsigned int)command, packetCommandToText(command));
+	printf("Payload length: %u\n", length);
 
 	// display hex bytes
 	for (i = 0; i < length; i++)
@@ -107,9 +73,9 @@ static void displayPacket(uint8_t *packet_data, uint32_t buffer_length)
 		{
 			printf("\n");
 		}
-		one_byte = packet_data[i + 5];
+		one_byte = packet_data[i + 8];
 		printf(" %02x", one_byte);
-		if ((i + 5) >= buffer_length)
+		if ((i + 8) >= buffer_length)
 		{
 			printf(" ***unexpected end of packet***");
 			break;
@@ -123,16 +89,16 @@ static void displayPacket(uint8_t *packet_data, uint32_t buffer_length)
 		{
 			printf("\n");
 		}
-		one_byte = packet_data[i + 5];
+		one_byte = packet_data[i + 8];
 		if ((one_byte < 32) || (one_byte > 126))
 		{
 			printf(".");
 		}
 		else
 		{
-			printf("%c", packet_data[i + 5]);
+			printf("%c", packet_data[i + 8]);
 		}
-		if ((i + 5) >= buffer_length)
+		if ((i + 8) >= buffer_length)
 		{
 			break;
 		}
@@ -194,7 +160,7 @@ static uint8_t *receivePacket(void)
 			printf("Got invalid report ID: %u\n", data_size);
 			exit(1);
 		}
-		if (data_size > target_length)
+		if ((received_bytes + data_size) > target_length)
 		{
 			printf("Report will overflow buffer, report ID = %u\n", data_size);
 			exit(1);
@@ -204,9 +170,15 @@ static uint8_t *receivePacket(void)
 		memcpy(&(return_buffer[received_bytes]), &(packet_buffer[1]), data_size);
 		received_bytes += data_size;
 		// Get target length from return buffer.
-		if (received_bytes >= 5)
+		if (received_bytes >= 8)
 		{
-			target_length = readU32LittleEndian(&(return_buffer[1]));
+			if ((return_buffer[0] != '#') || (return_buffer[1] != '#'))
+			{
+				printf("Got bad magic bytes: %02x%02x\n", return_buffer[0], return_buffer[1]);
+				printf("Exiting, since the packet is probably garbled\n");
+				exit(1);
+			}
+			target_length = readU32BigEndian(&(return_buffer[4])) + 8;
 			if (target_length > PACKET_LENGTH_LIMIT)
 			{
 				printf("Got absurdly large packet length of %u\n", target_length);
@@ -283,7 +255,7 @@ int main(void)
 				free(buffer);
 				// Get and display response packet.
 				buffer = receivePacket();
-				size = 5 + readU32LittleEndian(&(buffer[1]));
+				size = 8 + readU32BigEndian(&(buffer[4]));
 				printf("Received packet: ");
 				displayPacket(buffer, size);
 				free(buffer);
