@@ -24,11 +24,13 @@ message Failure
 }
 
 // Responses: Success of Failure
+// wallet_name is stored purely for the convenience of the host. It should be
+// a null-terminated UTF-8 encoded string with a maximum length of 40 bytes.
 message NewWallet
 {
 	optional uint32 wallet_number = 1 [default = 0];
-	optional bytes encryption_key = 2 [(nanopb).max_size = 32];
-	optional string wallet_name = 3 [(nanopb).max_size = 40];
+	optional bytes encryption_key = 2 [(nanopb).max_size = 32, default = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"];
+	optional bytes wallet_name = 3 [(nanopb).max_size = 40, default = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"];
 	optional bool is_hidden = 4 [default = false];
 }
 
@@ -79,7 +81,7 @@ message Signature
 message LoadWallet
 {
 	optional uint32 wallet_number = 1 [default = 0];
-	optional bytes encryption_key = 2 [(nanopb).max_size = 32];
+	optional bytes encryption_key = 2 [(nanopb).max_size = 32, default = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"];
 }
 
 // Responses: Success or Failure
@@ -100,12 +102,14 @@ message ChangeEncryptionKey
 }
 
 // Responses: Success or Failure
+// wallet_name is stored purely for the convenience of the host. It should be
+// a null-terminated UTF-8 encoded string with a maximum length of 40 bytes.
 message ChangeWalletName
 {
-	required string wallet_name = 1 [(nanopb).max_size = 40];
+	required bytes wallet_name = 1 [(nanopb).max_size = 40];
 }
 
-// Responses:Wallets or Failure
+// Responses: Wallets or Failure
 message ListWallets
 {
 }
@@ -113,9 +117,10 @@ message ListWallets
 // Responses: none
 message WalletInfo
 {
-	required uint32 version = 1;
-	required string wallet_name = 2 [(nanopb).max_size = 40];
-	required bytes wallet_uuid = 3 [(nanopb).max_size = 16];
+	required uint32 wallet_number = 1;
+	required uint32 version = 2;
+	required bytes wallet_name = 3 [(nanopb).max_size = 40];
+	required bytes wallet_uuid = 4 [(nanopb).max_size = 16];
 }
 
 // Responses: none

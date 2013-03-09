@@ -59,6 +59,10 @@
 #define PACKET_TYPE_GET_ENTROPY			0x14
 /** Get master public key. */
 #define PACKET_TYPE_GET_MASTER_KEY		0x15
+/** An address from a wallet. */
+#define PACKET_TYPE_ADDRESS_PUBKEY		0x30
+/** Number of addresses in a wallet. */
+#define PACKET_TYPE_NUM_ADDRESSES		0x31
 /**@}*/
 
 extern void processPacket(void);

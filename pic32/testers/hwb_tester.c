@@ -48,6 +48,26 @@ static char *packetCommandToText(int command)
 		return "Ping";
 	case 0x01:
 		return "PingResponse";
+	case 0x02:
+		return "Success";
+	case 0x03:
+		return "Failure";
+	case 0x04:
+		return "NewWallet";
+	case 0x05:
+		return "NewAddress";
+	case 0x06:
+		return "GetNumberOfAddresses";
+	case 0x09:
+		return "GetAddressAndPublicKey";
+	case 0x0b:
+		return "LoadWallet";
+	case 0x0c:
+		return "UnloadWallet";
+	case 0x30:
+		return "Address";
+	case 0x31:
+		return "NumberOfAddresses";
 	default:
 		return "unknown";
 	}

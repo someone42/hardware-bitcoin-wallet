@@ -64,6 +64,13 @@ union MessageBufferUnion
 {
 	Ping ping;
 	PingResponse ping_response;
+	NewWallet new_wallet;
+	NewAddress new_address;
+	GetNumberOfAddresses get_number_of_addresses;
+	NumberOfAddresses number_of_addresses;
+	GetAddressAndPublicKey get_address_and_public_key;
+	LoadWallet load_wallet;
+	UnloadWallet unload_wallet;
 };
 
 /** The transaction hash of the most recently approved transaction. This is
@@ -291,27 +298,17 @@ static void writeFailureString(StringSet set, uint8_t spec)
 	sendPacket(PACKET_TYPE_FAILURE, Failure_fields, &message_buffer);
 }
 
-/** Translates a return value from one of the wallet functions into a response
-  * packet to be written to the stream. If the wallet return value indicates
-  * success, a payload can be included with the packet. Otherwise, if the
-  * wallet return value indicates failure, the payload is a text error message
-  * describing how the wallet function failed.
+/** Translates a return value from one of the wallet functions into a Success
+  * or Failure response packet which is written to the stream.
   * \param r The return value from the wallet function.
-  * \param length The length of the success payload (use 0 for no payload) in
-  *               number of bytes.
-  * \param data A byte array holding the data of the success payload.
-  *             Use #NULL for no payload.
   */
-static void translateWalletError(WalletErrors r, uint8_t length, uint8_t *data)
+static void translateWalletError(WalletErrors r)
 {
-	uint8_t buffer[4];
+	Success message_buffer;
 
 	if (r == WALLET_NO_ERROR)
 	{
-		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
-		writeU32LittleEndian(buffer, length);
-		writeBytesToStream(buffer, 4); // length
-		writeBytesToStream(data, length); // value
+		sendPacket(PACKET_TYPE_SUCCESS, Success_fields, &message_buffer);
 	}
 	else
 	{
@@ -349,7 +346,8 @@ static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *s
 	{
 		wallet_return = walletGetLastError();
 	}
-	translateWalletError(wallet_return, signature_length, signature);
+	// TODO: write signature properly
+	translateWalletError(wallet_return);
 }
 
 /** Read a transaction from the stream, parse it and ask the user
@@ -440,23 +438,21 @@ static NOINLINE void validateAndSignTransaction(AddressHandle ah, uint32_t trans
   * \param generate_new If this is true, a new address will be generated
   *                     and the address handle of the generated address will
   *                     be prepended to the output packet.
-  *                     If this is false, the address handle will be read from
-  *                     the input stream. No address handle will be prepended
-  *                     to the output packet.
+  *                     If this is false, the address handle specified by ah
+  *                     will be used.
+  * \param ah Address handle to use (if generate_new is false).
   */
-static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new)
+static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new, AddressHandle ah)
 {
-	AddressHandle ah;
+	Address message_buffer;
 	PointAffine public_key;
-	uint8_t address[20];
-	uint8_t buffer[4];
 	WalletErrors r;
 
+	message_buffer.address.size = 20;
 	if (generate_new)
 	{
-		// Generate new address handle.
 		r = WALLET_NO_ERROR;
-		ah = makeNewAddress(address, &public_key);
+		ah = makeNewAddress(message_buffer.address.bytes, &public_key);
 		if (ah == BAD_ADDRESS_HANDLE)
 		{
 			r = walletGetLastError();
@@ -464,32 +460,12 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new)
 	}
 	else
 	{
-		// Read address handle from input stream.
-		getBytesFromStream(buffer, 4);
-		ah = readU32LittleEndian(buffer);
-		r = getAddressAndPublicKey(address, &public_key, ah);
+		r = getAddressAndPublicKey(message_buffer.address.bytes, &public_key, ah);
 	}
 
 	if (r == WALLET_NO_ERROR)
 	{
-		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
-		if (generate_new)
-		{
-			// 4 (address handle) + 20 (address) + 65 (public key)
-			writeU32LittleEndian(buffer, 89);
-		}
-		else
-		{
-			// 20 (address) + 65 (public key)
-			writeU32LittleEndian(buffer, 85);
-		}
-		writeBytesToStream(buffer, 4); // length
-		if (generate_new)
-		{
-			writeU32LittleEndian(buffer, ah);
-			writeBytesToStream(buffer, 4);
-		}
-		writeBytesToStream(address, 20);
+		message_buffer.address_handle = ah;
 		// The format of public keys sent is compatible with
 		// "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
 		// 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
@@ -497,15 +473,17 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new)
 		// says that integers should be represented big-endian and that a 0x04
 		// should be prepended to indicate that the public key is
 		// uncompressed.
-		streamPutOneByte(0x04);
+		message_buffer.public_key.bytes[0] = 0x04;
 		swapEndian256(public_key.x);
 		swapEndian256(public_key.y);
-		writeBytesToStream(public_key.x, 32);
-		writeBytesToStream(public_key.y, 32);
+		memcpy(&(message_buffer.public_key.bytes[1]), public_key.x, 32);
+		memcpy(&(message_buffer.public_key.bytes[33]), public_key.y, 32);
+		message_buffer.public_key.size = 65;
+		sendPacket(PACKET_TYPE_ADDRESS_PUBKEY, Address_fields, &message_buffer);
 	}
 	else
 	{
-		translateWalletError(r, 0, NULL);
+		translateWalletError(r);
 	} // end if (r == WALLET_NO_ERROR)
 }
 
@@ -525,7 +503,7 @@ static NOINLINE void listWallets(void)
 	if (num_wallets == 0)
 	{
 		wallet_return = walletGetLastError();
-		translateWalletError(wallet_return, 0, NULL);
+		translateWalletError(wallet_return);
 	}
 	else
 	{
@@ -572,7 +550,7 @@ static NOINLINE void restoreWallet(uint32_t wallet_spec, bool make_hidden)
 	else
 	{
 		wallet_return = newWallet(wallet_spec, name, true, seed, make_hidden);
-		translateWalletError(wallet_return, 0, NULL);
+		translateWalletError(wallet_return);
 	}
 }
 
@@ -633,7 +611,8 @@ static NOINLINE void getAndSendMasterPublicKey(void)
 	memcpy(&(buffer[33]), master_public_key.y, 32);
 	swapEndian256(&(buffer[33]));
 	memcpy(&(buffer[65]), chain_code, 32);
-	translateWalletError(wallet_return, sizeof(buffer), buffer);
+	// TODO: write public key properly
+	translateWalletError(wallet_return);
 }
 
 /** Get packet from stream and deal with it. This basically implements the
@@ -652,6 +631,7 @@ void processPacket(void)
 	uint8_t buffer[4];
 	union MessageBufferUnion message_buffer;
 	bool receive_failure;
+	WalletErrors wallet_return;
 
 	// Receive packet header.
 	getBytesFromStream(buffer, 2);
@@ -674,6 +654,7 @@ void processPacket(void)
 	//    operations)?
 	// 4. Have you checked for errors from wallet functions?
 	// 5. Have you used the right check for the wallet functions?
+	// 6. Have arrays/strings been padded out to their maximum length?
 
 	switch (command)
 	{
@@ -689,6 +670,103 @@ void processPacket(void)
 			message_buffer.ping_response.version.funcs.encode = &writeStringCallback;
 			sendPacket(PACKET_TYPE_PING_RESPONSE, PingResponse_fields, &(message_buffer.ping_response));
 		}
+		break;
+
+	case PACKET_TYPE_NEW_WALLET:
+		// Create new wallet.
+		receive_failure = receiveMessage(NewWallet_fields, &(message_buffer.new_wallet));
+		if (!receive_failure)
+		{
+			if (message_buffer.new_wallet.encryption_key.size != WALLET_ENCRYPTION_KEY_LENGTH)
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+			}
+			else if (userDenied(ASKUSER_NUKE_WALLET))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				setEncryptionKey(message_buffer.new_wallet.encryption_key.bytes);
+				wallet_return = newWallet(
+					message_buffer.new_wallet.wallet_number,
+					message_buffer.new_wallet.wallet_name.bytes,
+					false,
+					NULL,
+					message_buffer.new_wallet.is_hidden);
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_NEW_ADDRESS:
+		// Create new address in wallet.
+		receive_failure = receiveMessage(NewAddress_fields, &(message_buffer.new_address));
+		if (!receive_failure)
+		{
+			if (userDenied(ASKUSER_NEW_ADDRESS))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				getAndSendAddressAndPublicKey(true, BAD_ADDRESS_HANDLE);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_GET_NUM_ADDRESSES:
+		// Get number of addresses in wallet.
+		receive_failure = receiveMessage(GetNumberOfAddresses_fields, &(message_buffer.get_number_of_addresses));
+		if (!receive_failure)
+		{
+			message_buffer.number_of_addresses.number_of_addresses = getNumAddresses();
+			wallet_return = walletGetLastError();
+			if (wallet_return == WALLET_NO_ERROR)
+			{
+				sendPacket(PACKET_TYPE_NUM_ADDRESSES, NumberOfAddresses_fields, &(message_buffer.number_of_addresses));
+			}
+			else
+			{
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_GET_ADDRESS_PUBKEY:
+		// Get address and public key corresponding to an address handle.
+		receive_failure = receiveMessage(GetAddressAndPublicKey_fields, &(message_buffer.get_address_and_public_key));
+		if (!receive_failure)
+		{
+			getAndSendAddressAndPublicKey(false, message_buffer.get_address_and_public_key.address_handle);
+		}
+		break;
+
+	case PACKET_TYPE_LOAD_WALLET:
+		// Load wallet.
+		receive_failure = receiveMessage(LoadWallet_fields, &(message_buffer.load_wallet));
+		if (!receive_failure)
+		{
+			if (message_buffer.load_wallet.encryption_key.size != WALLET_ENCRYPTION_KEY_LENGTH)
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+			}
+			else
+			{
+				setEncryptionKey(message_buffer.load_wallet.encryption_key.bytes);
+				wallet_return = initWallet(message_buffer.load_wallet.wallet_number);
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_UNLOAD_WALLET:
+		// Unload wallet.
+		receive_failure = receiveMessage(UnloadWallet_fields, &(message_buffer.unload_wallet));
+		prev_transaction_hash_valid = false;
+		sanitiseRam();
+		wallet_return = uninitWallet();
+		translateWalletError(wallet_return);
 		break;
 
 	default:
@@ -988,37 +1066,28 @@ void fatalError(void)
 
 /** Test stream data for: create new wallet. */
 static const uint8_t test_stream_new_wallet[] = {
-0x04, 0x4d, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, // wallet number
-0x00, // make hidden?
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20, // name
-0x66, 0x66, 0x20, 0x20, 0x20, 0x6F, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
+0x23, 0x23, 0x00, 0x04, 0x00, 0x00, 0x00, 0x10,
+0x1a, 0x0e, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65,
+0x65, 0x20, 0x66, 0x66, 0x20, 0x20, 0x20, 0x6f};
 
 /** Test stream data for: create new address. */
 static const uint8_t test_stream_new_address[] = {
-0x05, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: get number of addresses. */
 static const uint8_t test_stream_get_num_addresses[] = {
-0x06, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: get address 1. */
 static const uint8_t test_stream_get_address1[] = {
-0x09, 0x04, 0x00, 0x00, 0x00,
-0x01, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x09, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x01};
 
 /** Test stream data for: get address 0 (which is an invalid address
   * handle). */
 static const uint8_t test_stream_get_address0[] = {
-0x09, 0x04, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x09, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x00};
 
 /** Test stream data for: sign something. */
 static uint8_t test_stream_sign_tx[] = {
@@ -1076,8 +1145,8 @@ static const uint8_t test_stream_format[] = {
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
-0x0b, 0x24, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x24,
+0x08, 0x00, 0x12, 0x20,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1085,8 +1154,8 @@ static const uint8_t test_stream_load_correct[] = {
 
 /** Test stream data for: load wallet using incorrect key. */
 static const uint8_t test_stream_load_incorrect[] = {
-0x0b, 0x24, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x24,
+0x08, 0x00, 0x12, 0x20,
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1094,7 +1163,7 @@ static const uint8_t test_stream_load_incorrect[] = {
 
 /** Test stream data for: unload wallet. */
 static const uint8_t test_stream_unload[] = {
-0x0c, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: change encryption key. */
 static const uint8_t test_stream_change_key[] = {
@@ -1198,12 +1267,32 @@ static void sendOneTestStream(const uint8_t *test_stream, uint32_t size)
 
 int main(void)
 {
+	int i;
+
 	initTests(__FILE__);
 
 	initWalletTest();
+	initialiseDefaultEntropyPool();
 
 	printf("Pinging...\n");
 	SEND_ONE_TEST_STREAM(test_stream_ping);
+	printf("Creating new wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_new_wallet);
+	for(i = 0; i < 4; i++)
+	{
+		printf("Creating new address...\n");
+		SEND_ONE_TEST_STREAM(test_stream_new_address);
+	}
+	printf("Getting number of addresses...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_num_addresses);
+	printf("Getting address 1...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_address1);
+	printf("Getting address 0...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_address0);
+	printf("Loading wallet with correct key...\n");
+	SEND_ONE_TEST_STREAM(test_stream_load_correct);
+	printf("Loading wallet with incorrect key...\n");
+	SEND_ONE_TEST_STREAM(test_stream_load_incorrect);
 
 	finishTests();
 	exit(0);
