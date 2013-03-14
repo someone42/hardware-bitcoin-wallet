@@ -7,7 +7,7 @@
   * owned by themselves. Thus the code in this file generates P2SH addresses
   * so that P2SH transactions can be performed securely.
   *
-  * At the moment, this only supports n-of-m multisignature scripts.
+  * At the moment, this only supports m-of-n multisignature scripts.
   *
   * This file is licensed as described by the file LICENCE.
   */
