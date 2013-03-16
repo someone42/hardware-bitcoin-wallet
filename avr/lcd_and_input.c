@@ -740,7 +740,7 @@ static char str_seed_not_encrypted_line1[] PROGMEM = "not encrypted";
   * \return false on success, true if the backup seed could not be written
   *         to the destination device.
   */
-bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint8_t destination_device)
+bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint32_t destination_device)
 {
 	uint8_t i;
 	uint8_t one_byte; // current byte of seed

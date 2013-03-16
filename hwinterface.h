@@ -234,6 +234,6 @@ extern void fatalError(void);
   * \return false on success, true if the backup seed could not be written
   *         to the destination device.
   */
-extern bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint8_t destination_device);
+extern bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint32_t destination_device);
 
 #endif // #ifndef HWINTERFACE_H_INCLUDED

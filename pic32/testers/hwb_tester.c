@@ -46,12 +46,6 @@ static char *packetCommandToText(int command)
 	{
 	case 0x00:
 		return "Ping";
-	case 0x01:
-		return "PingResponse";
-	case 0x02:
-		return "Success";
-	case 0x03:
-		return "Failure";
 	case 0x04:
 		return "NewWallet";
 	case 0x05:
@@ -64,10 +58,30 @@ static char *packetCommandToText(int command)
 		return "LoadWallet";
 	case 0x0c:
 		return "UnloadWallet";
+	case 0x0d:
+		return "FormatWalletArea";
+	case 0x0e:
+		return "ChangeEncryptionKey";
+	case 0x0f:
+		return "ChangeWalletName";
+	case 0x10:
+		return "ListWallets";
+	case 0x11:
+		return "BackupWallet";
+	case 0x12:
+		return "RestoreWallet";
 	case 0x30:
 		return "Address";
 	case 0x31:
 		return "NumberOfAddresses";
+	case 0x32:
+		return "Wallets";
+	case 0x33:
+		return "PingResponse";
+	case 0x34:
+		return "Success";
+	case 0x35:
+		return "Failure";
 	default:
 		return "unknown";
 	}

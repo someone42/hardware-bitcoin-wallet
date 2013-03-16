@@ -71,6 +71,13 @@ union MessageBufferUnion
 	GetAddressAndPublicKey get_address_and_public_key;
 	LoadWallet load_wallet;
 	UnloadWallet unload_wallet;
+	FormatWalletArea format_wallet_area;
+	ChangeEncryptionKey change_encryption_key;
+	ChangeWalletName change_wallet_name;
+	ListWallets list_wallets;
+	Wallets wallets;
+	BackupWallet backup_wallet;
+	RestoreWallet restore_wallet;
 };
 
 /** The transaction hash of the most recently approved transaction. This is
@@ -91,6 +98,9 @@ static StringSet next_set;
 /** String specifier (see getString()) of next string to be outputted by
   * writeStringCallback(). */
 static uint8_t next_spec;
+/** Current number of wallets; used for the listWalletsCallback() callback
+  * function. */
+static uint32_t number_of_wallets;
 
 /** nanopb input stream which uses mainInputStreamCallback() as a stream
   * callback. */
@@ -487,71 +497,43 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new, AddressHan
 	} // end if (r == WALLET_NO_ERROR)
 }
 
-/** Send a packet containing a list of wallets.
+/** nanopb field callback which will write repeated WalletInfo messages; one
+  * for each wallet on the device.
+  * \param stream Output stream to write to.
+  * \param field Field which contains the WalletInfo message.
+  * \param arg Unused.
+  * \return true on success, false on failure (nanopb convention).
   */
-static NOINLINE void listWallets(void)
+bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
 {
-	uint8_t version[4];
-	uint8_t name[NAME_LENGTH];
-	uint8_t wallet_uuid[UUID_LENGTH];
-	uint8_t buffer[4];
 	uint32_t i;
-	uint32_t num_wallets;
-	WalletErrors wallet_return;
+	WalletInfo message_buffer;
 
-	num_wallets = getNumberOfWallets();
-	if (num_wallets == 0)
+	for (i = 0; i < number_of_wallets; i++)
 	{
-		wallet_return = walletGetLastError();
-		translateWalletError(wallet_return);
-	}
-	else
-	{
-		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
-		writeU32LittleEndian(buffer, (4 + NAME_LENGTH + UUID_LENGTH) * num_wallets); // length
-		writeBytesToStream(buffer, 4);
-		for (i = 0; i < num_wallets; i++)
+		message_buffer.wallet_number = i;
+		message_buffer.wallet_name.size = NAME_LENGTH;
+		message_buffer.wallet_uuid.size = UUID_LENGTH;
+		if (getWalletInfo(
+			&(message_buffer.version),
+			message_buffer.wallet_name.bytes,
+			message_buffer.wallet_uuid.bytes,
+			i) != WALLET_NO_ERROR)
 		{
-			if (getWalletInfo(version, name, wallet_uuid, i) != WALLET_NO_ERROR)
-			{
-				// It's too late to return an error message, since the host
-				// now expects a full payload, so just send all 00s.
-				memset(version, 0, 4);
-				memset(name, 0, NAME_LENGTH);
-				memset(wallet_uuid, 0, UUID_LENGTH);
-			}
-			writeBytesToStream(version, 4);
-			writeBytesToStream(name, NAME_LENGTH);
-			writeBytesToStream(wallet_uuid, UUID_LENGTH);
-		} // end for (i = 0; i < num_wallets; i++)
-	} // end if (num_wallets == 0)
-}
-
-/** Read name and seed from input stream and restore a wallet using those
-  * values. This also prompts the user for approval of the action.
-  * \param wallet_spec The wallet number of the wallet to restore.
-  * \param make_hidden Whether to make the restored wallet a hidden wallet.
-  */
-static NOINLINE void restoreWallet(uint32_t wallet_spec, bool make_hidden)
-{
-	WalletErrors wallet_return;
-	uint8_t name[NAME_LENGTH];
-	uint8_t seed[SEED_LENGTH];
-
-	getBytesFromStream(name, NAME_LENGTH);
-	getBytesFromStream(seed, SEED_LENGTH);
-	// userDenied() has to be called here (and not processPacket()) because
-	// name and seed must be read from the stream before we're allowed to send
-	// anything.
-	if (userDenied(ASKUSER_RESTORE_WALLET))
-	{
-		writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			// It's too late to return an error message, so cut off the
+			// array now.
+			return true;
+		}
+		if (!pb_encode_tag_for_field(stream, field))
+		{
+			return false;
+		}
+		if (!pb_encode_submessage(stream, WalletInfo_fields, &message_buffer))
+		{
+			return false;
+		}
 	}
-	else
-	{
-		wallet_return = newWallet(wallet_spec, name, true, seed, make_hidden);
-		translateWalletError(wallet_return);
-	}
+	return true;
 }
 
 /** Return bytes of entropy from the random number generation system.
@@ -654,7 +636,8 @@ void processPacket(void)
 	//    operations)?
 	// 4. Have you checked for errors from wallet functions?
 	// 5. Have you used the right check for the wallet functions?
-	// 6. Have arrays/strings been padded out to their maximum length?
+
+	memset(&message_buffer, 0, sizeof(message_buffer));
 
 	switch (command)
 	{
@@ -763,10 +746,139 @@ void processPacket(void)
 	case PACKET_TYPE_UNLOAD_WALLET:
 		// Unload wallet.
 		receive_failure = receiveMessage(UnloadWallet_fields, &(message_buffer.unload_wallet));
-		prev_transaction_hash_valid = false;
-		sanitiseRam();
-		wallet_return = uninitWallet();
-		translateWalletError(wallet_return);
+		if (!receive_failure)
+		{
+			prev_transaction_hash_valid = false;
+			sanitiseRam();
+			wallet_return = uninitWallet();
+			translateWalletError(wallet_return);
+		}
+		break;
+
+	case PACKET_TYPE_FORMAT:
+		// Format storage.
+		receive_failure = receiveMessage(FormatWalletArea_fields, &(message_buffer.format_wallet_area));
+		if (!receive_failure)
+		{
+			if (userDenied(ASKUSER_FORMAT))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				if (initialiseEntropyPool(message_buffer.format_wallet_area.initial_entropy_pool.bytes))
+				{
+					translateWalletError(WALLET_RNG_FAILURE);
+				}
+				else
+				{
+					wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
+					translateWalletError(wallet_return);
+					uninitWallet(); // force wallet to unload
+				}
+			}
+		}
+		break;
+
+	case PACKET_TYPE_CHANGE_KEY:
+		// Change wallet encryption key.
+		receive_failure = receiveMessage(ChangeEncryptionKey_fields, &(message_buffer.change_encryption_key));
+		if (!receive_failure)
+		{
+			if (userDenied(ASKUSER_CHANGE_KEY))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				wallet_return = changeEncryptionKey(message_buffer.change_encryption_key.encryption_key.bytes);
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_CHANGE_NAME:
+		// Change wallet name.
+		receive_failure = receiveMessage(ChangeWalletName_fields, &(message_buffer.change_wallet_name));
+		if (!receive_failure)
+		{
+			if (userDenied(ASKUSER_CHANGE_NAME))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				wallet_return = changeWalletName(message_buffer.change_wallet_name.wallet_name.bytes);
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_LIST_WALLETS:
+		// List wallets.
+		receive_failure = receiveMessage(ListWallets_fields, &(message_buffer.list_wallets));
+		if (!receive_failure)
+		{
+			number_of_wallets = getNumberOfWallets();
+			if (number_of_wallets == 0)
+			{
+				wallet_return = walletGetLastError();
+				translateWalletError(wallet_return);
+			}
+			else
+			{
+				message_buffer.wallets.wallet_info.funcs.encode = &listWalletsCallback;
+				sendPacket(PACKET_TYPE_WALLETS, Wallets_fields, &(message_buffer.wallets));
+			}
+		}
+		break;
+
+	case PACKET_TYPE_BACKUP_WALLET:
+		// Backup wallet.
+		receive_failure = receiveMessage(BackupWallet_fields, &(message_buffer.backup_wallet));
+		if (!receive_failure)
+		{
+			if (userDenied(ASKUSER_BACKUP_WALLET))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				wallet_return = backupWallet(message_buffer.backup_wallet.is_encrypted, message_buffer.backup_wallet.device);
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_RESTORE_WALLET:
+		// Restore wallet.
+		receive_failure = receiveMessage(RestoreWallet_fields, &(message_buffer.restore_wallet));
+		if (!receive_failure)
+		{
+			if (message_buffer.restore_wallet.new_wallet.encryption_key.size != WALLET_ENCRYPTION_KEY_LENGTH)
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+			}
+			else if (message_buffer.restore_wallet.seed.size != SEED_LENGTH)
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+			}
+			else if (userDenied(ASKUSER_RESTORE_WALLET))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				setEncryptionKey(message_buffer.restore_wallet.new_wallet.encryption_key.bytes);
+				wallet_return = newWallet(
+					message_buffer.restore_wallet.new_wallet.wallet_number,
+					message_buffer.restore_wallet.new_wallet.wallet_name.bytes,
+					true,
+					message_buffer.restore_wallet.seed.bytes,
+					message_buffer.restore_wallet.new_wallet.is_hidden);
+				translateWalletError(wallet_return);
+			}
+		}
 		break;
 
 	default:
@@ -1137,7 +1249,8 @@ static uint8_t test_stream_sign_tx[] = {
 
 /** Test stream data for: format storage. */
 static const uint8_t test_stream_format[] = {
-0x0d, 0x20, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x22,
+0x0a, 0x20,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1167,7 +1280,8 @@ static const uint8_t test_stream_unload[] = {
 
 /** Test stream data for: change encryption key. */
 static const uint8_t test_stream_change_key[] = {
-0x0e, 0x20, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x22,
+0x0a, 0x20,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1175,8 +1289,8 @@ static const uint8_t test_stream_change_key[] = {
 
 /** Test stream data for: load with new encryption key. */
 static const uint8_t test_stream_load_with_changed_key[] = {
-0x0b, 0x24, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x24,
+0x08, 0x00, 0x12, 0x20,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1184,35 +1298,34 @@ static const uint8_t test_stream_load_with_changed_key[] = {
 
 /** Test stream data for: list wallets. */
 static const uint8_t test_stream_list_wallets[] = {
-0x10, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: change wallet name. */
 static const uint8_t test_stream_change_name[] = {
-0x0f, 0x28, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x0c,
+0x0a, 0x0a,
 0x71, 0x71, 0x71, 0x72, 0x70, 0x74, 0x20, 0x20,
-0x68, 0x68, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20};
+0x68, 0x68};
 
 /** Test stream data for: backup wallet. */
 static const uint8_t test_stream_backup_wallet[] = {
-0x11, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: restore wallet. */
 static const uint8_t test_stream_restore_wallet[] = {
-0x12, 0x8d, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, // wallet number
-0x00, // make hidden?
+0x23, 0x23, 0x00, 0x12, 0x00, 0x00, 0x00, 0x7a,
+0x0a, 0x36,
+0x08, 0x00, // wallet number
+0x12, 0x20,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // encryption key
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x1a, 0x0e,
 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65, 0x20, // name
-0x66, 0x66, 0x20, 0x20, 0x20, 0x6F, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
-0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20,
+0x66, 0x66, 0x20, 0x20, 0x20, 0x6F,
+0x20, 0x00, // make hidden?
+0x12, 0x40,
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, // seed
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
 0x12, 0x34, 0x56, 0x00, 0x9a, 0xbc, 0xde, 0xf0,
@@ -1274,10 +1387,14 @@ int main(void)
 	initWalletTest();
 	initialiseDefaultEntropyPool();
 
-	printf("Pinging...\n");
-	SEND_ONE_TEST_STREAM(test_stream_ping);
+	printf("Formatting...\n");
+	SEND_ONE_TEST_STREAM(test_stream_format);
+	printf("Listing wallets...\n");
+	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 	printf("Creating new wallet...\n");
 	SEND_ONE_TEST_STREAM(test_stream_new_wallet);
+	printf("Listing wallets...\n");
+	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 	for(i = 0; i < 4; i++)
 	{
 		printf("Creating new address...\n");
@@ -1289,10 +1406,42 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_get_address1);
 	printf("Getting address 0...\n");
 	SEND_ONE_TEST_STREAM(test_stream_get_address0);
-	printf("Loading wallet with correct key...\n");
-	SEND_ONE_TEST_STREAM(test_stream_load_correct);
-	printf("Loading wallet with incorrect key...\n");
+	//printf("Signing transaction...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_sign_tx);
+	//printf("Signing transaction again...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_sign_tx);
+	printf("Loading wallet using incorrect key...\n");
 	SEND_ONE_TEST_STREAM(test_stream_load_incorrect);
+	printf("Loading wallet using correct key...\n");
+	SEND_ONE_TEST_STREAM(test_stream_load_correct);
+	printf("Changing wallet key...\n");
+	SEND_ONE_TEST_STREAM(test_stream_change_key);
+	printf("Unloading wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_unload);
+	printf("Loading wallet using changed key...\n");
+	SEND_ONE_TEST_STREAM(test_stream_load_with_changed_key);
+	printf("Changing name...\n");
+	SEND_ONE_TEST_STREAM(test_stream_change_name);
+	printf("Listing wallets...\n");
+	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
+	printf("Backing up a wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_backup_wallet);
+	printf("Restoring a wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_restore_wallet);
+	//printf("Getting device UUID...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_get_device_uuid);
+	//printf("Getting 0 bytes of entropy...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_get_entropy0);
+	//printf("Getting 1 byte of entropy...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_get_entropy1);
+	//printf("Getting 32 bytes of entropy...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_get_entropy32);
+	//printf("Getting 100 bytes of entropy...\n");
+	//SEND_ONE_TEST_STREAM(test_stream_get_entropy100);
+	printf("Pinging...\n");
+	SEND_ONE_TEST_STREAM(test_stream_ping);
+	//printf("Getting master public key...\n");
+	//SEND_ONE_TEST_STREAM(test_get_master_public_key);
 
 	finishTests();
 	exit(0);

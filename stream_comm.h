@@ -21,12 +21,6 @@
  */
 /** Request a response from the wallet. */
 #define PACKET_TYPE_PING				0x00
-/** Response from wallet. */
-#define PACKET_TYPE_PING_RESPONSE		0x01
-/** Packet signifying successful completion of an operation. */
-#define PACKET_TYPE_SUCCESS				0x02
-/** Packet signifying failure of an operation. */
-#define PACKET_TYPE_FAILURE				0x03
 /** Create a new wallet. */
 #define PACKET_TYPE_NEW_WALLET			0x04
 /** Create a new address in a wallet. */
@@ -63,6 +57,14 @@
 #define PACKET_TYPE_ADDRESS_PUBKEY		0x30
 /** Number of addresses in a wallet. */
 #define PACKET_TYPE_NUM_ADDRESSES		0x31
+/** Public information about all wallets. */
+#define PACKET_TYPE_WALLETS				0x32
+/** Response to ping from wallet. */
+#define PACKET_TYPE_PING_RESPONSE		0x33
+/** Packet signifying successful completion of an operation. */
+#define PACKET_TYPE_SUCCESS				0x34
+/** Packet signifying failure of an operation. */
+#define PACKET_TYPE_FAILURE				0x35
 /**@}*/
 
 extern void processPacket(void);

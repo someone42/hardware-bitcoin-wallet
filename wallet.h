@@ -73,8 +73,8 @@ extern uint32_t getNumAddresses(void);
 extern WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah);
 extern WalletErrors changeEncryptionKey(uint8_t *new_key);
 extern WalletErrors changeWalletName(uint8_t *new_name);
-extern WalletErrors getWalletInfo(uint8_t *out_version, uint8_t *out_name, uint8_t *out_uuid, uint32_t wallet_spec);
-extern WalletErrors backupWallet(bool do_encrypt, uint8_t destination_device);
+extern WalletErrors getWalletInfo(uint32_t *out_version, uint8_t *out_name, uint8_t *out_uuid, uint32_t wallet_spec);
+extern WalletErrors backupWallet(bool do_encrypt, uint32_t destination_device);
 extern uint32_t getNumberOfWallets(void);
 
 #ifdef TEST
