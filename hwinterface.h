@@ -80,6 +80,8 @@ typedef enum MiscStringsEnum
 	MISCSTR_PERMISSION_DENIED	=	2,
 	/** Text explaining that a packet was malformed or unrecognised. */
 	MISCSTR_INVALID_PACKET		=	3,
+	/** Text explaining that a parameter was too large. */
+	MISCSTR_PARAM_TOO_LARGE		=	4,
 } MiscStrings;
 
 /** Obtain one character from one of the device's strings.

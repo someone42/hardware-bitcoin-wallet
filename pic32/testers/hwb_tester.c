@@ -54,6 +54,8 @@ static char *packetCommandToText(int command)
 		return "GetNumberOfAddresses";
 	case 0x09:
 		return "GetAddressAndPublicKey";
+	case 0x0a:
+		return "SignTransaction";
 	case 0x0b:
 		return "LoadWallet";
 	case 0x0c:
@@ -70,6 +72,12 @@ static char *packetCommandToText(int command)
 		return "BackupWallet";
 	case 0x12:
 		return "RestoreWallet";
+	case 0x13:
+		return "GetDeviceUUID";
+	case 0x14:
+		return "GetEntropy";
+	case 0x15:
+		return "GetMasterPublicKey";
 	case 0x30:
 		return "Address";
 	case 0x31:
@@ -82,6 +90,14 @@ static char *packetCommandToText(int command)
 		return "Success";
 	case 0x35:
 		return "Failure";
+	case 0x36:
+		return "DeviceUUID";
+	case 0x37:
+		return "Entropy";
+	case 0x38:
+		return "MasterPublicKey";
+	case 0x39:
+		return "Signature";
 	default:
 		return "unknown";
 	}

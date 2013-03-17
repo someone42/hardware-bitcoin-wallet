@@ -26,6 +26,8 @@ static const char str_MISCSTR_PERMISSION_DENIED[] PROGMEM = "Permission denied b
 /** String specifying that processPacket() didn't like the format or
   * contents of a packet. */
 static const char str_MISCSTR_INVALID_PACKET[] PROGMEM = "Unrecognised command";
+/** String specifying that a parameter was unacceptably large. */
+static const char str_MISCSTR_PARAM_TOO_LARGE[] PROGMEM = "Parameter too large";
 /** String for #WALLET_FULL wallet error. */
 static const char str_WALLET_FULL[] PROGMEM = "Wallet has run out of space";
 /** String for #WALLET_EMPTY wallet error. */
@@ -97,6 +99,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case MISCSTR_INVALID_PACKET:
 			return (char)pgm_read_byte(&(str_MISCSTR_INVALID_PACKET[pos]));
+			break;
+		case MISCSTR_PARAM_TOO_LARGE:
+			return (char)pgm_read_byte(&(str_MISCSTR_PARAM_TOO_LARGE[pos]));
 			break;
 		default:
 			return (char)pgm_read_byte(&(str_UNKNOWN[pos]));
@@ -206,6 +211,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case MISCSTR_INVALID_PACKET:
 			return (uint16_t)(sizeof(str_MISCSTR_INVALID_PACKET) - 1);
+			break;
+		case MISCSTR_PARAM_TOO_LARGE:
+			return (uint16_t)(sizeof(str_MISCSTR_PARAM_TOO_LARGE) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

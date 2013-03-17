@@ -53,18 +53,29 @@
 #define PACKET_TYPE_GET_ENTROPY			0x14
 /** Get master public key. */
 #define PACKET_TYPE_GET_MASTER_KEY		0x15
-/** An address from a wallet. */
+/** An address from a wallet (response to #PACKET_TYPE_GET_ADDRESS_PUBKEY
+  * or #PACKET_TYPE_NEW_ADDRESS). */
 #define PACKET_TYPE_ADDRESS_PUBKEY		0x30
-/** Number of addresses in a wallet. */
+/** Number of addresses in a wallet
+  * (response to #PACKET_TYPE_GET_NUM_ADDRESSES). */
 #define PACKET_TYPE_NUM_ADDRESSES		0x31
-/** Public information about all wallets. */
+/** Public information about all wallets
+  * (response to #PACKET_TYPE_LIST_WALLETS). */
 #define PACKET_TYPE_WALLETS				0x32
-/** Response to ping from wallet. */
+/** Wallet's response to ping (see #PACKET_TYPE_PING). */
 #define PACKET_TYPE_PING_RESPONSE		0x33
 /** Packet signifying successful completion of an operation. */
 #define PACKET_TYPE_SUCCESS				0x34
 /** Packet signifying failure of an operation. */
 #define PACKET_TYPE_FAILURE				0x35
+/** Device UUID (response to #PACKET_TYPE_GET_DEVICE_UUID). */
+#define PACKET_TYPE_DEVICE_UUID			0x36
+/** Some bytes of entropy (response to #PACKET_TYPE_GET_ENTROPY). */
+#define PACKET_TYPE_ENTROPY				0x37
+/** Master public key (response to #PACKET_TYPE_GET_MASTER_KEY). */
+#define PACKET_TYPE_MASTER_KEY			0x38
+/** Signature (response to #PACKET_TYPE_SIGN_TRANSACTION). */
+#define PACKET_TYPE_SIGNATURE			0x39
 /**@}*/
 
 extern void processPacket(void);

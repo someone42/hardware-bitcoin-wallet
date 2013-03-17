@@ -78,6 +78,11 @@ union MessageBufferUnion
 	Wallets wallets;
 	BackupWallet backup_wallet;
 	RestoreWallet restore_wallet;
+	GetDeviceUUID get_device_uuid;
+	DeviceUUID device_uuid;
+	GetEntropy get_entropy;
+	GetMasterPublicKey get_master_public_key;
+	MasterPublicKey master_public_key;
 };
 
 /** The transaction hash of the most recently approved transaction. This is
@@ -101,6 +106,15 @@ static uint8_t next_spec;
 /** Current number of wallets; used for the listWalletsCallback() callback
   * function. */
 static uint32_t number_of_wallets;
+/** Pointer to bytes of entropy to send to the host; used for
+  * the getEntropyCallback() callback function. */
+static uint8_t *entropy_buffer;
+/** Number of bytes of entropy to send to the host; used for
+  * the getEntropyCallback() callback function. */
+static size_t num_entropy_bytes;
+/** Storage for fields of SignTransaction message. Needed for the
+  * signTransactionCallback() callback function. */
+static SignTransaction sign_transaction;
 
 /** nanopb input stream which uses mainInputStreamCallback() as a stream
   * callback. */
@@ -326,77 +340,55 @@ static void translateWalletError(WalletErrors r)
 	}
 }
 
-/** Sign a transaction and (if everything goes well) send the signature in a
-  * response packet.
-  * \param ah The address handle whose corresponding private key will be used
-  *           to sign the transaction.
-  * \param sig_hash The signature hash of the transaction, as calculated by
-  *                 parseTransaction(). This must be an array of 32 bytes.
+/** nanopb field callback for signature data of SignTransaction message. This
+  * does (or more accurately, delegates) all the "work" of transaction
+  * signing: parsing the transaction, asking the user for approval, generating
+  * the signature and sending the signature.
+  * \param stream Input stream to read from.
+  * \param field Field which contains the signature data.
+  * \param arg Unused.
+  * \return true on success, false on failure (nanopb convention).
   */
-static NOINLINE void signTransactionByAddressHandle(AddressHandle ah, uint8_t *sig_hash)
+bool signTransactionCallback(pb_istream_t *stream, const pb_field_t *field, void *arg)
 {
-	uint8_t signature[MAX_SIGNATURE_LENGTH];
+	AddressHandle ah;
+	bool approved;
+	TransactionErrors r;
+	WalletErrors wallet_return;
+	uint8_t transaction_hash[32];
+	uint8_t sig_hash[32];
 	uint8_t private_key[32];
 	uint8_t signature_length;
-	WalletErrors wallet_return;
-
-	signature_length = 0;
-	if (getPrivateKey(private_key, ah) == WALLET_NO_ERROR)
-	{
-		if (signTransaction(signature, &signature_length, sig_hash, private_key))
-		{
-			wallet_return = WALLET_RNG_FAILURE;
-		}
-		else
-		{
-			wallet_return = WALLET_NO_ERROR;
-		}
-	}
-	else
-	{
-		wallet_return = walletGetLastError();
-	}
-	// TODO: write signature properly
-	translateWalletError(wallet_return);
-}
-
-/** Read a transaction from the stream, parse it and ask the user
-  * if they approve it.
-  * \param out_approved Whether the user approved the transaction.
-  * \param sig_hash The signature hash of the transaction will be written to
-  *                 here by parseTransaction(). This must be an array of 32
-  *                 bytes.
-  * \param transaction_length The length of the transaction, in number of
-  *                           bytes. This can be derived from the payload
-  *                           length of a packet.
-  */
-static NOINLINE void parseTransactionAndAsk(bool *out_approved, uint8_t *sig_hash, uint32_t transaction_length)
-{
-	TransactionErrors r;
-	uint8_t transaction_hash[32];
+	Signature message_buffer;
 
 	// Validate transaction and calculate hashes of it.
-	*out_approved = false;
 	clearOutputsSeen();
-	r = parseTransaction(sig_hash, transaction_hash, transaction_length);
+	r = parseTransaction(sig_hash, transaction_hash, stream->bytes_left);
+	// parseTransaction() always reads transaction_length bytes, even if parse
+	// errors occurs. These next two lines are a bit of a hack to account for
+	// differences between streamGetOneByte() and pb_read(stream, buf, 1).
+	// The intention is that transaction.c doesn't have to know anything about
+	// protocol buffers.
+	payload_length -= stream->bytes_left;
+	stream->bytes_left = 0;
 	if (r != TRANSACTION_NO_ERROR)
 	{
 		// Transaction parse error.
 		writeFailureString(STRINGSET_TRANSACTION, (uint8_t)r);
-		return;
+		return true;
 	}
 
 	// Get permission from user.
-	*out_approved = false;
+	approved = false;
 	// Does transaction_hash match previous approved transaction?
 	if (prev_transaction_hash_valid)
 	{
 		if (bigCompare(transaction_hash, prev_transaction_hash) == BIGCMP_EQUAL)
 		{
-			*out_approved = true;
+			approved = true;
 		}
 	}
-	if (!(*out_approved))
+	if (!approved)
 	{
 		// Need to explicitly get permission from user.
 		// The call to parseTransaction() should have logged all the outputs
@@ -408,37 +400,40 @@ static NOINLINE void parseTransactionAndAsk(bool *out_approved, uint8_t *sig_has
 		else
 		{
 			// User approved transaction.
-			*out_approved = true;
+			approved = true;
 			memcpy(prev_transaction_hash, transaction_hash, 32);
 			prev_transaction_hash_valid = true;
 		}
-	} // if (!(*out_approved))
-}
-
-/** Validate and sign a transaction. This basically calls
-  * parseTransactionAndAsk() and signTransactionByAddressHandle() in sequence.
-  * Why do that? For more efficient use of stack space.
-  *
-  * This function will always consume transaction_length bytes from the input
-  * stream, except when a stream read error occurs.
-  * \param ah The address handle whose corresponding private key will be used
-  *           to sign the transaction.
-  * \param transaction_length The length of the transaction, in number of
-  *                           bytes. This can be derived from the payload
-  *                           length of a packet.
-  */
-static NOINLINE void validateAndSignTransaction(AddressHandle ah, uint32_t transaction_length)
-{
-	bool approved;
-	uint8_t sig_hash[32];
-
-	approved = false;
-	parseTransactionAndAsk(&approved, sig_hash, transaction_length);
+	} // if (!approved)
 	if (approved)
 	{
 		// Okay to sign transaction.
-		signTransactionByAddressHandle(ah, sig_hash);
+		signature_length = 0;
+		ah = sign_transaction.address_handle;
+		if (getPrivateKey(private_key, ah) == WALLET_NO_ERROR)
+		{
+			if (sizeof(message_buffer.signature_data.bytes) < MAX_SIGNATURE_LENGTH)
+			{
+				// This should never happen.
+				fatalError();
+			}
+			if (signTransaction(message_buffer.signature_data.bytes, &signature_length, sig_hash, private_key))
+			{
+				translateWalletError(WALLET_RNG_FAILURE);
+			}
+			else
+			{
+				message_buffer.signature_data.size = signature_length;
+				sendPacket(PACKET_TYPE_SIGNATURE, Signature_fields, &message_buffer);
+			}
+		}
+		else
+		{
+			wallet_return = walletGetLastError();
+			translateWalletError(wallet_return);
+		}
 	}
+	return true;
 }
 
 /** Send a packet containing an address and its corresponding public key.
@@ -500,7 +495,7 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new, AddressHan
 /** nanopb field callback which will write repeated WalletInfo messages; one
   * for each wallet on the device.
   * \param stream Output stream to write to.
-  * \param field Field which contains the WalletInfo message.
+  * \param field Field which contains the WalletInfo submessage.
   * \param arg Unused.
   * \return true on success, false on failure (nanopb convention).
   */
@@ -536,65 +531,69 @@ bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
 	return true;
 }
 
+/** nanopb field callback which will write out the contents
+  * of #entropy_buffer.
+  * \param stream Output stream to write to.
+  * \param field Field which contains the the entropy bytes.
+  * \param arg Unused.
+  * \return true on success, false on failure (nanopb convention).
+  */
+bool getEntropyCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
+{
+	if (entropy_buffer == NULL)
+	{
+		return false;
+	}
+	if (!pb_encode_tag_for_field(stream, field))
+	{
+		return false;
+	}
+	if (!pb_encode_string(stream, entropy_buffer, num_entropy_bytes))
+	{
+		return false;
+	}
+	return true;
+}
+
 /** Return bytes of entropy from the random number generation system.
   * \param num_bytes Number of bytes of entropy to send to stream.
   */
 static NOINLINE void getBytesOfEntropy(uint32_t num_bytes)
 {
-	uint8_t validness_byte;
-	uint32_t random_bytes_index;
-	uint8_t random_buffer[32];
-	uint8_t buffer[4];
+	Entropy message_buffer;
+	unsigned int random_bytes_index;
+	uint8_t random_bytes[1024]; // must be multiple of 32 bytes large
 
-	if (num_bytes > 0x7FFFFFFF)
+	if (num_bytes > sizeof(random_bytes))
 	{
-		// Huge num_bytes. Probably a transmission error.
-		writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+		writeFailureString(STRINGSET_MISC, MISCSTR_PARAM_TOO_LARGE);
+		return;
 	}
-	else
+
+	// All bytes of entropy must be collected before anything can be sent.
+	// This is because it is only safe to send those bytes if every call
+	// to getRandom256() succeeded.
+	random_bytes_index = 0;
+	num_entropy_bytes = 0;
+	while (num_bytes--)
 	{
-		validness_byte = 1;
-		random_bytes_index = 0;
-		streamPutOneByte(PACKET_TYPE_SUCCESS); // type
-		writeU32LittleEndian(buffer, (uint32_t)(num_bytes + 1)); // length
-		writeBytesToStream(buffer, 4);
-		while (num_bytes--)
+		if (random_bytes_index == 0)
 		{
-			if (random_bytes_index == 0)
+			if (getRandom256(&(random_bytes[num_entropy_bytes])))
 			{
-				if (getRandom256(random_buffer))
-				{
-					validness_byte = 0;
-					// Set the buffer to all 00s so:
-					// 1. The contents of RAM aren't leaked.
-					// 2. It's obvious that the RNG is broken.
-					memset(random_buffer, 0, sizeof(random_buffer));
-				}
+				translateWalletError(WALLET_RNG_FAILURE);
+				return;
 			}
-			streamPutOneByte(random_buffer[random_bytes_index]);
-			random_bytes_index = (uint32_t)((random_bytes_index + 1) & 31);
 		}
-		streamPutOneByte(validness_byte);
+		num_entropy_bytes++;
+		random_bytes_index++;
+		random_bytes_index &= 31;
 	}
-}
-
-/** Obtain master public key and chain code, then send it over the stream. */
-static NOINLINE void getAndSendMasterPublicKey(void)
-{
-	WalletErrors wallet_return;
-	PointAffine master_public_key;
-	uint8_t chain_code[32];
-	uint8_t buffer[97]; // 0x04 (1 byte) + x (32 bytes) + y (32 bytes) + chain code (32 bytes)
-
-	wallet_return = getMasterPublicKey(&master_public_key, chain_code);
-	buffer[0] = 0x04;
-	memcpy(&(buffer[1]), master_public_key.x, 32);
-	swapEndian256(&(buffer[1]));
-	memcpy(&(buffer[33]), master_public_key.y, 32);
-	swapEndian256(&(buffer[33]));
-	memcpy(&(buffer[65]), chain_code, 32);
-	// TODO: write public key properly
-	translateWalletError(wallet_return);
+	message_buffer.entropy.funcs.encode = &getEntropyCallback;
+	entropy_buffer = random_bytes;
+	sendPacket(PACKET_TYPE_ENTROPY, Entropy_fields, &message_buffer);
+	num_entropy_bytes = 0;
+	entropy_buffer = NULL;
 }
 
 /** Get packet from stream and deal with it. This basically implements the
@@ -612,6 +611,7 @@ void processPacket(void)
 	uint16_t command;
 	uint8_t buffer[4];
 	union MessageBufferUnion message_buffer;
+	PointAffine master_public_key;
 	bool receive_failure;
 	WalletErrors wallet_return;
 
@@ -723,6 +723,13 @@ void processPacket(void)
 		{
 			getAndSendAddressAndPublicKey(false, message_buffer.get_address_and_public_key.address_handle);
 		}
+		break;
+
+	case PACKET_TYPE_SIGN_TRANSACTION:
+		// Sign a transaction.
+		sign_transaction.transaction_data.funcs.decode = &signTransactionCallback;
+		// Everything else is handled in signTransactionCallback().
+		receiveMessage(SignTransaction_fields, &sign_transaction);
 		break;
 
 	case PACKET_TYPE_LOAD_WALLET:
@@ -881,6 +888,63 @@ void processPacket(void)
 		}
 		break;
 
+	case PACKET_TYPE_GET_DEVICE_UUID:
+		// Get device UUID.
+		receive_failure = receiveMessage(GetDeviceUUID_fields, &(message_buffer.get_device_uuid));
+		if (!receive_failure)
+		{
+			message_buffer.device_uuid.device_uuid.size = UUID_LENGTH;
+			if (nonVolatileRead(message_buffer.device_uuid.device_uuid.bytes, ADDRESS_DEVICE_UUID, UUID_LENGTH) == NV_NO_ERROR)
+			{
+				sendPacket(PACKET_TYPE_DEVICE_UUID, DeviceUUID_fields, &(message_buffer.device_uuid));
+			}
+			else
+			{
+				translateWalletError(WALLET_READ_ERROR);
+			}
+		}
+		break;
+
+	case PACKET_TYPE_GET_ENTROPY:
+		// Get an arbitrary number of bytes of entropy.
+		receive_failure = receiveMessage(GetEntropy_fields, &(message_buffer.get_entropy));
+		if (!receive_failure)
+		{
+			getBytesOfEntropy(message_buffer.get_entropy.number_of_bytes);
+		}
+		break;
+
+	case PACKET_TYPE_GET_MASTER_KEY:
+		// Get master public key and chain code.
+		receive_failure = receiveMessage(GetMasterPublicKey_fields, &(message_buffer.get_master_public_key));
+		if (!receive_failure)
+		{
+			if (userDenied(ASKUSER_GET_MASTER_KEY))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
+			}
+			else
+			{
+				message_buffer.master_public_key.chain_code.size = 32;
+				wallet_return = getMasterPublicKey(&master_public_key, message_buffer.master_public_key.chain_code.bytes);
+				message_buffer.master_public_key.public_key.size = 65;
+				message_buffer.master_public_key.public_key.bytes[0] = 0x04;
+				memcpy(&(message_buffer.master_public_key.public_key.bytes[1]), master_public_key.x, 32);
+				swapEndian256(&(message_buffer.master_public_key.public_key.bytes[1]));
+				memcpy(&(message_buffer.master_public_key.public_key.bytes[33]), master_public_key.y, 32);
+				swapEndian256(&(message_buffer.master_public_key.public_key.bytes[33]));
+				if (wallet_return == WALLET_NO_ERROR)
+				{
+					sendPacket(PACKET_TYPE_MASTER_KEY, MasterPublicKey_fields, &(message_buffer.master_public_key));
+				}
+				else
+				{
+					translateWalletError(wallet_return);
+				}
+			}
+		}
+		break;
+
 	default:
 		// Unknown command.
 		readAndIgnoreInput();
@@ -983,6 +1047,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case MISCSTR_INVALID_PACKET:
 			return "Unrecognised command";
+			break;
+		case MISCSTR_PARAM_TOO_LARGE:
+			return "Parameter too large";
 			break;
 		default:
 			assert(0);
@@ -1203,15 +1270,63 @@ static const uint8_t test_stream_get_address0[] = {
 
 /** Test stream data for: sign something. */
 static uint8_t test_stream_sign_tx[] = {
-0x0a, 0x98, 0x00, 0x00, 0x00,
-0x01, 0x00, 0x00, 0x00,
+0x23, 0x23, 0x00, 0x0a, 0x00, 0x00, 0x01, 0xa0,
+0x08, 0x01, 0x12, 0x9b, 0x03,
 // transaction data is below
+0x01, // is_ref = 1 (input)
+0x01, 0x00, 0x00, 0x00, // output number to examine
 0x01, 0x00, 0x00, 0x00, // version
 0x01, // number of inputs
-0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee, // previous output
-0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
-0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
-0xde, 0xad, 0xbe, 0xef, 0xc0, 0xff, 0xee, 0xee,
+0xdf, 0x08, 0xf9, 0xa3, 0x7c, 0x6d, 0x71, 0x3c, // previous output
+0x6a, 0x99, 0x2e, 0x88, 0x29, 0x8e, 0x0b, 0x4c,
+0x8f, 0xb5, 0xf9, 0x0e, 0x11, 0xf0, 0x2c, 0xa7,
+0x36, 0x72, 0xeb, 0x58, 0xb3, 0x04, 0xef, 0xc0,
+0x01, 0x00, 0x00, 0x00, // number in previous output
+0x8a, // script length
+0x47, // 71 bytes of data follows
+0x30, 0x44, 0x02, 0x20, 0x1b, 0xf4, 0xef, 0x3c, 0x34, 0x96, 0x02, 0x9b, 0x1a,
+0xb1, 0xc8, 0x49, 0xbf, 0x18, 0x55, 0xcc, 0x16, 0xbc, 0x52, 0x6d, 0xcc, 0x20,
+0xfb, 0x7c, 0x0a, 0x1d, 0x48, 0xd6, 0xe9, 0xbd, 0xd7, 0xb1, 0x02, 0x20, 0x53,
+0xb1, 0xa3, 0xaa, 0xbf, 0xd3, 0x87, 0x84, 0xdc, 0xf3, 0x10, 0xe5, 0xd2, 0x09,
+0xa4, 0xba, 0xb0, 0x01, 0x62, 0xe5, 0xbc, 0x09, 0x75, 0x9d, 0x4f, 0x74, 0x2c,
+0xb4, 0x6b, 0x32, 0x37, 0x2c, 0x01,
+0x41, // 65 bytes of data follows
+0x04, 0x05, 0x4d, 0xb5, 0xe0, 0x8e, 0x2a, 0x33, 0x89, 0x2c, 0xf3, 0x4b, 0x7e,
+0xbc, 0x18, 0x3b, 0xa5, 0xf5, 0x54, 0xc6, 0x9d, 0x6d, 0x21, 0x65, 0x60, 0x89,
+0xf5, 0x5e, 0x2d, 0x0f, 0x3a, 0x68, 0x08, 0x23, 0x83, 0x19, 0xcd, 0x89, 0xba,
+0xda, 0x09, 0x9b, 0xc6, 0xef, 0x3f, 0xdc, 0x80, 0xd8, 0x7a, 0xb2, 0xbf, 0x2b,
+0x37, 0x18, 0xdd, 0x4a, 0x4e, 0x36, 0x09, 0x60, 0x28, 0x6e, 0x2e, 0x77, 0x57,
+0xFF, 0xFF, 0xFF, 0xFF, // sequence
+0x02, // number of outputs
+0xc0, 0xa4, 0x70, 0x57, 0x00, 0x00, 0x00, 0x00, // 14.67 BTC
+0x19, // script length
+0x76, // OP_DUP
+0xA9, // OP_HASH160
+0x14, // 20 bytes of data follows
+// 1Q6W8HTPdwccCkLRMLJpYkGvweKhpsKKjE
+0xfd, 0x55, 0x49, 0x20, 0x22, 0xa0, 0x3f, 0xf7, 0x7a, 0x9d,
+0xe0, 0x0d, 0xa2, 0x18, 0x08, 0x0c, 0xa9, 0x51, 0xde, 0xef,
+0x88, // OP_EQUALVERIFY
+0xAC, // OP_CHECKSIG
+0x40, 0x54, 0x92, 0x3d, 0x00, 0x00, 0x00, 0x00, // 10.33 BTC
+0x19, // script length
+0x76, // OP_DUP
+0xA9, // OP_HASH160
+0x14, // 20 bytes of data follows
+// 16E7VhudyU3iXNddNazG8sChjQwfWcrHNw
+0x39, 0x53, 0x75, 0x46, 0x88, 0x84, 0x3d, 0xe5, 0x50, 0x0b,
+0x79, 0x91, 0x33, 0x7f, 0x96, 0xf5, 0x41, 0x71, 0x48, 0xa1,
+0x88, // OP_EQUALVERIFY
+0xAC, // OP_CHECKSIG
+0x00, 0x00, 0x00, 0x00, // locktime
+// The main (spending) transaction.
+0x00, // is_ref = 0 (main)
+0x01, 0x00, 0x00, 0x00, // version
+0x01, // number of inputs
+0xee, 0xce, 0xae, 0x86, 0xf5, 0x70, 0x4d, 0x76, // previous output
+0xb8, 0x54, 0x5e, 0x6d, 0xcf, 0x21, 0xf1, 0x75,
+0x35, 0x7f, 0x83, 0xbd, 0xa4, 0x96, 0x43, 0x83,
+0xd6, 0xdd, 0x7e, 0x41, 0x68, 0x1b, 0x5e, 0x1a,
 0x01, 0x00, 0x00, 0x00, // number in previous output
 0x19, // script length
 0x76, // OP_DUP
@@ -1337,23 +1452,23 @@ static const uint8_t test_stream_restore_wallet[] = {
 
 /** Test stream data for: get device UUID. */
 static const uint8_t test_stream_get_device_uuid[] = {
-0x13, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x13, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: get 0 bytes of entropy. */
 static const uint8_t test_stream_get_entropy0[] = {
-0x14, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x08, 0x00};
 
 /** Test stream data for: get 1 byte of entropy. */
 static const uint8_t test_stream_get_entropy1[] = {
-0x14, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x08, 0x01};
 
 /** Test stream data for: get 32 bytes of entropy. */
 static const uint8_t test_stream_get_entropy32[] = {
-0x14, 0x04, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x08, 0x20};
 
 /** Test stream data for: get 100 bytes of entropy. */
 static const uint8_t test_stream_get_entropy100[] = {
-0x14, 0x04, 0x00, 0x00, 0x00, 0x64, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x14, 0x00, 0x00, 0x00, 0x02, 0x08, 0x64};
 
 /** Ping (get version). */
 static const uint8_t test_stream_ping[] = {
@@ -1361,7 +1476,7 @@ static const uint8_t test_stream_ping[] = {
 
 /** Get master public key. */
 static const uint8_t test_get_master_public_key[] = {
-0x15, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00};
 
 /** Test response of processPacket() for a given test stream.
   * \param test_stream The test stream data to use.
@@ -1406,10 +1521,10 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_get_address1);
 	printf("Getting address 0...\n");
 	SEND_ONE_TEST_STREAM(test_stream_get_address0);
-	//printf("Signing transaction...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_sign_tx);
-	//printf("Signing transaction again...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_sign_tx);
+	printf("Signing transaction...\n");
+	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
+	printf("Signing transaction again...\n");
+	SEND_ONE_TEST_STREAM(test_stream_sign_tx);
 	printf("Loading wallet using incorrect key...\n");
 	SEND_ONE_TEST_STREAM(test_stream_load_incorrect);
 	printf("Loading wallet using correct key...\n");
@@ -1428,20 +1543,20 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_backup_wallet);
 	printf("Restoring a wallet...\n");
 	SEND_ONE_TEST_STREAM(test_stream_restore_wallet);
-	//printf("Getting device UUID...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_get_device_uuid);
-	//printf("Getting 0 bytes of entropy...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_get_entropy0);
-	//printf("Getting 1 byte of entropy...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_get_entropy1);
-	//printf("Getting 32 bytes of entropy...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_get_entropy32);
-	//printf("Getting 100 bytes of entropy...\n");
-	//SEND_ONE_TEST_STREAM(test_stream_get_entropy100);
+	printf("Getting device UUID...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_device_uuid);
+	printf("Getting 0 bytes of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy0);
+	printf("Getting 1 byte of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy1);
+	printf("Getting 32 bytes of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy32);
+	printf("Getting 100 bytes of entropy...\n");
+	SEND_ONE_TEST_STREAM(test_stream_get_entropy100);
 	printf("Pinging...\n");
 	SEND_ONE_TEST_STREAM(test_stream_ping);
-	//printf("Getting master public key...\n");
-	//SEND_ONE_TEST_STREAM(test_get_master_public_key);
+	printf("Getting master public key...\n");
+	SEND_ONE_TEST_STREAM(test_get_master_public_key);
 
 	finishTests();
 	exit(0);
