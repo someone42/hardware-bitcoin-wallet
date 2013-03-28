@@ -21,6 +21,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <p32xxxx.h>
 #include "../fix16.h"
 #include "../fft.h"
 #include "../statistics.h"
@@ -474,7 +475,13 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 #endif // #ifdef TEST_STATISTICS
 		if (tests_failed != 0)
 		{
+#ifdef IGNORE_HWRNG_FAILURE
+			PORTDSET = 0x10; // turn on red LED
+			delayCycles(CYCLES_PER_MILLISECOND * 100);
+			PORTDCLR = 0x10; // turn off red LED
+#else
 			return -1; // statistical tests indicate HWRNG failure
+#endif // #ifdef IGNORE_HWRNG_FAILURE
 		}
 		// Why return 512 (bits)? This ensures that hardwareRandom32Bytes()
 		// will be called a minimum number of times per getRandom256() call,
