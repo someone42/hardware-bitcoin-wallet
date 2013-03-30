@@ -16,9 +16,9 @@
 
 extern void skipWhiteSpace(FILE *f);
 extern void skipLine(FILE *f);
-extern void bigPrintVariableSize(uint8_t *number, uint8_t size, bool is_big_endian);
-extern void printBigEndian16(uint8_t *buffer);
-extern void printLittleEndian32(BigNum256 buffer);
+extern void bigPrintVariableSize(const uint8_t *number, uint8_t size, bool is_big_endian);
+extern void printBigEndian16(const uint8_t *buffer);
+extern void printLittleEndian32(const BigNum256 buffer);
 extern void reportSuccess(void);
 extern void reportFailure(void);
 extern void initTests(const char *source_file_name);

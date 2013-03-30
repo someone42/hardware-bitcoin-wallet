@@ -50,6 +50,7 @@
         <itemPath>../../pb.h</itemPath>
         <itemPath>../../pb_decode.h</itemPath>
         <itemPath>../../pb_encode.h</itemPath>
+        <itemPath>../../pbkdf2.h</itemPath>
       </logicalFolder>
     </logicalFolder>
     <logicalFolder name="LinkerScript"
@@ -99,7 +100,6 @@
         <itemPath>../../fft.c</itemPath>
         <itemPath>../../fix16.c</itemPath>
         <itemPath>../../hash.c</itemPath>
-        <itemPath>../../hmac_sha512.c</itemPath>
         <itemPath>../../p2sh_addr_gen.c</itemPath>
         <itemPath>../../prandom.c</itemPath>
         <itemPath>../../ripemd160.c</itemPath>
@@ -113,6 +113,8 @@
         <itemPath>../../messages.pb.c</itemPath>
         <itemPath>../../pb_decode.c</itemPath>
         <itemPath>../../pb_encode.c</itemPath>
+        <itemPath>../../pbkdf2.c</itemPath>
+        <itemPath>../../hmac_sha512.c</itemPath>
       </logicalFolder>
     </logicalFolder>
     <logicalFolder name="ExternalFiles"

@@ -238,4 +238,18 @@ extern void fatalError(void);
   */
 extern bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint32_t destination_device);
 
+/** PBKDF2 is used to derive encryption keys. In order to make brute-force
+  * attacks more expensive, this should return a number which is as large
+  * as possible, without being so large that key derivation requires an
+  * excessive amount of time (> 1 s). This is a platform-dependent function
+  * because key derivation speed is platform-dependent.
+  *
+  * In order to permit key recovery when the number of iterations is unknown,
+  * this should be a power of 2. That way, an implementation can use
+  * successively greater powers of 2 until the correct number of iterations is
+  * found.
+  * \return Number of iterations to use in PBKDF2 algorithm.
+  */
+extern uint32_t getPBKDF2Iterations(void);
+
 #endif // #ifndef HWINTERFACE_H_INCLUDED

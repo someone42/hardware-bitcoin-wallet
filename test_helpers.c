@@ -60,7 +60,7 @@ void skipLine(FILE *f)
   *                      big-endian format and should be false if the number
   *                      is stored in little-endian format.
   */
-void bigPrintVariableSize(uint8_t *number, uint8_t size, bool is_big_endian)
+void bigPrintVariableSize(const uint8_t *number, uint8_t size, bool is_big_endian)
 {
 	uint8_t i;
 	if (is_big_endian)
@@ -82,7 +82,7 @@ void bigPrintVariableSize(uint8_t *number, uint8_t size, bool is_big_endian)
 /** Display a 128 bit big-endian multi-precision integer as a hex string.
   * \param buffer 16 byte array containing the number to display.
   */
-void printBigEndian16(uint8_t *buffer)
+void printBigEndian16(const uint8_t *buffer)
 {
 	bigPrintVariableSize(buffer, 16, true);
 }
@@ -90,7 +90,7 @@ void printBigEndian16(uint8_t *buffer)
 /** Display a 256 bit little-endian multi-precision integer as a hex string.
   * \param buffer 32 byte array containing the number to display.
   */
-void printLittleEndian32(BigNum256 buffer)
+void printLittleEndian32(const BigNum256 buffer)
 {
 	bigPrintVariableSize(buffer, 32, false);
 }
