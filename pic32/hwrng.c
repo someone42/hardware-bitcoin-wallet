@@ -76,20 +76,13 @@ static const int32_t fir_lowpass_coefficients[FILTER_ORDER] = {
 26236,
 19161, 5309, -2929, -2681, 0, 711, 202, -123};
 
-/** The contents of #adc_sample_buffer after filtering and decimation have
-  * been applied. */
-static volatile uint16_t decimated_sample_buffer[DECIMATED_SAMPLE_BUFFER_SIZE];
-
-/** This will be false if the next sample to be returned by
-  * hardwareRandom32Bytes() is the first sample to be placed in a histogram
-  * bin. This will be true if that next sample is not the first
-  * sample to be placed in a histogram bin. This variable was defined in
-  * that way so that it is initially false.
-  */
-static bool is_not_first_in_histogram;
-/** Number of samples in the sample buffer that hardwareRandom32Bytes() has
+/** Array of samples which have passed statistical tests. #SAMPLE_COUNT samples
+  * need to be stored because hardwareRandom32Bytes() cannot start returning
+  * samples from this array until all statistical tests have passed. */
+static volatile uint16_t samples[SAMPLE_COUNT];
+/** Number of samples in #samples that hardwareRandom32Bytes() has
   * used up. */
-static uint32_t sample_buffer_consumed;
+static uint32_t samples_consumed;
 
 /** Obtains an estimate of the bandwidth of the HWRNG, based on the power
   * spectrum density estimate (see #psd_accumulator).
@@ -386,36 +379,31 @@ static int32_t firFilter(const volatile uint16_t *samples, const unsigned int ba
 	return (sum >> 16) + ((sum >> 15) & 1); // round result
 }
 
-/** Fill buffer with 32 random bytes from a hardware random number generator.
-  * \param buffer The buffer to fill. This should have enough space for 32
-  *               bytes.
-  * \return An estimate of the total number of bits (not bytes) of entropy in
-  *         the buffer.
+/** Gather #SAMPLE_COUNT ADC samples into #samples and run statistical tests
+  * on the sample array.
+  * \return false on success, true if any statistical test failed.
   */
-int hardwareRandom32Bytes(uint8_t *buffer)
+static bool fillAndTestSamplesArray(void)
 {
-	uint32_t i;
-	uint32_t sample;
+	unsigned int i;
+	unsigned int j;
+	unsigned int base_index;
+	int32_t filtered_sample;
 	uint32_t tests_failed;
 	fix16_t variance;
-	int32_t filtered_sample;
-	unsigned int base_index;
 
-	if (!is_not_first_in_histogram)
+	clearHistogram();
+	clearPowerSpectralDensity();
+	samples_consumed = 0;
+
+	// Fill samples array.
+	// The following loop assumes that #SAMPLE_COUNT is a multiple
+	// of #DECIMATED_SAMPLE_BUFFER_SIZE.
+#if ((SAMPLE_COUNT % DECIMATED_SAMPLE_BUFFER_SIZE) != 0)
+#error "SAMPLE_COUNT not a multiple of DECIMATED_SAMPLE_BUFFER_SIZE"
+#endif // #if ((SAMPLE_COUNT % DECIMATED_SAMPLE_BUFFER_SIZE) != 0)
+	for (i = 0; i < SAMPLE_COUNT; i += DECIMATED_SAMPLE_BUFFER_SIZE)
 	{
-		// This is the first sample in a series of SAMPLE_COUNT samples. Thus
-		// everything needs to start from a blank state.
-		clearHistogram();
-		clearPowerSpectralDensity();
-		// The histogram is empty. The sample buffer is also assumed to be
-		// empty, since this may be the first call to hardwareRandom32Bytes()
-		// after power-on.
-		sample_buffer_consumed = 0;
-		is_not_first_in_histogram = true;
-	}
-	if (sample_buffer_consumed == 0)
-	{
-		// Need to wait until next sample buffer has been filled.
 		suppressIdleMode(true); // start suppressing CPU idle mode
 		beginFillingADCBuffer();
 		while (!isADCBufferFull())
@@ -423,80 +411,86 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 			// do nothing
 		}
 		suppressIdleMode(false); // stop suppressing CPU idle mode
-		// Filter ADC samples, placing result into decimated_sample_buffer.
-		for (i = 0; i < DECIMATED_SAMPLE_BUFFER_SIZE; i++)
+		// Filter ADC samples, placing result into samples array.
+		for (j = 0; j < DECIMATED_SAMPLE_BUFFER_SIZE; j++)
 		{
 			// The "- FILTER_HALF_ORDER" is there to account for the
 			// delay of the low-pass filter.
-			base_index = ((i * OVERSAMPLE_RATIO) - FILTER_HALF_ORDER) & (ADC_SAMPLE_BUFFER_SIZE - 1);
+			base_index = ((j * OVERSAMPLE_RATIO) - FILTER_HALF_ORDER) & (ADC_SAMPLE_BUFFER_SIZE - 1);
 			filtered_sample = firFilter(adc_sample_buffer, base_index, fir_lowpass_coefficients, FILTER_ORDER);
-			decimated_sample_buffer[i] = filtered_sample;
+			samples[i + j] = filtered_sample;
 		}
 	}
-	// From here on, code can assume that a full, current sample buffer is
-	// available.
 
+	// Run statistical tests on samples array.
+	for (i = 0; i < SAMPLE_COUNT; i++)
+	{
+		incrementHistogram(samples[i]);
+	}
+	// The following loop assumes that #SAMPLE_COUNT is a multiple
+	// of #FFT_SIZE * 2.
+#if ((SAMPLE_COUNT % (FFT_SIZE * 2)) != 0)
+#error "SAMPLE_COUNT not a multiple of FFT_SIZE * 2"
+#endif // #if ((SAMPLE_COUNT % (FFT_SIZE * 2)) != 0)
+	for (i = 0; i < SAMPLE_COUNT; i += (FFT_SIZE * 2))
+	{
+		accumulatePowerSpectralDensity(&(samples[i]));
+	}
+	tests_failed = histogramTestsFailed(&variance);
+	tests_failed |= fftTestsFailed(variance);
+#ifdef TEST_STATISTICS
+	reportStatistics(tests_failed);
+#endif // #ifdef TEST_STATISTICS
+	if (tests_failed != 0)
+	{
+#ifdef IGNORE_HWRNG_FAILURE
+		PORTDSET = 0x10; // turn on red LED
+		delayCycles(CYCLES_PER_MILLISECOND * 100);
+		PORTDCLR = 0x10; // turn off red LED
+#else
+		return true; // statistical tests indicate HWRNG failure
+#endif // #ifdef IGNORE_HWRNG_FAILURE
+	}
+	return false;
+}
+
+/** Fill buffer with 32 random bytes from a hardware random number generator.
+  * \param buffer The buffer to fill. This should have enough space for 32
+  *               bytes.
+  * \return An estimate of the total number of bits (not bytes) of entropy in
+  *         the buffer on success, or a negative number if the hardware random
+  *         number generator failed in any way. This may also return 0 to tell
+  *         the caller that more samples are needed in order to do any
+  *         meaningful statistical testing. If this returns 0, the caller
+  *         should continue to call this until it returns a non-zero value.
+  */
+int hardwareRandom32Bytes(uint8_t *buffer)
+{
+	unsigned int i;
+	uint32_t sample;
+
+	if ((samples_consumed == 0) || (samples_consumed >= SAMPLE_COUNT))
+	{
+		if (fillAndTestSamplesArray())
+		{
+			return -1; // statistical tests indicate HWRNG failure
+		}
+	}
+
+	// Fill entropy buffer with ADC sample data.
 	// The following loop assumes that #DECIMATED_SAMPLE_BUFFER_SIZE is a
 	// multiple of 16.
-#if ((DECIMATED_SAMPLE_BUFFER_SIZE & 15) != 0)
+#if ((DECIMATED_SAMPLE_BUFFER_SIZE % 16) != 0)
 #error "DECIMATED_SAMPLE_BUFFER_SIZE not a multiple of 16"
-#endif // #if ((DECIMATED_SAMPLE_BUFFER_SIZE & 15) != 0)
+#endif // #if ((DECIMATED_SAMPLE_BUFFER_SIZE % 16) != 0)
 	for (i = 0; i < 16; i++)
 	{
-		sample = decimated_sample_buffer[sample_buffer_consumed];
-		incrementHistogram(sample);
-		// Fill entropy buffer with ADC sample data.
+		sample = samples[samples_consumed];
 		buffer[i * 2] = (uint8_t)sample;
 		buffer[i * 2 + 1] = (uint8_t)(sample >> 8);
-		sample_buffer_consumed++;
+		samples_consumed++;
 	}
-
-	if (sample_buffer_consumed >= DECIMATED_SAMPLE_BUFFER_SIZE)
-	{
-		// accumulatePowerSpectralDensity() assumes that the sample array has
-		// FFT_SIZE * 2 samples (i.e. the sample array is conveniently large
-		// enough to perform a double-sized real FFT on).
-#if DECIMATED_SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
-#error "DECIMATED_SAMPLE_BUFFER_SIZE not twice FFT_SIZE"
-#endif // #if DECIMATED_SAMPLE_BUFFER_SIZE != (FFT_SIZE * 2)
-		accumulatePowerSpectralDensity(decimated_sample_buffer);
-		// Sample buffer fully consumed; need to get a new buffer.
-		sample_buffer_consumed = 0;
-	}
-
-	if (samples_in_histogram >= SAMPLE_COUNT)
-	{
-		// Histogram is full. Statistical properties can now be calculated.
-		is_not_first_in_histogram = false;
-		tests_failed = histogramTestsFailed(&variance);
-		tests_failed |= fftTestsFailed(variance);
-#ifdef TEST_STATISTICS
-		reportStatistics(tests_failed);
-#endif // #ifdef TEST_STATISTICS
-		if (tests_failed != 0)
-		{
-#ifdef IGNORE_HWRNG_FAILURE
-			PORTDSET = 0x10; // turn on red LED
-			delayCycles(CYCLES_PER_MILLISECOND * 100);
-			PORTDCLR = 0x10; // turn off red LED
-#else
-			return -1; // statistical tests indicate HWRNG failure
-#endif // #ifdef IGNORE_HWRNG_FAILURE
-		}
-		// Why return 512 (bits)? This ensures that hardwareRandom32Bytes()
-		// will be called a minimum number of times per getRandom256() call,
-		// assuming an entropy safety factor of 2 in prandom.c.
-		// This is extremely conservative, given any reasonable value of
-		// SAMPLE_COUNT. For example, for a SAMPLE_COUNT of 4096, this
-		// probably underestimates the usable entropy by a factor of about 50.
-		return 512;
-	}
-	else
-	{
-		// Indicate to caller that more samples are needed in order to do
-		// statistical tests.
-		return 0;
-	}
+	return (int)(16.0 * ENTROPY_BITS_PER_SAMPLE);
 }
 
 #ifdef TEST_STATISTICS

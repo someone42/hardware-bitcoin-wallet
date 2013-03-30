@@ -180,5 +180,11 @@
   * deviation of 20. This was calculated using Monte Carlo simulation.
   */
 #define STATTEST_MIN_ENTROPY		6.21
+/** Assumed entropy estimate (in buts) per sample. This is lower
+  * than #STATTEST_MIN_ENTROPY because the bandwidth of the HWRNG signal is
+  * smaller than the Nyquist frequency (see #PSD_MIN_BANDWIDTH) by a factor
+  * of about 3. An additional safety factor of 2 has also been incorporated.
+  */
+#define ENTROPY_BITS_PER_SAMPLE		1.0
 
 #endif // #ifndef PIC32_HWRNG_LIMITS_H_INCLUDED
