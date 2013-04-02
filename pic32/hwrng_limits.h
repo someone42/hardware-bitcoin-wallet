@@ -5,7 +5,9 @@
   * The code in hwrng.c does statistical testing of samples from the
   * hardware random number generator (HWRNG). These constants define the limits
   * for each statistical test. These values are very dependent on the
-  * implementation of the HWRNG.
+  * implementation of the HWRNG. There is a tradeoff: setting limits
+  * too strict will annoy users with false negatives, but setting limits too
+  * loosely will defeat the purpose of statistical testing.
   *
   * This file is licensed as described by the file LICENCE.
   */
@@ -34,42 +36,18 @@
   * - Offset of 8: maximum total absolute error of ADC.
   */
 #define STATTEST_MAX_MEAN			(1.109 * STATTEST_CENTRAL_MEAN + 75.0 + 8.0)
-/** Nominal variance, in ADC output number squared. This was measured. */
-#define STATTEST_CENTRAL_VARIANCE	1402.3
 /** Minimum acceptable variance, in ADC output number squared.
-  * This differs from #STATTEST_CENTRAL_VARIANCE by the following factors:
-  * - Factor of 0.846: variation in amplitude of Johnson-Nyquist noise due to
-  *   temperature decrease from 293 K to 248 K.
-  * - Factor of 0.656: worst case decrease due to 3 1% tolerance resistors
-  *   and 4 5% tolerance resistors with a 45 K temperature change at 100 ppm/K.
-  * - Factor of 0.798: 8 sigma statistical fluctuations for N = 4096. This was
-  *   measured.
-  * - Factor of 0.709: worst case decrease due to RC low-pass filter
-  *   inaccuracy (5% tolerance resistor, 10% tolerance capacitor, 0.9%
-  *   resistance increase over temperature, 15% capacitance increase over
-  *   temperature).
+  * This is set so that the entropy per sample (assuming a white,
+  * full-bandwidth Gaussian signal) is at least 6 bits.
+  * See also #STATTEST_MIN_ENTROPY.
   */
-#define STATTEST_MIN_VARIANCE		(0.846 * 0.656 * 0.798 * 0.709 * STATTEST_CENTRAL_VARIANCE)
+#define STATTEST_MIN_VARIANCE		(20.0 * 20.0)
 /** Maximum acceptable variance, in ADC output number squared.
-  * This differs from #STATTEST_CENTRAL_VARIANCE by the following factors:
-  * - Factor of 1.154: variation in amplitude of Johnson-Nyquist noise due to
-  *   temperature increase from 293 K to 338 K.
-  * - Factor of 1.523: worst case increase due to 3 1% tolerance resistors
-  *   and 4 5% tolerance resistors with a 45 K temperature change at 100 ppm/K.
-  * - Factor of 1.253: 8 sigma statistical fluctuations for N = 4096. This was
-  *   measured.
-  * - Factor of 1.409: worst case increase due to RC low-pass filter
-  *   inaccuracy (5% tolerance resistor, 10% tolerance capacitor, 0.9%
-  *   resistance decrease over temperature, 15% capacitance decrease over
-  *   temperature).
-  * - Factor of 2.5: allowable additive interference. Additive interference
-  *   is undesirable, but it does not compromise the amount of entropy per
-  *   sample because addition is a reversible operation. Limiting the allowable
-  *   additive interference is necessary to prevent saturation (which is not
-  *   a reversible operation and hence reduces the amount of entropy per
-  *   sample) and arithmetic overflow.
+  * This is equivalent to a standard deviation of 400 mV, which corresponds
+  * to the signal extremes (0 and 3.3 V) being about 4 sigma away from the
+  * mean. This means that the signal should rarely clip.
   */
-#define STATTEST_MAX_VARIANCE		(1.154 * 1.523 * 1.253 * 1.409 * 2.5 * STATTEST_CENTRAL_VARIANCE)
+#define STATTEST_MAX_VARIANCE		(124.0 * 124.0)
 /** Maximum acceptable skewness (standardised 3rd central moment) in either
   * the positive or negative direction. This is approximately 10 standard
   * deviations from the theoretical value of 0.
@@ -112,7 +90,7 @@
   * entropy. Even an absurdly low value is still capable of detecting some
   * hardware failure modes.
   */
-#define PSD_BANDWIDTH_THRESHOLD		0.03
+#define PSD_BANDWIDTH_THRESHOLD		0.015
 /** Number of consecutive power spectrum bins which must be below the
   * threshold (see #PSD_BANDWIDTH_THRESHOLD) before the code in statistics.c
   * considers a bin as an edge of the HWRNG bandwidth. Making this value
@@ -160,7 +138,7 @@
   *
   * This value was estimated from an ensemble of measured correlograms.
   */
-#define AUTOCORR_START_LAG			7
+#define AUTOCORR_START_LAG			8
 /** The normalised autocorrelation threshold. If the magnitude of any values
   * in the correlogram exceed this threshold, then the HWRNG is considered
   * to possess too much autocorrelation (i.e. it is not random).
@@ -173,7 +151,7 @@
   * failed (due to capacitively coupled interference) at about the same time
   * as the peak detection test.
   */
-#define AUTOCORR_THRESHOLD			2.8
+#define AUTOCORR_THRESHOLD			3.5
 /** Minimum acceptable entropy estimate (in bits) per sample. This is
   * approximately 8 standard deviations (calculated using N = 4096) below
   * the mean entropy estimate for a Gaussian distribution with a standard
