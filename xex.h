@@ -23,7 +23,7 @@
 
 extern void xexEncrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq);
 extern void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq);
-extern void setEncryptionKey(uint8_t *in);
+extern void setEncryptionKey(const uint8_t *in);
 extern void getEncryptionKey(uint8_t *out);
 extern bool isEncryptionKeyNonZero(void);
 extern void clearEncryptionKey(void);

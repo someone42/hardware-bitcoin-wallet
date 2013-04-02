@@ -40,6 +40,7 @@
 #include "pb_decode.h"
 #include "pb_encode.h"
 #include "messages.pb.h"
+#include "sha256.h"
 
 // Prototypes for forward-referenced functions.
 bool mainInputStreamCallback(pb_istream_t *stream, uint8_t *buf, size_t count);
@@ -115,6 +116,10 @@ static size_t num_entropy_bytes;
 /** Storage for fields of SignTransaction message. Needed for the
   * signTransactionCallback() callback function. */
 static SignTransaction sign_transaction;
+/** Double SHA-256 of a field parsed by hashFieldCallback(). */
+static uint8_t field_hash[32];
+/** Whether #field_hash has been set. */
+static bool field_hash_set;
 
 /** nanopb input stream which uses mainInputStreamCallback() as a stream
   * callback. */
@@ -596,6 +601,35 @@ static NOINLINE void getBytesOfEntropy(uint32_t num_bytes)
 	entropy_buffer = NULL;
 }
 
+/** nanopb field callback which calculates the double SHA-256 of an arbitrary
+  * number of bytes. This is useful if we don't care about the contents of a
+  * field but want to compress an arbitrarily-sized field into a fixed-length
+  * variable.
+  * \param stream Input stream to read from.
+  * \param field Field which contains an arbitrary number of bytes.
+  * \param arg Unused.
+  * \return true on success, false on failure (nanopb convention).
+  */
+bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg)
+{
+	uint8_t one_byte;
+	HashState hs;
+
+	sha256Begin(&hs);
+	while (stream->bytes_left > 0)
+    {
+		if (!pb_read(stream, &one_byte, 1))
+		{
+			return false;
+		}
+        sha256WriteByte(&hs, one_byte);
+    }
+	sha256FinishDouble(&hs);
+	writeHashToByteArray(field_hash, &hs, true);
+	field_hash_set = true;
+    return true;
+}
+
 /** Get packet from stream and deal with it. This basically implements the
   * protocol described in the file PROTOCOL.
   * 
@@ -613,6 +647,7 @@ void processPacket(void)
 	union MessageBufferUnion message_buffer;
 	PointAffine master_public_key;
 	bool receive_failure;
+	unsigned int password_length;
 	WalletErrors wallet_return;
 
 	// Receive packet header.
@@ -657,26 +692,35 @@ void processPacket(void)
 
 	case PACKET_TYPE_NEW_WALLET:
 		// Create new wallet.
+		field_hash_set = false;
+		memset(field_hash, 0, sizeof(field_hash));
+		message_buffer.new_wallet.password.funcs.decode = &hashFieldCallback;
+		message_buffer.new_wallet.password.arg = NULL;
 		receive_failure = receiveMessage(NewWallet_fields, &(message_buffer.new_wallet));
 		if (!receive_failure)
 		{
-			if (message_buffer.new_wallet.encryption_key.size != WALLET_ENCRYPTION_KEY_LENGTH)
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
-			}
-			else if (userDenied(ASKUSER_NUKE_WALLET))
+			if (userDenied(ASKUSER_NUKE_WALLET))
 			{
 				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
 			}
 			else
 			{
-				setEncryptionKey(message_buffer.new_wallet.encryption_key.bytes);
+				if (field_hash_set)
+				{
+					password_length = sizeof(field_hash);
+				}
+				else
+				{
+					password_length = 0; // no password
+				}
 				wallet_return = newWallet(
 					message_buffer.new_wallet.wallet_number,
 					message_buffer.new_wallet.wallet_name.bytes,
 					false,
 					NULL,
-					message_buffer.new_wallet.is_hidden);
+					message_buffer.new_wallet.is_hidden,
+					field_hash,
+					password_length);
 				translateWalletError(wallet_return);
 			}
 		}
@@ -734,19 +778,23 @@ void processPacket(void)
 
 	case PACKET_TYPE_LOAD_WALLET:
 		// Load wallet.
+		field_hash_set = false;
+		memset(field_hash, 0, sizeof(field_hash));
+		message_buffer.load_wallet.password.funcs.decode = &hashFieldCallback;
+		message_buffer.load_wallet.password.arg = NULL;
 		receive_failure = receiveMessage(LoadWallet_fields, &(message_buffer.load_wallet));
 		if (!receive_failure)
 		{
-			if (message_buffer.load_wallet.encryption_key.size != WALLET_ENCRYPTION_KEY_LENGTH)
+			if (field_hash_set)
 			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+				password_length = sizeof(field_hash);
 			}
 			else
 			{
-				setEncryptionKey(message_buffer.load_wallet.encryption_key.bytes);
-				wallet_return = initWallet(message_buffer.load_wallet.wallet_number);
-				translateWalletError(wallet_return);
+				password_length = 0; // no password
 			}
+			wallet_return = initWallet(message_buffer.load_wallet.wallet_number, field_hash, password_length);
+			translateWalletError(wallet_return);
 		}
 		break;
 
@@ -789,6 +837,10 @@ void processPacket(void)
 
 	case PACKET_TYPE_CHANGE_KEY:
 		// Change wallet encryption key.
+		field_hash_set = false;
+		memset(field_hash, 0, sizeof(field_hash));
+		message_buffer.change_encryption_key.password.funcs.decode = &hashFieldCallback;
+		message_buffer.change_encryption_key.password.arg = NULL;
 		receive_failure = receiveMessage(ChangeEncryptionKey_fields, &(message_buffer.change_encryption_key));
 		if (!receive_failure)
 		{
@@ -798,7 +850,15 @@ void processPacket(void)
 			}
 			else
 			{
-				wallet_return = changeEncryptionKey(message_buffer.change_encryption_key.encryption_key.bytes);
+				if (field_hash_set)
+				{
+					password_length = sizeof(field_hash);
+				}
+				else
+				{
+					password_length = 0; // no password
+				}
+				wallet_return = changeEncryptionKey(field_hash, password_length);
 				translateWalletError(wallet_return);
 			}
 		}
@@ -859,14 +919,14 @@ void processPacket(void)
 
 	case PACKET_TYPE_RESTORE_WALLET:
 		// Restore wallet.
+		field_hash_set = false;
+		memset(field_hash, 0, sizeof(field_hash));
+		message_buffer.restore_wallet.new_wallet.password.funcs.decode = &hashFieldCallback;
+		message_buffer.restore_wallet.new_wallet.password.arg = NULL;
 		receive_failure = receiveMessage(RestoreWallet_fields, &(message_buffer.restore_wallet));
 		if (!receive_failure)
 		{
-			if (message_buffer.restore_wallet.new_wallet.encryption_key.size != WALLET_ENCRYPTION_KEY_LENGTH)
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
-			}
-			else if (message_buffer.restore_wallet.seed.size != SEED_LENGTH)
+			if (message_buffer.restore_wallet.seed.size != SEED_LENGTH)
 			{
 				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
 			}
@@ -876,13 +936,22 @@ void processPacket(void)
 			}
 			else
 			{
-				setEncryptionKey(message_buffer.restore_wallet.new_wallet.encryption_key.bytes);
+				if (field_hash_set)
+				{
+					password_length = sizeof(field_hash);
+				}
+				else
+				{
+					password_length = 0; // no password
+				}
 				wallet_return = newWallet(
 					message_buffer.restore_wallet.new_wallet.wallet_number,
 					message_buffer.restore_wallet.new_wallet.wallet_name.bytes,
 					true,
 					message_buffer.restore_wallet.seed.bytes,
-					message_buffer.restore_wallet.new_wallet.is_hidden);
+					message_buffer.restore_wallet.new_wallet.is_hidden,
+					field_hash,
+					password_length);
 				translateWalletError(wallet_return);
 			}
 		}
@@ -925,16 +994,16 @@ void processPacket(void)
 			}
 			else
 			{
-				message_buffer.master_public_key.chain_code.size = 32;
 				wallet_return = getMasterPublicKey(&master_public_key, message_buffer.master_public_key.chain_code.bytes);
-				message_buffer.master_public_key.public_key.size = 65;
-				message_buffer.master_public_key.public_key.bytes[0] = 0x04;
-				memcpy(&(message_buffer.master_public_key.public_key.bytes[1]), master_public_key.x, 32);
-				swapEndian256(&(message_buffer.master_public_key.public_key.bytes[1]));
-				memcpy(&(message_buffer.master_public_key.public_key.bytes[33]), master_public_key.y, 32);
-				swapEndian256(&(message_buffer.master_public_key.public_key.bytes[33]));
 				if (wallet_return == WALLET_NO_ERROR)
 				{
+					message_buffer.master_public_key.chain_code.size = 32;
+					message_buffer.master_public_key.public_key.size = 65;
+					message_buffer.master_public_key.public_key.bytes[0] = 0x04;
+					memcpy(&(message_buffer.master_public_key.public_key.bytes[1]), master_public_key.x, 32);
+					swapEndian256(&(message_buffer.master_public_key.public_key.bytes[1]));
+					memcpy(&(message_buffer.master_public_key.public_key.bytes[33]), master_public_key.y, 32);
+					swapEndian256(&(message_buffer.master_public_key.public_key.bytes[33]));
 					sendPacket(PACKET_TYPE_MASTER_KEY, MasterPublicKey_fields, &(message_buffer.master_public_key));
 				}
 				else
@@ -1245,7 +1314,16 @@ void fatalError(void)
 
 /** Test stream data for: create new wallet. */
 static const uint8_t test_stream_new_wallet[] = {
-0x23, 0x23, 0x00, 0x04, 0x00, 0x00, 0x00, 0x10,
+0x23, 0x23, 0x00, 0x04, 0x00, 0x00, 0x00, 0x52,
+0x12, 0x40,
+0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00,
+0x00, 0x00, 0x42, 0x00, 0x00, 0xfd, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x42, 0xfc, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0xee, 0x43, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x10, 0x00, 0x00, 0x44, 0x00, 0x00,
+0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x45, 0x00,
+0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
 0x1a, 0x0e, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65,
 0x65, 0x20, 0x66, 0x66, 0x20, 0x20, 0x20, 0x6f};
 
@@ -1373,12 +1451,16 @@ static const uint8_t test_stream_format[] = {
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
-0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x24,
-0x08, 0x00, 0x12, 0x20,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x44,
+0x08, 0x00, 0x12, 0x40,
+0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
+0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00,
+0x00, 0x00, 0x42, 0x00, 0x00, 0xfd, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x42, 0xfc, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0xee, 0x43, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x10, 0x00, 0x00, 0x44, 0x00, 0x00,
+0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x45, 0x00,
+0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46};
 
 /** Test stream data for: load wallet using incorrect key. */
 static const uint8_t test_stream_load_incorrect[] = {

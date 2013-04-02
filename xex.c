@@ -186,7 +186,7 @@ void xexDecrypt(uint8_t *out, uint8_t *in, uint8_t *n, uint8_t seq)
   *           combined encryption key to use in XEX encryption/decryption
   *           operations.
   */
-void setEncryptionKey(uint8_t *in)
+void setEncryptionKey(const uint8_t *in)
 {
 	memcpy(nv_storage_encrypt_key, in, 16);
 	memcpy(nv_storage_tweak_key, &(in[16]), 16);

@@ -26,11 +26,11 @@ message Failure
 // Responses: Success of Failure
 // wallet_name is stored purely for the convenience of the host. It should be
 // a null-terminated UTF-8 encoded string with a maximum length of 40 bytes.
-// To create an unencrypted wallet, exclude encryption_key.
+// To create an unencrypted wallet, exclude password.
 message NewWallet
 {
 	optional uint32 wallet_number = 1 [default = 0];
-	optional bytes encryption_key = 2 [(nanopb).max_size = 32, default = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"];
+	optional bytes password = 2;
 	optional bytes wallet_name = 3 [(nanopb).max_size = 40];
 	optional bool is_hidden = 4 [default = false];
 }
@@ -79,11 +79,11 @@ message Signature
 }
 
 // Responses: Success or Failure
-// To load an unencrypted wallet, exclude encryption_key.
+// To load an unencrypted wallet, exclude password.
 message LoadWallet
 {
 	optional uint32 wallet_number = 1 [default = 0];
-	optional bytes encryption_key = 2 [(nanopb).max_size = 32, default = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"];
+	optional bytes password = 2;
 }
 
 // Responses: Success or Failure
@@ -99,10 +99,10 @@ message FormatWalletArea
 
 // Responses: Success or Failure
 // To change the current wallet into an unencrypted wallet,
-// exclude encryption_key.
+// exclude password.
 message ChangeEncryptionKey
 {
-	optional bytes encryption_key = 1 [(nanopb).max_size = 32, default = "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"];
+	optional bytes password = 1;
 }
 
 // Responses: Success or Failure

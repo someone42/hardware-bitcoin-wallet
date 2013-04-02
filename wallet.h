@@ -62,16 +62,16 @@ typedef enum WalletErrorsEnum
 } WalletErrors;
 
 extern WalletErrors walletGetLastError(void);
-extern WalletErrors initWallet(uint32_t wallet_spec);
+extern WalletErrors initWallet(uint32_t wallet_spec, const uint8_t *password, const unsigned int password_length);
 extern WalletErrors uninitWallet(void);
 extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
-extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8_t *seed, bool make_hidden);
+extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8_t *seed, bool make_hidden, const uint8_t *password, const unsigned int password_length);
 extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);
 extern WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah);
 extern WalletErrors getMasterPublicKey(PointAffine *out_public_key, uint8_t *out_chain_code);
 extern uint32_t getNumAddresses(void);
 extern WalletErrors getPrivateKey(uint8_t *out, AddressHandle ah);
-extern WalletErrors changeEncryptionKey(uint8_t *new_key);
+extern WalletErrors changeEncryptionKey(const uint8_t *password, const unsigned int password_length);
 extern WalletErrors changeWalletName(uint8_t *new_name);
 extern WalletErrors getWalletInfo(uint32_t *out_version, uint8_t *out_name, uint8_t *out_uuid, uint32_t wallet_spec);
 extern WalletErrors backupWallet(bool do_encrypt, uint32_t destination_device);
