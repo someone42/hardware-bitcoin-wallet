@@ -60,7 +60,7 @@
   */
 #define STATTEST_MIN_KURTOSIS		-0.83
 /** Maximum acceptable kurtosis (standardised 4th central moment - 3). This is
-  * approximately 5 standard deviations above the
+  * approximately 10 standard deviations above the
   * theoretical value of 0. This was measured.
   * Note that even for N = 4096, the skewness of kurtosis distribution is
   * significant (about 0.35); that's why this is not just the negation
@@ -90,7 +90,7 @@
   * entropy. Even an absurdly low value is still capable of detecting some
   * hardware failure modes.
   */
-#define PSD_BANDWIDTH_THRESHOLD		0.015
+#define PSD_BANDWIDTH_THRESHOLD		0.003
 /** Number of consecutive power spectrum bins which must be below the
   * threshold (see #PSD_BANDWIDTH_THRESHOLD) before the code in statistics.c
   * considers a bin as an edge of the HWRNG bandwidth. Making this value
@@ -138,7 +138,7 @@
   *
   * This value was estimated from an ensemble of measured correlograms.
   */
-#define AUTOCORR_START_LAG			8
+#define AUTOCORR_START_LAG			20
 /** The normalised autocorrelation threshold. If the magnitude of any values
   * in the correlogram exceed this threshold, then the HWRNG is considered
   * to possess too much autocorrelation (i.e. it is not random).
