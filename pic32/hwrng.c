@@ -468,12 +468,18 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 {
 	unsigned int i;
 	uint32_t sample;
+	bool tests_failed;
 
+	tests_failed = false;
 	if ((samples_consumed == 0) || (samples_consumed >= SAMPLE_COUNT))
 	{
 		if (fillAndTestSamplesArray())
 		{
+#ifdef TEST_STATISTICS
+			tests_failed = true;
+#else
 			return -1; // statistical tests indicate HWRNG failure
+#endif // #ifdef TEST_STATISTICS
 		}
 	}
 
@@ -490,7 +496,14 @@ int hardwareRandom32Bytes(uint8_t *buffer)
 		buffer[i * 2 + 1] = (uint8_t)(sample >> 8);
 		samples_consumed++;
 	}
-	return (int)(16.0 * ENTROPY_BITS_PER_SAMPLE);
+	if (tests_failed)
+	{
+		return -1; // statistical tests indicate HWRNG failure
+	}
+	else
+	{
+		return (int)(16.0 * ENTROPY_BITS_PER_SAMPLE);
+	}
 }
 
 #ifdef TEST_STATISTICS
