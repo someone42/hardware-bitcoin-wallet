@@ -80,9 +80,9 @@ OBJDIR = .
 
 
 # List C source files here. (C dependencies are automatically generated.)
-SRC = adc.c eeprom.c lcd_and_input.c main.c strings.c usart.c ../aes.c \
-../baseconv.c ../bignum256.c ../ecdsa.c ../endian.c ../hash.c \
-../hmac_sha512.c ../messages.pb.c ../p2sh_addr_gen.c ../pbkdf2.c \
+SRC = adc.c eeprom.c lcd_and_input.c main.c strings.c unimplemented.c \
+usart.c ../aes.c ../baseconv.c ../bignum256.c ../ecdsa.c ../endian.c \
+../hash.c ../hmac_sha512.c ../messages.pb.c ../p2sh_addr_gen.c ../pbkdf2.c \
 ../pb_decode.c ../pb_encode.c ../prandom.c ../ripemd160.c ../sha256.c \
 ../stream_comm.c ../transaction.c ../wallet.c ../xex.c
 
