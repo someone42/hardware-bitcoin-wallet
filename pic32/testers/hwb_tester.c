@@ -98,6 +98,12 @@ static char *packetCommandToText(int command)
 		return "MasterPublicKey";
 	case 0x39:
 		return "Signature";
+	case 0x50:
+		return "ButtonRequest";
+	case 0x51:
+		return "ButtonAck";
+	case 0x52:
+		return "ButtonCancel";
 	default:
 		return "unknown";
 	}

@@ -15,13 +15,17 @@
  */
 /** Version string. */
 static const char str_MISCSTR_VERSION[] = "Hardware Bitcoin Wallet for LPC11Uxx v0.4";
-/** Permission denied (user pressed cancel) string. */
-static const char str_MISCSTR_PERMISSION_DENIED[] = "Permission denied by user";
+/** Permission denied (user pressed cancel button) string. */
+static const char str_MISCSTR_PERMISSION_DENIED_USER[] = "Permission denied by user";
 /** String specifying that processPacket() didn't like the format or
   * contents of a packet. */
-static const char str_MISCSTR_INVALID_PACKET[] = "Unrecognised command";
+static const char str_MISCSTR_INVALID_PACKET[] = "Invalid packet";
 /** String specifying that a parameter was unacceptably large. */
 static const char str_MISCSTR_PARAM_TOO_LARGE[] = "Parameter too large";
+/** Permission denied (host cancelled action) string. */
+static const char str_MISCSTR_PERMISSION_DENIED_HOST[] = "Host cancelled action";
+/** String specifying that an unexpected message was received. */
+static const char str_MISCSTR_UNEXPECTED_PACKET[] = "Unexpected packet";
 /** String for #WALLET_FULL wallet error. */
 static const char str_WALLET_FULL[] = "Wallet has run out of space";
 /** String for #WALLET_EMPTY wallet error. */
@@ -90,14 +94,20 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 		case MISCSTR_VERSION:
 			str = str_MISCSTR_VERSION;
 			break;
-		case MISCSTR_PERMISSION_DENIED:
-			str = str_MISCSTR_PERMISSION_DENIED;
+		case MISCSTR_PERMISSION_DENIED_USER:
+			str = str_MISCSTR_PERMISSION_DENIED_USER;
 			break;
 		case MISCSTR_INVALID_PACKET:
 			str = str_MISCSTR_INVALID_PACKET;
 			break;
 		case MISCSTR_PARAM_TOO_LARGE:
 			str = str_MISCSTR_PARAM_TOO_LARGE;
+			break;
+		case MISCSTR_PERMISSION_DENIED_HOST:
+			str = str_MISCSTR_PERMISSION_DENIED_HOST;
+			break;
+		case MISCSTR_UNEXPECTED_PACKET:
+			str = str_MISCSTR_UNEXPECTED_PACKET;
 			break;
 		default:
 			str = str_UNKNOWN;
@@ -203,14 +213,20 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 		case MISCSTR_VERSION:
 			return (uint16_t)(sizeof(str_MISCSTR_VERSION) - 1);
 			break;
-		case MISCSTR_PERMISSION_DENIED:
-			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED) - 1);
+		case MISCSTR_PERMISSION_DENIED_USER:
+			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED_USER) - 1);
 			break;
 		case MISCSTR_INVALID_PACKET:
 			return (uint16_t)(sizeof(str_MISCSTR_INVALID_PACKET) - 1);
 			break;
 		case MISCSTR_PARAM_TOO_LARGE:
 			return (uint16_t)(sizeof(str_MISCSTR_PARAM_TOO_LARGE) - 1);
+			break;
+		case MISCSTR_PERMISSION_DENIED_HOST:
+			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED_HOST) - 1);
+			break;
+		case MISCSTR_UNEXPECTED_PACKET:
+			return (uint16_t)(sizeof(str_MISCSTR_UNEXPECTED_PACKET) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

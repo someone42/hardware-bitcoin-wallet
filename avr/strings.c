@@ -21,13 +21,17 @@
  */
 /** Version string. */
 static const char str_MISCSTR_VERSION[] PROGMEM = "Hardware Bitcoin Wallet for AVR v0.4";
-/** Permission denied (user pressed cancel) string. */
-static const char str_MISCSTR_PERMISSION_DENIED[] PROGMEM = "Permission denied by user";
+/** Permission denied (user pressed cancel button) string. */
+static const char str_MISCSTR_PERMISSION_DENIED_USER[] PROGMEM = "Permission denied by user";
 /** String specifying that processPacket() didn't like the format or
   * contents of a packet. */
-static const char str_MISCSTR_INVALID_PACKET[] PROGMEM = "Unrecognised command";
+static const char str_MISCSTR_INVALID_PACKET[] PROGMEM = "Invalid packet";
 /** String specifying that a parameter was unacceptably large. */
 static const char str_MISCSTR_PARAM_TOO_LARGE[] PROGMEM = "Parameter too large";
+/** Permission denied (host cancelled action) string. */
+static const char str_MISCSTR_PERMISSION_DENIED_HOST[] PROGMEM = "Host cancelled action";
+/** String specifying that an unexpected message was received. */
+static const char str_MISCSTR_UNEXPECTED_PACKET[] PROGMEM = "Unexpected packet";
 /** String for #WALLET_FULL wallet error. */
 static const char str_WALLET_FULL[] PROGMEM = "Wallet has run out of space";
 /** String for #WALLET_EMPTY wallet error. */
@@ -94,14 +98,20 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 		case MISCSTR_VERSION:
 			return (char)pgm_read_byte(&(str_MISCSTR_VERSION[pos]));
 			break;
-		case MISCSTR_PERMISSION_DENIED:
-			return (char)pgm_read_byte(&(str_MISCSTR_PERMISSION_DENIED[pos]));
+		case MISCSTR_PERMISSION_DENIED_USER:
+			return (char)pgm_read_byte(&(str_MISCSTR_PERMISSION_DENIED_USER[pos]));
 			break;
 		case MISCSTR_INVALID_PACKET:
 			return (char)pgm_read_byte(&(str_MISCSTR_INVALID_PACKET[pos]));
 			break;
 		case MISCSTR_PARAM_TOO_LARGE:
 			return (char)pgm_read_byte(&(str_MISCSTR_PARAM_TOO_LARGE[pos]));
+			break;
+		case MISCSTR_PERMISSION_DENIED_HOST:
+			return (char)pgm_read_byte(&(str_MISCSTR_PERMISSION_DENIED_HOST[pos]));
+			break;
+		case MISCSTR_UNEXPECTED_PACKET:
+			return (char)pgm_read_byte(&(str_MISCSTR_UNEXPECTED_PACKET[pos]));
 			break;
 		default:
 			return (char)pgm_read_byte(&(str_UNKNOWN[pos]));
@@ -206,14 +216,20 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 		case MISCSTR_VERSION:
 			return (uint16_t)(sizeof(str_MISCSTR_VERSION) - 1);
 			break;
-		case MISCSTR_PERMISSION_DENIED:
-			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED) - 1);
+		case MISCSTR_PERMISSION_DENIED_USER:
+			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED_USER) - 1);
 			break;
 		case MISCSTR_INVALID_PACKET:
 			return (uint16_t)(sizeof(str_MISCSTR_INVALID_PACKET) - 1);
 			break;
 		case MISCSTR_PARAM_TOO_LARGE:
 			return (uint16_t)(sizeof(str_MISCSTR_PARAM_TOO_LARGE) - 1);
+			break;
+		case MISCSTR_PERMISSION_DENIED_HOST:
+			return (uint16_t)(sizeof(str_MISCSTR_PERMISSION_DENIED_HOST) - 1);
+			break;
+		case MISCSTR_UNEXPECTED_PACKET:
+			return (uint16_t)(sizeof(str_MISCSTR_UNEXPECTED_PACKET) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

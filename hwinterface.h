@@ -75,13 +75,17 @@ typedef enum StringSetEnum
 typedef enum MiscStringsEnum
 {
 	/** The device's version string. */
-	MISCSTR_VERSION				=	1,
+	MISCSTR_VERSION					=	1,
 	/** Text explaining that the operation was denied by the user. */
-	MISCSTR_PERMISSION_DENIED	=	2,
+	MISCSTR_PERMISSION_DENIED_USER	=	2,
 	/** Text explaining that a packet was malformed or unrecognised. */
-	MISCSTR_INVALID_PACKET		=	3,
+	MISCSTR_INVALID_PACKET			=	3,
 	/** Text explaining that a parameter was too large. */
-	MISCSTR_PARAM_TOO_LARGE		=	4,
+	MISCSTR_PARAM_TOO_LARGE			=	4,
+	/** Text explaining that the operation was denied by the host. */
+	MISCSTR_PERMISSION_DENIED_HOST	=	5,
+	/** Text explaining that an unexpected packet was received. */
+	MISCSTR_UNEXPECTED_PACKET		=	6
 } MiscStrings;
 
 /** Obtain one character from one of the device's strings.

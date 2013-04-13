@@ -76,6 +76,14 @@
 #define PACKET_TYPE_MASTER_KEY			0x38
 /** Signature (response to #PACKET_TYPE_SIGN_TRANSACTION). */
 #define PACKET_TYPE_SIGNATURE			0x39
+/** Device wants to wait for button press (beginning of ButtonRequest
+  * interjection). */
+#define PACKET_TYPE_BUTTON_REQUEST		0x50
+/** Host will allow button press (response to #PACKET_TYPE_BUTTON_REQUEST). */
+#define PACKET_TYPE_BUTTON_ACK			0x51
+/** Host will not allow button press (response
+  * to #PACKET_TYPE_BUTTON_REQUEST). */
+#define PACKET_TYPE_BUTTON_CANCEL		0x52
 /**@}*/
 
 extern void processPacket(void);

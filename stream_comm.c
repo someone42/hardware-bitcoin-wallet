@@ -241,15 +241,20 @@ static bool receiveMessage(const pb_field_t fields[], void *dest_struct)
 }
 
 /** Send a packet.
-  * \param command The message ID of the packet.
+  * \param message_id The message ID of the packet.
   * \param fields Field description array.
   * \param src_struct Field data which will be serialised and sent.
   */
-static void sendPacket(uint16_t command, const pb_field_t fields[], const void *src_struct)
+static void sendPacket(uint16_t message_id, const pb_field_t fields[], const void *src_struct)
 {
 	uint8_t buffer[4];
 	pb_ostream_t substream;
 
+#ifdef TEST_STREAM_COMM
+	// From PROTOCOL, the current received packet must be fully consumed
+	// before any response can be sent.
+	assert(payload_length == 0);
+#endif
 	// Use a non-writing substream to get the length of the message without
 	// storing it anywhere.
 	substream.callback = NULL;
@@ -264,8 +269,8 @@ static void sendPacket(uint16_t command, const pb_field_t fields[], const void *
 	// Send packet header.
 	streamPutOneByte('#');
 	streamPutOneByte('#');
-	streamPutOneByte((uint8_t)(command >> 8));
-	streamPutOneByte((uint8_t)command);
+	streamPutOneByte((uint8_t)(message_id >> 8));
+	streamPutOneByte((uint8_t)message_id);
 	writeU32BigEndian(buffer, substream.bytes_written);
 	writeBytesToStream(buffer, 4);
 	// Send actual message.
@@ -345,6 +350,87 @@ static void translateWalletError(WalletErrors r)
 	}
 }
 
+/** Receive packet header.
+  * \return Message ID (i.e. command type) of packet.
+  */
+static uint16_t receivePacketHeader(void)
+{
+	uint8_t buffer[4];
+	uint16_t message_id;
+
+	getBytesFromStream(buffer, 2);
+	if ((buffer[0] != '#') || (buffer[1] != '#'))
+	{
+		fatalError(); // invalid header
+	}
+	getBytesFromStream(buffer, 2);
+	message_id = (uint16_t)(((uint16_t)buffer[0] << 8) | ((uint16_t)buffer[1]));
+	getBytesFromStream(buffer, 4);
+	payload_length = readU32BigEndian(buffer);
+	return message_id;
+}
+
+/** Begin ButtonRequest interjection. This asks the host whether it is okay
+  * to prompt the user and wait for a button press.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \return false if the user accepted, true if the user or host denied.
+  */
+static bool buttonInterjection(AskUserCommand command)
+{
+	uint16_t message_id;
+	ButtonRequest button_request;
+	ButtonAck button_ack;
+	ButtonCancel button_cancel;
+	bool receive_failure;
+
+	sendPacket(PACKET_TYPE_BUTTON_REQUEST, ButtonRequest_fields, &button_request);
+	message_id = receivePacketHeader();
+	if (message_id == PACKET_TYPE_BUTTON_ACK)
+	{
+		// Host will allow button press.
+		receive_failure = receiveMessage(ButtonAck_fields, &button_ack);
+		if (receive_failure)
+		{
+			return true;
+		}
+		else
+		{
+			if (userDenied(command))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED_USER);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+	}
+	else if (message_id == PACKET_TYPE_BUTTON_CANCEL)
+	{
+		// Host will not allow button press. The only way to safely deal
+		// with this is to unconditionally deny permission for the
+		// requested action.
+		receive_failure = receiveMessage(ButtonCancel_fields, &button_cancel);
+		if (receive_failure)
+		{
+			return true;
+		}
+		else
+		{
+			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED_HOST);
+			return true;
+		}
+	}
+	else
+	{
+		// Unexpected message.
+		readAndIgnoreInput();
+		writeFailureString(STRINGSET_MISC, MISCSTR_UNEXPECTED_PACKET);
+		return true;
+	}
+}
+
 /** nanopb field callback for signature data of SignTransaction message. This
   * does (or more accurately, delegates) all the "work" of transaction
   * signing: parsing the transaction, asking the user for approval, generating
@@ -358,6 +444,7 @@ bool signTransactionCallback(pb_istream_t *stream, const pb_field_t *field, void
 {
 	AddressHandle ah;
 	bool approved;
+	bool permission_denied;
 	TransactionErrors r;
 	WalletErrors wallet_return;
 	uint8_t transaction_hash[32];
@@ -398,11 +485,8 @@ bool signTransactionCallback(pb_istream_t *stream, const pb_field_t *field, void
 		// Need to explicitly get permission from user.
 		// The call to parseTransaction() should have logged all the outputs
 		// to the user interface.
-		if (userDenied(ASKUSER_SIGN_TRANSACTION))
-		{
-			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-		}
-		else
+		permission_denied = buttonInterjection(ASKUSER_SIGN_TRANSACTION);
+		if (!permission_denied)
 		{
 			// User approved transaction.
 			approved = true;
@@ -642,24 +726,15 @@ bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg)
   */
 void processPacket(void)
 {
-	uint16_t command;
-	uint8_t buffer[4];
+	uint16_t message_id;
 	union MessageBufferUnion message_buffer;
 	PointAffine master_public_key;
 	bool receive_failure;
+	bool permission_denied;
 	unsigned int password_length;
 	WalletErrors wallet_return;
 
-	// Receive packet header.
-	getBytesFromStream(buffer, 2);
-	if ((buffer[0] != '#') || (buffer[1] != '#'))
-	{
-		fatalError(); // invalid header
-	}
-	getBytesFromStream(buffer, 2);
-	command = (uint16_t)(((uint16_t)buffer[0] << 8) | ((uint16_t)buffer[1]));
-	getBytesFromStream(buffer, 4);
-	payload_length = readU32BigEndian(buffer);
+	message_id = receivePacketHeader();
 	// TODO: size_t not generally uint32_t
 	main_input_stream.bytes_left = payload_length;
 
@@ -674,7 +749,7 @@ void processPacket(void)
 
 	memset(&message_buffer, 0, sizeof(message_buffer));
 
-	switch (command)
+	switch (message_id)
 	{
 
 	case PACKET_TYPE_PING:
@@ -699,11 +774,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(NewWallet_fields, &(message_buffer.new_wallet));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_NUKE_WALLET))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_NUKE_WALLET);
+			if (!permission_denied)
 			{
 				if (field_hash_set)
 				{
@@ -731,11 +803,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(NewAddress_fields, &(message_buffer.new_address));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_NEW_ADDRESS))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_NEW_ADDRESS);
+			if (!permission_denied)
 			{
 				getAndSendAddressAndPublicKey(true, BAD_ADDRESS_HANDLE);
 			}
@@ -815,11 +884,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(FormatWalletArea_fields, &(message_buffer.format_wallet_area));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_FORMAT))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_FORMAT);
+			if (!permission_denied)
 			{
 				if (initialiseEntropyPool(message_buffer.format_wallet_area.initial_entropy_pool.bytes))
 				{
@@ -844,11 +910,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(ChangeEncryptionKey_fields, &(message_buffer.change_encryption_key));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_CHANGE_KEY))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_CHANGE_KEY);
+			if (!permission_denied)
 			{
 				if (field_hash_set)
 				{
@@ -869,11 +932,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(ChangeWalletName_fields, &(message_buffer.change_wallet_name));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_CHANGE_NAME))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_CHANGE_NAME);
+			if (!permission_denied)
 			{
 				wallet_return = changeWalletName(message_buffer.change_wallet_name.wallet_name.bytes);
 				translateWalletError(wallet_return);
@@ -905,11 +965,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(BackupWallet_fields, &(message_buffer.backup_wallet));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_BACKUP_WALLET))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_BACKUP_WALLET);
+			if (!permission_denied)
 			{
 				wallet_return = backupWallet(message_buffer.backup_wallet.is_encrypted, message_buffer.backup_wallet.device);
 				translateWalletError(wallet_return);
@@ -930,29 +987,29 @@ void processPacket(void)
 			{
 				writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
 			}
-			else if (userDenied(ASKUSER_RESTORE_WALLET))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
 			else
 			{
-				if (field_hash_set)
+				permission_denied = buttonInterjection(ASKUSER_RESTORE_WALLET);
+				if (!permission_denied)
 				{
-					password_length = sizeof(field_hash);
+					if (field_hash_set)
+					{
+						password_length = sizeof(field_hash);
+					}
+					else
+					{
+						password_length = 0; // no password
+					}
+					wallet_return = newWallet(
+						message_buffer.restore_wallet.new_wallet.wallet_number,
+						message_buffer.restore_wallet.new_wallet.wallet_name.bytes,
+						true,
+						message_buffer.restore_wallet.seed.bytes,
+						message_buffer.restore_wallet.new_wallet.is_hidden,
+						field_hash,
+						password_length);
+					translateWalletError(wallet_return);
 				}
-				else
-				{
-					password_length = 0; // no password
-				}
-				wallet_return = newWallet(
-					message_buffer.restore_wallet.new_wallet.wallet_number,
-					message_buffer.restore_wallet.new_wallet.wallet_name.bytes,
-					true,
-					message_buffer.restore_wallet.seed.bytes,
-					message_buffer.restore_wallet.new_wallet.is_hidden,
-					field_hash,
-					password_length);
-				translateWalletError(wallet_return);
 			}
 		}
 		break;
@@ -988,11 +1045,8 @@ void processPacket(void)
 		receive_failure = receiveMessage(GetMasterPublicKey_fields, &(message_buffer.get_master_public_key));
 		if (!receive_failure)
 		{
-			if (userDenied(ASKUSER_GET_MASTER_KEY))
-			{
-				writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED);
-			}
-			else
+			permission_denied = buttonInterjection(ASKUSER_GET_MASTER_KEY);
+			if (!permission_denied)
 			{
 				wallet_return = getMasterPublicKey(&master_public_key, message_buffer.master_public_key.chain_code.bytes);
 				if (wallet_return == WALLET_NO_ERROR)
@@ -1015,16 +1069,12 @@ void processPacket(void)
 		break;
 
 	default:
-		// Unknown command.
+		// Unknown message ID.
 		readAndIgnoreInput();
-		writeFailureString(STRINGSET_MISC, MISCSTR_INVALID_PACKET);
+		writeFailureString(STRINGSET_MISC, MISCSTR_UNEXPECTED_PACKET);
 		break;
 
 	}
-
-#ifdef TEST_STREAM_COMM
-	assert(payload_length == 0);
-#endif
 }
 
 #ifdef TEST
@@ -1111,14 +1161,20 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 		case MISCSTR_VERSION:
 			return "Hello world v0.1";
 			break;
-		case MISCSTR_PERMISSION_DENIED:
+		case MISCSTR_PERMISSION_DENIED_USER:
 			return "Permission denied by user";
 			break;
 		case MISCSTR_INVALID_PACKET:
-			return "Unrecognised command";
+			return "Invalid packet";
 			break;
 		case MISCSTR_PARAM_TOO_LARGE:
 			return "Parameter too large";
+			break;
+		case MISCSTR_PERMISSION_DENIED_HOST:
+			return "Action cancelled by host";
+			break;
+		case MISCSTR_UNEXPECTED_PACKET:
+			return "Unexpected message received";
 			break;
 		default:
 			assert(0);
@@ -1246,6 +1302,7 @@ bool userDenied(AskUserCommand command)
 {
 	int c;
 
+	printf("\n");
 	switch (command)
 	{
 	case ASKUSER_NUKE_WALLET:
@@ -1312,7 +1369,7 @@ void fatalError(void)
 
 #ifdef TEST_STREAM_COMM
 
-/** Test stream data for: create new wallet. */
+/** Test stream data for: create new wallet and allow button press. */
 static const uint8_t test_stream_new_wallet[] = {
 0x23, 0x23, 0x00, 0x04, 0x00, 0x00, 0x00, 0x52,
 0x12, 0x40,
@@ -1325,11 +1382,15 @@ static const uint8_t test_stream_new_wallet[] = {
 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x45, 0x00,
 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46,
 0x1a, 0x0e, 0x65, 0x65, 0x65, 0x65, 0x65, 0x65,
-0x65, 0x20, 0x66, 0x66, 0x20, 0x20, 0x20, 0x6f};
+0x65, 0x20, 0x66, 0x66, 0x20, 0x20, 0x20, 0x6f,
 
-/** Test stream data for: create new address. */
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+
+/** Test stream data for: create new address and allow button press. */
 static const uint8_t test_stream_new_address[] = {
-0x23, 0x23, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x05, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: get number of addresses. */
 static const uint8_t test_stream_get_num_addresses[] = {
@@ -1346,7 +1407,7 @@ static const uint8_t test_stream_get_address0[] = {
 0x23, 0x23, 0x00, 0x09, 0x00, 0x00, 0x00, 0x02,
 0x08, 0x00};
 
-/** Test stream data for: sign something. */
+/** Test stream data for: sign something and allow button press. */
 static uint8_t test_stream_sign_tx[] = {
 0x23, 0x23, 0x00, 0x0a, 0x00, 0x00, 0x01, 0xa0,
 0x08, 0x01, 0x12, 0x9b, 0x03,
@@ -1437,17 +1498,21 @@ static uint8_t test_stream_sign_tx[] = {
 0x88, // OP_EQUALVERIFY
 0xAC, // OP_CHECKSIG
 0x00, 0x00, 0x00, 0x00, // locktime
-0x01, 0x00, 0x00, 0x00 // hashtype
+0x01, 0x00, 0x00, 0x00, // hashtype
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00
 };
 
-/** Test stream data for: format storage. */
+/** Test stream data for: format storage and allow button press. */
 static const uint8_t test_stream_format[] = {
 0x23, 0x23, 0x00, 0x0d, 0x00, 0x00, 0x00, 0x22,
 0x0a, 0x20,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
@@ -1475,14 +1540,16 @@ static const uint8_t test_stream_load_incorrect[] = {
 static const uint8_t test_stream_unload[] = {
 0x23, 0x23, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00};
 
-/** Test stream data for: change encryption key. */
+/** Test stream data for: change encryption key and allow button press. */
 static const uint8_t test_stream_change_key[] = {
 0x23, 0x23, 0x00, 0x0e, 0x00, 0x00, 0x00, 0x22,
 0x0a, 0x20,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: load with new encryption key. */
 static const uint8_t test_stream_load_with_changed_key[] = {
@@ -1497,18 +1564,22 @@ static const uint8_t test_stream_load_with_changed_key[] = {
 static const uint8_t test_stream_list_wallets[] = {
 0x23, 0x23, 0x00, 0x10, 0x00, 0x00, 0x00, 0x00};
 
-/** Test stream data for: change wallet name. */
+/** Test stream data for: change wallet name and allow button press. */
 static const uint8_t test_stream_change_name[] = {
 0x23, 0x23, 0x00, 0x0f, 0x00, 0x00, 0x00, 0x0c,
 0x0a, 0x0a,
 0x71, 0x71, 0x71, 0x72, 0x70, 0x74, 0x20, 0x20,
-0x68, 0x68};
+0x68, 0x68,
 
-/** Test stream data for: backup wallet. */
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+
+/** Test stream data for: backup wallet and allow button press. */
 static const uint8_t test_stream_backup_wallet[] = {
-0x23, 0x23, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00,
 
-/** Test stream data for: restore wallet. */
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+
+/** Test stream data for: restore wallet and allow button press. */
 static const uint8_t test_stream_restore_wallet[] = {
 0x23, 0x23, 0x00, 0x12, 0x00, 0x00, 0x00, 0x7a,
 0x0a, 0x36,
@@ -1530,7 +1601,9 @@ static const uint8_t test_stream_restore_wallet[] = {
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
 0xea, 0x11, 0x44, 0xf0, 0x0f, 0xb0, 0x0b, 0x50,
 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
-0x12, 0x34, 0xde, 0xad, 0xfe, 0xed, 0xde, 0xf0};
+0x12, 0x34, 0xde, 0xad, 0xfe, 0xed, 0xde, 0xf0,
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
 
 /** Test stream data for: get device UUID. */
 static const uint8_t test_stream_get_device_uuid[] = {
@@ -1556,9 +1629,17 @@ static const uint8_t test_stream_get_entropy100[] = {
 static const uint8_t test_stream_ping[] = {
 0x23, 0x23, 0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x0a, 0x03, 0x4d, 0x6f, 0x6f};
 
-/** Get master public key. */
+/** Get master public key and allow button press. */
 static const uint8_t test_get_master_public_key[] = {
-0x23, 0x23, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+
+/** Get master public key but don't allow button press. */
+static const uint8_t test_get_master_public_key_no_press[] = {
+0x23, 0x23, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x52, 0x00, 0x00, 0x00, 0x00};
 
 /** Test response of processPacket() for a given test stream.
   * \param test_stream The test stream data to use.
@@ -1639,6 +1720,8 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_ping);
 	printf("Getting master public key...\n");
 	SEND_ONE_TEST_STREAM(test_get_master_public_key);
+	printf("Getting master public key but not allowing button press...\n");
+	SEND_ONE_TEST_STREAM(test_get_master_public_key_no_press);
 
 	finishTests();
 	exit(0);
