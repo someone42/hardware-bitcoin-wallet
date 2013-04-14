@@ -84,6 +84,14 @@
 /** Host will not allow button press (response
   * to #PACKET_TYPE_BUTTON_REQUEST). */
 #define PACKET_TYPE_BUTTON_CANCEL		0x52
+/** Device wants host to send a password (beginning of PinRequest
+  * interjection. */
+#define PACKET_TYPE_PIN_REQUEST			0x53
+/** Host sends password (response to #PACKET_TYPE_PIN_REQUEST). */
+#define PACKET_TYPE_PIN_ACK				0x54
+/** Host does not want to send password (response
+  * to #PACKET_TYPE_PIN_REQUEST). */
+#define PACKET_TYPE_PIN_CANCEL			0x55
 /**@}*/
 
 extern void processPacket(void);

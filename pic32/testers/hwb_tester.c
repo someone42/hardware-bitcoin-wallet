@@ -104,6 +104,12 @@ static char *packetCommandToText(int command)
 		return "ButtonAck";
 	case 0x52:
 		return "ButtonCancel";
+	case 0x53:
+		return "PinRequest";
+	case 0x54:
+		return "PinAck";
+	case 0x55:
+		return "PinCancel";
 	default:
 		return "unknown";
 	}

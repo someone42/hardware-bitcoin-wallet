@@ -41,6 +41,23 @@ message ButtonCancel
 {
 }
 
+// Interjection sent from the device to the host specifying that an action
+// requires a password to be submitted to the device.
+message PinRequest
+{
+}
+
+// Host submits password to the device.
+message PinAck
+{
+	required bytes password = 1;
+}
+
+// Host does not want to submit password to the device.
+message PinCancel
+{
+}
+
 // Responses: Success or Failure
 // Response interjections: ButtonRequest
 // wallet_name is stored purely for the convenience of the host. It should be
@@ -100,11 +117,10 @@ message Signature
 }
 
 // Responses: Success or Failure
-// To load an unencrypted wallet, exclude password.
+// Response interjections: PinRequest
 message LoadWallet
 {
 	optional uint32 wallet_number = 1 [default = 0];
-	optional bytes password = 2;
 }
 
 // Responses: Success or Failure

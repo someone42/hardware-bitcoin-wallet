@@ -46,6 +46,7 @@
 bool mainInputStreamCallback(pb_istream_t *stream, uint8_t *buf, size_t count);
 bool mainOutputStreamCallback(pb_ostream_t *stream, const uint8_t *buf, size_t count);
 static void writeFailureString(StringSet set, uint8_t spec);
+bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg);
 
 /** Maximum size (in bytes) of any protocol buffer message send by functions
   * in this file. */
@@ -367,6 +368,8 @@ static uint16_t receivePacketHeader(void)
 	message_id = (uint16_t)(((uint16_t)buffer[0] << 8) | ((uint16_t)buffer[1]));
 	getBytesFromStream(buffer, 4);
 	payload_length = readU32BigEndian(buffer);
+	// TODO: size_t not generally uint32_t
+	main_input_stream.bytes_left = payload_length;
 	return message_id;
 }
 
@@ -383,6 +386,7 @@ static bool buttonInterjection(AskUserCommand command)
 	ButtonCancel button_cancel;
 	bool receive_failure;
 
+	memset(&button_request, 0, sizeof(button_request));
 	sendPacket(PACKET_TYPE_BUTTON_REQUEST, ButtonRequest_fields, &button_request);
 	message_id = receivePacketHeader();
 	if (message_id == PACKET_TYPE_BUTTON_ACK)
@@ -412,15 +416,67 @@ static bool buttonInterjection(AskUserCommand command)
 		// with this is to unconditionally deny permission for the
 		// requested action.
 		receive_failure = receiveMessage(ButtonCancel_fields, &button_cancel);
+		if (!receive_failure)
+		{
+			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED_HOST);
+		}
+		return true;
+	}
+	else
+	{
+		// Unexpected message.
+		readAndIgnoreInput();
+		writeFailureString(STRINGSET_MISC, MISCSTR_UNEXPECTED_PACKET);
+		return true;
+	}
+}
+
+/** Begin PinRequest interjection. This asks the host to submit a password
+  * to the device. If the host does submit a password, then #field_hash_set
+  * will be set and #field_hash updated.
+  * \return false if the host submitted a password, true on error.
+  */
+static bool pinInterjection(void)
+{
+	uint16_t message_id;
+	PinRequest pin_request;
+	PinAck pin_ack;
+	PinCancel pin_cancel;
+	bool receive_failure;
+
+	memset(&pin_request, 0, sizeof(pin_request));
+	sendPacket(PACKET_TYPE_PIN_REQUEST, PinRequest_fields, &pin_request);
+	message_id = receivePacketHeader();
+	if (message_id == PACKET_TYPE_PIN_ACK)
+	{
+		// Host has just sent password.
+		field_hash_set = false;
+		memset(field_hash, 0, sizeof(field_hash));
+		pin_ack.password.funcs.decode = &hashFieldCallback;
+		pin_ack.password.arg = NULL;
+		receive_failure = receiveMessage(PinAck_fields, &pin_ack);
 		if (receive_failure)
 		{
 			return true;
 		}
 		else
 		{
-			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED_HOST);
-			return true;
+			if (!field_hash_set)
+			{
+				fatalError(); // should never happen since password is a required field
+			}
+			return false;
 		}
+	}
+	else if (message_id == PACKET_TYPE_PIN_CANCEL)
+	{
+		// Host does not want to send password.
+		receive_failure = receiveMessage(PinCancel_fields, &pin_cancel);
+		if (!receive_failure)
+		{
+			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED_HOST);
+		}
+		return true;
 	}
 	else
 	{
@@ -735,8 +791,6 @@ void processPacket(void)
 	WalletErrors wallet_return;
 
 	message_id = receivePacketHeader();
-	// TODO: size_t not generally uint32_t
-	main_input_stream.bytes_left = payload_length;
 
 	// Checklist for each case:
 	// 1. Have you checked or dealt with length?
@@ -847,23 +901,29 @@ void processPacket(void)
 
 	case PACKET_TYPE_LOAD_WALLET:
 		// Load wallet.
-		field_hash_set = false;
-		memset(field_hash, 0, sizeof(field_hash));
-		message_buffer.load_wallet.password.funcs.decode = &hashFieldCallback;
-		message_buffer.load_wallet.password.arg = NULL;
 		receive_failure = receiveMessage(LoadWallet_fields, &(message_buffer.load_wallet));
 		if (!receive_failure)
 		{
-			if (field_hash_set)
+			// Attempt load with no password.
+			wallet_return = initWallet(message_buffer.load_wallet.wallet_number, field_hash, 0);
+			if (wallet_return == WALLET_NOT_THERE)
 			{
-				password_length = sizeof(field_hash);
+				// Attempt load with password.
+				permission_denied = pinInterjection();
+				if (!permission_denied)
+				{
+					if (!field_hash_set)
+					{
+						fatalError(); // this should never happen
+					}
+					wallet_return = initWallet(message_buffer.load_wallet.wallet_number, field_hash, sizeof(field_hash));
+					translateWalletError(wallet_return);
+				}
 			}
 			else
 			{
-				password_length = 0; // no password
+				translateWalletError(wallet_return);
 			}
-			wallet_return = initWallet(message_buffer.load_wallet.wallet_number, field_hash, password_length);
-			translateWalletError(wallet_return);
 		}
 		break;
 
@@ -1516,8 +1576,11 @@ static const uint8_t test_stream_format[] = {
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
-0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x44,
-0x08, 0x00, 0x12, 0x40,
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x00,
+
+0x23, 0x23, 0x00, 0x54, 0x00, 0x00, 0x00, 0x42,
+0x0a, 0x40,
 0x42, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xff,
 0x00, 0x42, 0x00, 0x00, 0x00, 0x00, 0xfe, 0x00,
 0x00, 0x00, 0x42, 0x00, 0x00, 0xfd, 0x00, 0x00,
@@ -1529,8 +1592,11 @@ static const uint8_t test_stream_load_correct[] = {
 
 /** Test stream data for: load wallet using incorrect key. */
 static const uint8_t test_stream_load_incorrect[] = {
-0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x24,
-0x08, 0x00, 0x12, 0x20,
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x00,
+
+0x23, 0x23, 0x00, 0x54, 0x00, 0x00, 0x00, 0x22,
+0x0a, 0x20,
 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1553,8 +1619,11 @@ static const uint8_t test_stream_change_key[] = {
 
 /** Test stream data for: load with new encryption key. */
 static const uint8_t test_stream_load_with_changed_key[] = {
-0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x24,
-0x08, 0x00, 0x12, 0x20,
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x00,
+
+0x23, 0x23, 0x00, 0x54, 0x00, 0x00, 0x00, 0x22,
+0x0a, 0x20,
 0xff, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
@@ -1641,6 +1710,13 @@ static const uint8_t test_get_master_public_key_no_press[] = {
 
 0x23, 0x23, 0x00, 0x52, 0x00, 0x00, 0x00, 0x00};
 
+/** Test stream data for: load but don't allow password to be sent. */
+static const uint8_t test_stream_load_no_key[] = {
+0x23, 0x23, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x00,
+
+0x23, 0x23, 0x00, 0x55, 0x00, 0x00, 0x00, 0x00};
+
 /** Test response of processPacket() for a given test stream.
   * \param test_stream The test stream data to use.
   * \param size The length of the test stream, in bytes.
@@ -1722,6 +1798,8 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_get_master_public_key);
 	printf("Getting master public key but not allowing button press...\n");
 	SEND_ONE_TEST_STREAM(test_get_master_public_key_no_press);
+	printf("Loading wallet but not allowing password to be sent...\n");
+	SEND_ONE_TEST_STREAM(test_stream_load_no_key);
 
 	finishTests();
 	exit(0);
