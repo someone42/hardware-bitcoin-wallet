@@ -387,7 +387,7 @@ static void gotoStartOfLine(uint8_t line)
   *                   otherwise str is treated as a pointer to RAM.
   * \warning Characters past column 40 are dropped (ignored).
   */
-static void writeString(char *str, bool is_progmem)
+static void writeString(const char *str, bool is_progmem)
 {
 	char c;
 
@@ -516,55 +516,55 @@ static bool waitForButtonPress(void)
  * @{
  */
 /** First line of #ASKUSER_NUKE_WALLET prompt. */
-static char str_delete_line0[] PROGMEM = "Delete existing wallet";
+static const char str_delete_line0[] PROGMEM = "Delete existing wallet";
 /** Second line of #ASKUSER_NUKE_WALLET prompt. */
-static char str_delete_line1[] PROGMEM = "and start a new one?";
+static const char str_delete_line1[] PROGMEM = "and start a new one?";
 /** First line of #ASKUSER_NEW_ADDRESS prompt. */
-static char str_new_line0[] PROGMEM = "Create new";
+static const char str_new_line0[] PROGMEM = "Create new";
 /** Second line of #ASKUSER_NEW_ADDRESS prompt. */
-static char str_new_line1[] PROGMEM = "address?";
+static const char str_new_line1[] PROGMEM = "address?";
 /** What will be prepended to output amounts for #ASKUSER_SIGN_TRANSACTION
   * prompt. */
-static char str_sign_part0[] PROGMEM = "Sending ";
+static const char str_sign_part0[] PROGMEM = "Sending ";
 /** What will be appended to output amounts for #ASKUSER_SIGN_TRANSACTION
   * prompt. */
-static char str_sign_part1[] PROGMEM = " BTC to";
+static const char str_sign_part1[] PROGMEM = " BTC to";
 /** What will be prepended to the transaction fee amount
   * for #ASKUSER_SIGN_TRANSACTION prompt. */
-static char str_fee_part0[] PROGMEM = "Transaction fee:";
+static const char str_fee_part0[] PROGMEM = "Transaction fee:";
 /** What will be appended to the transaction fee amount
   * for #ASKUSER_SIGN_TRANSACTION prompt. */
-static char str_fee_part1[] PROGMEM = " BTC";
+static const char str_fee_part1[] PROGMEM = " BTC";
 /** First line of #ASKUSER_FORMAT prompt. */
-static char str_format_line0[] PROGMEM = "Do you want to";
+static const char str_format_line0[] PROGMEM = "Do you want to";
 /** Second line of #ASKUSER_FORMAT prompt. */
-static char str_format_line1[] PROGMEM = "delete everything?";
+static const char str_format_line1[] PROGMEM = "delete everything?";
 /** First line of #ASKUSER_CHANGE_NAME prompt. */
-static char str_change_name_line0[] PROGMEM = "Change the name";
+static const char str_change_name_line0[] PROGMEM = "Change the name";
 /** Second line of #ASKUSER_CHANGE_NAME prompt. */
-static char str_change_name_line1[] PROGMEM = "of your wallet?";
+static const char str_change_name_line1[] PROGMEM = "of your wallet?";
 /** First line of #ASKUSER_BACKUP_WALLET prompt. */
-static char str_backup_line0[] PROGMEM = "Do you want to do";
+static const char str_backup_line0[] PROGMEM = "Do you want to do";
 /** Second line of #ASKUSER_BACKUP_WALLET prompt. */
-static char str_backup_line1[] PROGMEM = "a wallet backup?";
+static const char str_backup_line1[] PROGMEM = "a wallet backup?";
 /** First line of #ASKUSER_RESTORE_WALLET prompt. */
-static char str_restore_line0[] PROGMEM = "Restore wallet";
+static const char str_restore_line0[] PROGMEM = "Restore wallet";
 /** Second line of #ASKUSER_RESTORE_WALLET prompt. */
-static char str_restore_line1[] PROGMEM = "from backup?";
+static const char str_restore_line1[] PROGMEM = "from backup?";
 /** First line of #ASKUSER_CHANGE_KEY prompt. */
-static char str_change_key_line0[] PROGMEM = "Change the key";
+static const char str_change_key_line0[] PROGMEM = "Change the key";
 /** Second line of #ASKUSER_CHANGE_KEY prompt. */
-static char str_change_key_line1[] PROGMEM = "of your wallet?";
+static const char str_change_key_line1[] PROGMEM = "of your wallet?";
 /** First line of #ASKUSER_GET_MASTER_KEY prompt. */
-static char str_get_master_key_line0[] PROGMEM = "Reveal master";
+static const char str_get_master_key_line0[] PROGMEM = "Reveal master";
 /** Second line of #ASKUSER_GET_MASTER_KEY prompt. */
-static char str_get_master_key_line1[] PROGMEM = "public key?";
+static const char str_get_master_key_line1[] PROGMEM = "public key?";
 /** First line of unknown prompt. */
-static char str_unknown_line0[] PROGMEM = "Unknown command in userDenied()";
+static const char str_unknown_line0[] PROGMEM = "Unknown command in userDenied()";
 /** Second line of unknown prompt. */
-static char str_unknown_line1[] PROGMEM = "Press any button to continue";
+static const char str_unknown_line1[] PROGMEM = "Press any button to continue";
 /** What will be displayed if a stream read or write error occurs. */
-static char str_stream_error[] PROGMEM = "Stream error";
+static const char str_stream_error[] PROGMEM = "Stream error";
 /**@}*/
 
 /** Ask user if they want to allow some action.
@@ -721,13 +721,13 @@ static char nibbleToHex(uint8_t nibble)
 
 /** First line of string which tells the user whether backup is encrypted
   * or not. */
-static char str_seed_encrypted_or_not_line0[] PROGMEM = "Backup is";
+static const char str_seed_encrypted_or_not_line0[] PROGMEM = "Backup is";
 /** Second line of string which tells the user that the backup is
   * encrypted. */
-static char str_seed_encrypted_line1[] PROGMEM = "encrypted";
+static const char str_seed_encrypted_line1[] PROGMEM = "encrypted";
 /** Second line of string which tells the user that the backup is not
   * encrypted. */
-static char str_seed_not_encrypted_line1[] PROGMEM = "not encrypted";
+static const char str_seed_not_encrypted_line1[] PROGMEM = "not encrypted";
 
 /** Write backup seed to some output device. The choice of output device and
   * seed representation is up to the platform-dependent code. But a typical
