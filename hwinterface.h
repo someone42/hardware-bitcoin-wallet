@@ -85,7 +85,10 @@ typedef enum MiscStringsEnum
 	/** Text explaining that the operation was denied by the host. */
 	MISCSTR_PERMISSION_DENIED_HOST	=	5,
 	/** Text explaining that an unexpected packet was received. */
-	MISCSTR_UNEXPECTED_PACKET		=	6
+	MISCSTR_UNEXPECTED_PACKET		=	6,
+	/** Text explaining that the submitted one-time password (OTP) did not
+	  * match the generated OTP. */
+	MISCSTR_OTP_MISMATCH			=	7
 } MiscStrings;
 
 /** Obtain one character from one of the device's strings.
@@ -180,6 +183,17 @@ extern void displayAddress(char *address, uint8_t num_sigs, uint8_t num_pubkeys)
   * \return false if the user accepted, true if the user denied.
   */
 extern bool userDenied(AskUserCommand command);
+/** Display a short (maximum 8 characters) one-time password for the user to
+  * see. This one-time password is used to reduce the chance of a user
+  * accidentally doing something stupid.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \param otp The one-time password to display. This will be a
+  *            null-terminated string.
+  */
+extern void displayOTP(AskUserCommand command, char *otp);
+/** Clear the OTP (one-time password) shown by displayOTP() from the
+  * display. */
+extern void clearOTP(void);
 
 /** Fill buffer with 32 random bytes from a hardware random number generator.
   * \param buffer The buffer to fill. This should have enough space for 32

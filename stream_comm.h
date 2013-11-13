@@ -92,6 +92,14 @@
 /** Host does not want to send password (response
   * to #PACKET_TYPE_PIN_REQUEST). */
 #define PACKET_TYPE_PIN_CANCEL			0x55
+/** Device wants host to send a one-time password (beginning of OtpRequest
+  * interjection. */
+#define PACKET_TYPE_OTP_REQUEST			0x56
+/** Host sends one-time password (response to #PACKET_TYPE_OTP_REQUEST). */
+#define PACKET_TYPE_OTP_ACK				0x57
+/** Host does not want to send one-time password (response
+  * to #PACKET_TYPE_OTP_REQUEST). */
+#define PACKET_TYPE_OTP_CANCEL			0x58
 /**@}*/
 
 extern void processPacket(void);

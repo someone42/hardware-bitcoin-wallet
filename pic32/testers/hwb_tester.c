@@ -110,6 +110,12 @@ static char *packetCommandToText(int command)
 		return "PinAck";
 	case 0x55:
 		return "PinCancel";
+	case 0x56:
+		return "OtpRequest";
+	case 0x57:
+		return "OtpAck";
+	case 0x58:
+		return "OtpCancel";
 	default:
 		return "unknown";
 	}

@@ -87,6 +87,49 @@ void clearOutputsSeen(void)
 	transaction_fee_set = false;
 }
 
+/** Display a description of a command.
+  * \command See #AskUserCommandEnum.
+  */
+static void displayAction(AskUserCommand command)
+{
+	if (command == ASKUSER_NUKE_WALLET)
+	{
+		writeStringToDisplayWordWrap("Delete current wallet and create new one?");
+	}
+	else if (command == ASKUSER_NEW_ADDRESS)
+	{
+		writeStringToDisplayWordWrap("Create new address?");
+	}
+	else if (command == ASKUSER_FORMAT)
+	{
+		writeStringToDisplayWordWrap("Format storage?");
+	}
+	else if (command == ASKUSER_CHANGE_NAME)
+	{
+		writeStringToDisplayWordWrap("Change wallet name?");
+	}
+	else if (command == ASKUSER_BACKUP_WALLET)
+	{
+		writeStringToDisplayWordWrap("Backup wallet?");
+	}
+	else if (command == ASKUSER_RESTORE_WALLET)
+	{
+		writeStringToDisplayWordWrap("Restore wallet from backup?");
+	}
+	else if (command == ASKUSER_CHANGE_KEY)
+	{
+		writeStringToDisplayWordWrap("Change wallet encryption key?");
+	}
+	else if (command == ASKUSER_GET_MASTER_KEY)
+	{
+		writeStringToDisplayWordWrap("Reveal master public key?");
+	}
+	else
+	{
+		writeStringToDisplayWordWrap("Unknown command");
+	}
+}
+
 /** Ask user if they want to allow some action.
   * \param command The action to ask the user about. See #AskUserCommandEnum.
   * \return false if the user accepted, true if the user denied.
@@ -100,21 +143,21 @@ bool userDenied(AskUserCommand command)
 	displayOn();
 
 	r = true;
-	if (command == ASKUSER_NUKE_WALLET)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Delete current wallet and create new one?");
+    switch(command)
+    {
+    case ASKUSER_NUKE_WALLET:
+    case ASKUSER_NEW_ADDRESS:
+    case ASKUSER_CHANGE_NAME:
+    case ASKUSER_BACKUP_WALLET:
+    case ASKUSER_RESTORE_WALLET:
+    case ASKUSER_CHANGE_KEY:
+    case ASKUSER_GET_MASTER_KEY:
+        waitForNoButtonPress();
+		displayAction(command);
 		r = waitForButtonPress();
-	}
-	else if (command == ASKUSER_NEW_ADDRESS)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Create new address?");
-		r = waitForButtonPress();
-	}
-	else if (command == ASKUSER_SIGN_TRANSACTION)
-	{
-		// writeStringToDisplayWordWrap() isn't used here because word
+        break;
+    case ASKUSER_SIGN_TRANSACTION:
+        // writeStringToDisplayWordWrap() isn't used here because word
 		// wrapping wastes too much display space.
 		for (i = 0; i < list_index; i++)
 		{
@@ -146,10 +189,9 @@ bool userDenied(AskUserCommand command)
 			writeStringToDisplay("Is this okay?");
 			r = waitForButtonPress();
 		}
-	}
-	else if (command == ASKUSER_FORMAT)
-	{
-		waitForNoButtonPress();
+        break;
+    case ASKUSER_FORMAT:
+        waitForNoButtonPress();
 		writeStringToDisplayWordWrap("Format storage? This will delete everything!");
 		r = waitForButtonPress();
 		if (!r)
@@ -166,48 +208,43 @@ bool userDenied(AskUserCommand command)
 				r = waitForButtonPress();
 			}
 		}
-	}
-	else if (command == ASKUSER_CHANGE_NAME)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Change the name of the current wallet?");
-		r = waitForButtonPress();
-	}
-	else if (command == ASKUSER_BACKUP_WALLET)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Do you want to backup the current wallet?");
-		r = waitForButtonPress();
-	}
-	else if (command == ASKUSER_RESTORE_WALLET)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Delete current wallet and restore from a backup?");
-		r = waitForButtonPress();
-	}
-	else if (command == ASKUSER_CHANGE_KEY)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Change the encryption key of the current wallet?");
-		r = waitForButtonPress();
-	}
-	else if (command == ASKUSER_GET_MASTER_KEY)
-	{
-		waitForNoButtonPress();
-		writeStringToDisplayWordWrap("Reveal master public key to host?");
-		r = waitForButtonPress();
-	}
-	else
-	{
-		waitForNoButtonPress();
+        break;
+    default:
+        waitForNoButtonPress();
 		writeStringToDisplayWordWrap("Unknown command in userDenied(). Press any button to continue...");
 		waitForButtonPress();
 		r = true; // unconditionally deny
-	}
+        break;
+    }
 
 	clearDisplay();
 	displayOff();
 	return r;
+}
+
+/** Display a short (maximum 8 characters) one-time password for the user to
+  * see. This one-time password is used to reduce the chance of a user
+  * accidentally doing something stupid.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \param otp The one-time password to display. This will be a
+  *            null-terminated string.
+  */
+void displayOTP(AskUserCommand command, char *otp)
+{
+	clearDisplay();
+	displayOn();
+	displayAction(command);
+	nextLine();
+	writeStringToDisplay("OTP: ");
+	writeStringToDisplay(otp);
+}
+
+/** Clear the OTP (one-time password) shown by displayOTP() from the
+  * display. */
+void clearOTP(void)
+{
+	clearDisplay();
+	displayOff();
 }
 
 /** Convert 4 bit number into corresponding hexadecimal character. For

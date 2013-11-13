@@ -58,6 +58,19 @@ message PinCancel
 {
 }
 
+message OtpRequest
+{
+}
+
+message OtpAck
+{
+	required string otp = 1 [(nanopb).max_size = 16];
+}
+
+message OtpCancel
+{
+}
+
 // Responses: Success or Failure
 // Response interjections: ButtonRequest
 // wallet_name is stored purely for the convenience of the host. It should be

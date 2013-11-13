@@ -26,6 +26,9 @@ static const char str_MISCSTR_PARAM_TOO_LARGE[] = "Parameter too large";
 static const char str_MISCSTR_PERMISSION_DENIED_HOST[] = "Host cancelled action";
 /** String specifying that an unexpected message was received. */
 static const char str_MISCSTR_UNEXPECTED_PACKET[] = "Unexpected packet";
+/** String specifying that the submitted one-time password (OTP) did not match
+  * the generated OTP. */
+static const char str_MISCSTR_OTP_MISMATCH[] = "OTP mismatch";
 /** String for #WALLET_FULL wallet error. */
 static const char str_WALLET_FULL[] = "Wallet has run out of space";
 /** String for #WALLET_EMPTY wallet error. */
@@ -108,6 +111,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case MISCSTR_UNEXPECTED_PACKET:
 			str = str_MISCSTR_UNEXPECTED_PACKET;
+			break;
+		case MISCSTR_OTP_MISMATCH:
+			str = str_MISCSTR_OTP_MISMATCH;
 			break;
 		default:
 			str = str_UNKNOWN;
@@ -227,6 +233,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case MISCSTR_UNEXPECTED_PACKET:
 			return (uint16_t)(sizeof(str_MISCSTR_UNEXPECTED_PACKET) - 1);
+			break;
+		case MISCSTR_OTP_MISMATCH:
+			return (uint16_t)(sizeof(str_MISCSTR_OTP_MISMATCH) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

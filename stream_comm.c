@@ -129,6 +129,12 @@ pb_istream_t main_input_stream = {&mainInputStreamCallback, NULL, 0, NULL};
   * callback. */
 pb_ostream_t main_output_stream = {&mainOutputStreamCallback, NULL, 0, 0};
 
+#ifdef TEST_STREAM_COMM
+/** When sending test packets, the OTP stored here will be used instead of
+  * a generated OTP. This allows the test cases to be static. */
+static char test_otp[OTP_LENGTH] = {'1', '2', '3', '4', '\0'};
+#endif // #ifdef TEST_STREAM_COMM
+
 /** Read bytes from the stream.
   * \param buffer The byte array where the bytes will be placed. This must
   *               have enough space to store length bytes.
@@ -487,6 +493,69 @@ static bool pinInterjection(void)
 	}
 }
 
+/** Begin OtpRequest interjection. This asks the host to submit a one-time
+  * password that is displayed on the device.
+  * \return false if the host submitted a matching password, true on error.
+  */
+static bool otpInterjection(AskUserCommand command)
+{
+	uint16_t message_id;
+	OtpRequest otp_request;
+	OtpAck otp_ack;
+	OtpCancel otp_cancel;
+	bool receive_failure;
+	char otp[OTP_LENGTH];
+
+	generateInsecureOTP(otp);
+#ifdef TEST_STREAM_COMM
+	memcpy(otp, test_otp, OTP_LENGTH);
+#endif // #ifdef TEST_STREAM_COMM
+	displayOTP(command, otp);
+	memset(&otp_request, 0, sizeof(otp_request));
+	sendPacket(PACKET_TYPE_OTP_REQUEST, OtpRequest_fields, &otp_request);
+	message_id = receivePacketHeader();
+	clearOTP();
+	if (message_id == PACKET_TYPE_OTP_ACK)
+	{
+		// Host has just sent OTP.
+		memset(&otp_ack, 0, sizeof(otp_ack));
+		receive_failure = receiveMessage(OtpAck_fields, &otp_ack);
+		if (receive_failure)
+		{
+			return true;
+		}
+		else
+		{
+			if (memcmp(otp, otp_ack.otp, MIN(OTP_LENGTH, sizeof(otp_ack.otp))))
+			{
+				writeFailureString(STRINGSET_MISC, MISCSTR_OTP_MISMATCH);
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+	}
+	else if (message_id == PACKET_TYPE_OTP_CANCEL)
+	{
+		// Host does not want to send OTP.
+		receive_failure = receiveMessage(OtpCancel_fields, &otp_cancel);
+		if (!receive_failure)
+		{
+			writeFailureString(STRINGSET_MISC, MISCSTR_PERMISSION_DENIED_HOST);
+		}
+		return true;
+	}
+	else
+	{
+		// Unexpected message.
+		readAndIgnoreInput();
+		writeFailureString(STRINGSET_MISC, MISCSTR_UNEXPECTED_PACKET);
+		return true;
+	}
+}
+
 /** nanopb field callback for signature data of SignTransaction message. This
   * does (or more accurately, delegates) all the "work" of transaction
   * signing: parsing the transaction, asking the user for approval, generating
@@ -787,6 +856,7 @@ void processPacket(void)
 	PointAffine master_public_key;
 	bool receive_failure;
 	bool permission_denied;
+	bool invalid_otp;
 	unsigned int password_length;
 	WalletErrors wallet_return;
 
@@ -947,15 +1017,19 @@ void processPacket(void)
 			permission_denied = buttonInterjection(ASKUSER_FORMAT);
 			if (!permission_denied)
 			{
-				if (initialiseEntropyPool(message_buffer.format_wallet_area.initial_entropy_pool.bytes))
+				invalid_otp = otpInterjection(ASKUSER_FORMAT);
+				if (!invalid_otp)
 				{
-					translateWalletError(WALLET_RNG_FAILURE);
-				}
-				else
-				{
-					wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
-					translateWalletError(wallet_return);
-					uninitWallet(); // force wallet to unload
+					if (initialiseEntropyPool(message_buffer.format_wallet_area.initial_entropy_pool.bytes))
+					{
+						translateWalletError(WALLET_RNG_FAILURE);
+					}
+					else
+					{
+						wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
+						translateWalletError(wallet_return);
+						uninitWallet(); // force wallet to unload
+					}
 				}
 			}
 		}
@@ -973,16 +1047,20 @@ void processPacket(void)
 			permission_denied = buttonInterjection(ASKUSER_CHANGE_KEY);
 			if (!permission_denied)
 			{
-				if (field_hash_set)
+				invalid_otp = otpInterjection(ASKUSER_CHANGE_KEY);
+				if (!invalid_otp)
 				{
-					password_length = sizeof(field_hash);
+					if (field_hash_set)
+					{
+						password_length = sizeof(field_hash);
+					}
+					else
+					{
+						password_length = 0; // no password
+					}
+					wallet_return = changeEncryptionKey(field_hash, password_length);
+					translateWalletError(wallet_return);
 				}
-				else
-				{
-					password_length = 0; // no password
-				}
-				wallet_return = changeEncryptionKey(field_hash, password_length);
-				translateWalletError(wallet_return);
 			}
 		}
 		break;
@@ -1108,21 +1186,25 @@ void processPacket(void)
 			permission_denied = buttonInterjection(ASKUSER_GET_MASTER_KEY);
 			if (!permission_denied)
 			{
-				wallet_return = getMasterPublicKey(&master_public_key, message_buffer.master_public_key.chain_code.bytes);
-				if (wallet_return == WALLET_NO_ERROR)
+				invalid_otp = otpInterjection(ASKUSER_GET_MASTER_KEY);
+				if (!invalid_otp)
 				{
-					message_buffer.master_public_key.chain_code.size = 32;
-					message_buffer.master_public_key.public_key.size = 65;
-					message_buffer.master_public_key.public_key.bytes[0] = 0x04;
-					memcpy(&(message_buffer.master_public_key.public_key.bytes[1]), master_public_key.x, 32);
-					swapEndian256(&(message_buffer.master_public_key.public_key.bytes[1]));
-					memcpy(&(message_buffer.master_public_key.public_key.bytes[33]), master_public_key.y, 32);
-					swapEndian256(&(message_buffer.master_public_key.public_key.bytes[33]));
-					sendPacket(PACKET_TYPE_MASTER_KEY, MasterPublicKey_fields, &(message_buffer.master_public_key));
-				}
-				else
-				{
-					translateWalletError(wallet_return);
+					wallet_return = getMasterPublicKey(&master_public_key, message_buffer.master_public_key.chain_code.bytes);
+					if (wallet_return == WALLET_NO_ERROR)
+					{
+						message_buffer.master_public_key.chain_code.size = 32;
+						message_buffer.master_public_key.public_key.size = 65;
+						message_buffer.master_public_key.public_key.bytes[0] = 0x04;
+						memcpy(&(message_buffer.master_public_key.public_key.bytes[1]), master_public_key.x, 32);
+						swapEndian256(&(message_buffer.master_public_key.public_key.bytes[1]));
+						memcpy(&(message_buffer.master_public_key.public_key.bytes[33]), master_public_key.y, 32);
+						swapEndian256(&(message_buffer.master_public_key.public_key.bytes[33]));
+						sendPacket(PACKET_TYPE_MASTER_KEY, MasterPublicKey_fields, &(message_buffer.master_public_key));
+					}
+					else
+					{
+						translateWalletError(wallet_return);
+					}
 				}
 			}
 		}
@@ -1235,6 +1317,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case MISCSTR_UNEXPECTED_PACKET:
 			return "Unexpected message received";
+			break;
+		case MISCSTR_OTP_MISMATCH:
+			return "OTP mismatch";
 			break;
 		default:
 			assert(0);
@@ -1354,14 +1439,11 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 	return getStringInternal(set, spec)[pos];
 }
 
-/** Ask user if they want to allow some action.
-  * \param command The action to ask the user about. See #AskUserCommandEnum.
-  * \return false if the user accepted, true if the user denied.
+/** Display human-readable description of an action on stdout.
+  * \param command The action to display. See #AskUserCommandEnum.
   */
-bool userDenied(AskUserCommand command)
+static void printAction(AskUserCommand command)
 {
-	int c;
-
 	printf("\n");
 	switch (command)
 	{
@@ -1393,13 +1475,19 @@ bool userDenied(AskUserCommand command)
 		printf("Reveal master public key? ");
 		break;
 	default:
-		assert(0);
-		// GCC is smart enough to realise that the following line will never
-		// be executed.
-#ifndef __GNUC__
-		return true;
-#endif // #ifndef __GNUC__
+		fatalError();
 	}
+}
+
+/** Ask user if they want to allow some action.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \return false if the user accepted, true if the user denied.
+  */
+bool userDenied(AskUserCommand command)
+{
+	int c;
+
+	printAction(command);
 	printf("y/[n]: ");
 	do
 	{
@@ -1413,6 +1501,24 @@ bool userDenied(AskUserCommand command)
 	{
 		return true;
 	}
+}
+
+/** Display a short (maximum 8 characters) one-time password for the user to
+  * see. This one-time password is used to reduce the chance of a user
+  * accidentally doing something stupid.
+  * \param command The action to ask the user about. See #AskUserCommandEnum.
+  * \param otp The one-time password to display.
+  */
+void displayOTP(AskUserCommand command, char *otp)
+{
+	printAction(command);
+	printf("OTP: %s\n", otp);
+}
+
+/** Clear the OTP (one-time password) shown by displayOTP() from the
+  * display. */
+void clearOTP(void)
+{
 }
 
 /** This will be called whenever something very unexpected occurs. This
@@ -1572,7 +1678,10 @@ static const uint8_t test_stream_format[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
-0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x57, 0x00, 0x00, 0x00, 0x06,
+0x0a, 0x04, 0x31, 0x32, 0x33, 0x34};
 
 /** Test stream data for: load wallet using correct key. */
 static const uint8_t test_stream_load_correct[] = {
@@ -1615,7 +1724,10 @@ static const uint8_t test_stream_change_key[] = {
 0xff, 0xfe, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 
-0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x57, 0x00, 0x00, 0x00, 0x06,
+0x0a, 0x04, 0x31, 0x32, 0x33, 0x34};
 
 /** Test stream data for: load with new encryption key. */
 static const uint8_t test_stream_load_with_changed_key[] = {
@@ -1702,7 +1814,10 @@ static const uint8_t test_stream_ping[] = {
 static const uint8_t test_get_master_public_key[] = {
 0x23, 0x23, 0x00, 0x15, 0x00, 0x00, 0x00, 0x00,
 
-0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x57, 0x00, 0x00, 0x00, 0x06,
+0x0a, 0x04, 0x31, 0x32, 0x33, 0x34};
 
 /** Get master public key but don't allow button press. */
 static const uint8_t test_get_master_public_key_no_press[] = {
