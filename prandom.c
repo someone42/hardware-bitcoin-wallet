@@ -223,8 +223,10 @@ bool initialiseEntropyPool(uint8_t *initial_pool_state)
 
 /** Uses a hash function to accumulate entropy from a hardware random number
   * generator (HWRNG), along with the state of a persistent pool. The
-  * operations used are: pool = H(HWRNG | pool) and output = H(H(pool)), where
-  * "|" is concatenation and H(x) is the SHA-256 hash of x.
+  * operations used are: intermediate = H(HWRNG | pool),
+  * output = H(H(intermediate)) and new_pool = H(intermediate | padding),
+  * where "|" is concatenation, H(x) is the SHA-256 hash of x and padding
+  * consists of 32 0x42 bytes.
   *
   * To justify why a cryptographic hash is an appropriate means of entropy
   * accumulation, see the paper "Yarrow-160: Notes on the Design and Analysis
@@ -262,6 +264,7 @@ static bool getRandom256Internal(BigNum256 n, uint8_t *pool_state, bool use_pool
 	int r;
 	uint16_t total_entropy;
 	uint8_t random_bytes[MAX(32, ENTROPY_POOL_LENGTH)];
+	uint8_t intermediate[32];
 	HashState hs;
 	uint8_t i;
 
@@ -306,6 +309,22 @@ static bool getRandom256Internal(BigNum256 n, uint8_t *pool_state, bool use_pool
 		sha256WriteByte(&hs, random_bytes[i]);
 	}
 	sha256Finish(&hs);
+	writeHashToByteArray(intermediate, &hs, true);
+
+	// Calculate new pool state.
+	// We can't use the intermediate state as the new pool state, or an
+	// attacker who obtained access to the pool state could determine
+	// the most recent returned random output.
+	sha256Begin(&hs);
+	for (i = 0; i < 32; i++)
+	{
+		sha256WriteByte(&hs, intermediate[i]);
+	}
+	for (i = 0; i < 32; i++)
+	{
+		sha256WriteByte(&hs, 0x42); // padding
+	}
+	sha256Finish(&hs);
 	writeHashToByteArray(random_bytes, &hs, true);
 
 	// Save the pool state to non-volatile memory immediately as we don't want
@@ -321,17 +340,19 @@ static bool getRandom256Internal(BigNum256 n, uint8_t *pool_state, bool use_pool
 			return true; // error writing to non-volatile memory
 		}
 	}
-	// Hash the pool twice to generate the random bytes to return.
+	// Hash the intermediate state twice to generate the random bytes to
+	// return.
 	// We can't output the pool state directly, or an attacker who knew that
 	// the HWRNG was broken, and how it was broken, could then predict the
-	// next output. Outputting H(pool) is another possibility, but that's
-	// kinda cutting it close though, as we're outputting H(pool) while the
-	// next output will be H(HWRNG | pool). We've prevented a length extension
+	// next output. Outputting H(intermediate) is another possibility, but
+	// that's kinda cutting it close though, as we're outputting
+	// H(intermediate) while the next pool state will be
+	// H(intermediate | padding). We've prevented a length extension
 	// attack as described above, but there may be other attacks.
 	sha256Begin(&hs);
 	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
 	{
-		sha256WriteByte(&hs, random_bytes[i]);
+		sha256WriteByte(&hs, intermediate[i]);
 	}
 	sha256FinishDouble(&hs);
 	writeHashToByteArray(n, &hs, true);
@@ -975,22 +996,13 @@ int main(int argc, char **argv)
 		reportSuccess();
 	}
 
-	// Check that generateNotQuiteSecureOTP() works.
-	if (generateNotQuiteSecureOTP(otp))
-	{
-		printf("generateNotQuiteSecureOTP() doesn't work\n");
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-
-	// Check that generateNotQuiteSecureOTP() passwords are actually one-time.
-	generateNotQuiteSecureOTP(otp2);
+	// Check that generateInsecureOTP() passwords are actually one-time.
+	broken_hwrng = false;
+	generateInsecureOTP(otp);
+	generateInsecureOTP(otp2);
 	if (!memcmp(otp, otp2, sizeof(otp)))
 	{
-		printf("generateNotQuiteSecureOTP() passwords are not one-time\n");
+		printf("generateInsecureOTP() passwords are not one-time\n");
 		reportFailure();
 	}
 	else
@@ -998,14 +1010,16 @@ int main(int argc, char **argv)
 		reportSuccess();
 	}
 
-	// Check that generateNotQuiteSecureOTP() still works when the entropy
+	// Check that generateInsecureOTP() still works when the entropy
 	// pool is corrupted.
 	nonVolatileRead(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
 	one_byte_corrupted = (uint8_t)(one_byte ^ 0xde);
 	nonVolatileWrite(&one_byte_corrupted, ADDRESS_POOL_CHECKSUM, 1);
-	if (generateNotQuiteSecureOTP(otp))
+	generateInsecureOTP(otp);
+	generateInsecureOTP(otp2);
+	if (!memcmp(otp, otp2, sizeof(otp)))
 	{
-		printf("generateNotQuiteSecureOTP() doesn't work when entropy pool is borked\n");
+		printf("generateInsecureOTP() doesn't work when entropy pool is borked\n");
 		reportFailure();
 	}
 	else
