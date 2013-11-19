@@ -66,6 +66,7 @@ union MessageBufferUnion
 {
 	Ping ping;
 	PingResponse ping_response;
+	DeleteWallet delete_wallet;
 	NewWallet new_wallet;
 	NewAddress new_address;
 	GetNumberOfAddresses get_number_of_addresses;
@@ -889,6 +890,24 @@ void processPacket(void)
 		}
 		break;
 
+	case PACKET_TYPE_DELETE_WALLET:
+		// Delete existing wallet.
+		receive_failure = receiveMessage(DeleteWallet_fields, &(message_buffer.delete_wallet));
+		if (!receive_failure)
+		{
+			permission_denied = buttonInterjection(ASKUSER_DELETE_WALLET);
+			if (!permission_denied)
+			{
+				invalid_otp = otpInterjection(ASKUSER_DELETE_WALLET);
+				if (!invalid_otp)
+				{
+					wallet_return = deleteWallet(message_buffer.delete_wallet.wallet_handle);
+					translateWalletError(wallet_return);
+				}
+			}
+		}
+		break;
+
 	case PACKET_TYPE_NEW_WALLET:
 		// Create new wallet.
 		field_hash_set = false;
@@ -898,7 +917,7 @@ void processPacket(void)
 		receive_failure = receiveMessage(NewWallet_fields, &(message_buffer.new_wallet));
 		if (!receive_failure)
 		{
-			permission_denied = buttonInterjection(ASKUSER_NUKE_WALLET);
+			permission_denied = buttonInterjection(ASKUSER_NEW_WALLET);
 			if (!permission_denied)
 			{
 				if (field_hash_set)
@@ -1365,6 +1384,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 		case WALLET_INVALID_OPERATION:
 			return "Operation not allowed on this wallet";
 			break;
+		case WALLET_ALREADY_EXISTS:
+			return "Wallet already exists";
+			break;
 		default:
 			assert(0);
 		}
@@ -1447,8 +1469,8 @@ static void printAction(AskUserCommand command)
 	printf("\n");
 	switch (command)
 	{
-	case ASKUSER_NUKE_WALLET:
-		printf("Nuke your wallet and start a new one? ");
+	case ASKUSER_NEW_WALLET:
+		printf("Create new wallet? ");
 		break;
 	case ASKUSER_NEW_ADDRESS:
 		printf("Create new address? ");
@@ -1473,6 +1495,9 @@ static void printAction(AskUserCommand command)
 		break;
 	case ASKUSER_GET_MASTER_KEY:
 		printf("Reveal master public key? ");
+		break;
+	case ASKUSER_DELETE_WALLET:
+		printf("Delete existing wallet? ");
 		break;
 	default:
 		fatalError();
@@ -1760,6 +1785,16 @@ static const uint8_t test_stream_backup_wallet[] = {
 
 0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00};
 
+/** Test stream data for: delete wallet and allow button press. */
+static const uint8_t test_stream_delete[] = {
+0x23, 0x23, 0x00, 0x16, 0x00, 0x00, 0x00, 0x02,
+0x08, 0x00,
+
+0x23, 0x23, 0x00, 0x51, 0x00, 0x00, 0x00, 0x00,
+
+0x23, 0x23, 0x00, 0x57, 0x00, 0x00, 0x00, 0x06,
+0x0a, 0x04, 0x31, 0x32, 0x33, 0x34};
+
 /** Test stream data for: restore wallet and allow button press. */
 static const uint8_t test_stream_restore_wallet[] = {
 0x23, 0x23, 0x00, 0x12, 0x00, 0x00, 0x00, 0x7a,
@@ -1895,6 +1930,8 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_list_wallets);
 	printf("Backing up a wallet...\n");
 	SEND_ONE_TEST_STREAM(test_stream_backup_wallet);
+	printf("Deleting a wallet...\n");
+	SEND_ONE_TEST_STREAM(test_stream_delete);
 	printf("Restoring a wallet...\n");
 	SEND_ONE_TEST_STREAM(test_stream_restore_wallet);
 	printf("Getting device UUID...\n");

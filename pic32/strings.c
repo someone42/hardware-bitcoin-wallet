@@ -53,6 +53,8 @@ static const char str_WALLET_RNG_FAILURE[] = "Failure in random number generatio
 static const char str_WALLET_INVALID_WALLET_NUM[] = "Invalid wallet number";
 /** String for #WALLET_INVALID_OPERATION wallet error. */
 static const char str_WALLET_INVALID_OPERATION[] = "Operation not allowed";
+/** String for #WALLET_ALREADY_EXISTS wallet error. */
+static const char str_WALLET_ALREADY_EXISTS[] = "Wallet already exists";
 /** String for #TRANSACTION_INVALID_FORMAT transaction parser error. */
 static const char str_TRANSACTION_INVALID_FORMAT[] = "Format of transaction is unknown or invalid";
 /** String for #TRANSACTION_TOO_MANY_INPUTS transaction parser error. */
@@ -159,6 +161,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
 		case WALLET_INVALID_OPERATION:
 			str = str_WALLET_INVALID_OPERATION;
+			break;
+        case WALLET_ALREADY_EXISTS:
+			str = str_WALLET_ALREADY_EXISTS;
 			break;
 		default:
 			str = str_UNKNOWN;
@@ -281,6 +286,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
 		case WALLET_INVALID_OPERATION:
 			return (uint16_t)(sizeof(str_WALLET_INVALID_OPERATION) - 1);
+			break;
+        case WALLET_ALREADY_EXISTS:
+			return (uint16_t)(sizeof(str_WALLET_ALREADY_EXISTS) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

@@ -78,6 +78,8 @@ static char *packetCommandToText(int command)
 		return "GetEntropy";
 	case 0x15:
 		return "GetMasterPublicKey";
+	case 0x16:
+		return "DeleteWallet";
 	case 0x30:
 		return "Address";
 	case 0x31:

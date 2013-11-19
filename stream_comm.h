@@ -53,6 +53,8 @@
 #define PACKET_TYPE_GET_ENTROPY			0x14
 /** Get master public key. */
 #define PACKET_TYPE_GET_MASTER_KEY		0x15
+/** Delete a wallet. */
+#define PACKET_TYPE_DELETE_WALLET		0x16
 /** An address from a wallet (response to #PACKET_TYPE_GET_ADDRESS_PUBKEY
   * or #PACKET_TYPE_NEW_ADDRESS). */
 #define PACKET_TYPE_ADDRESS_PUBKEY		0x30

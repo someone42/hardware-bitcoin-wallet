@@ -595,6 +595,40 @@ static WalletErrors updateWalletVersion(void)
 	return WALLET_NO_ERROR;
 }
 
+/** Delete a wallet, so that it's contents can no longer be retrieved from
+  * non-volatile storage.
+  * \param wallet_spec The wallet number of the wallet to delete. The wallet
+  *                    doesn't have to "exist"; calling this function for a
+  *                    non-existent wallet will clear the non-volatile space
+  *                    associated with it. This is useful for deleting a
+  *                    hidden wallet.
+  * \warning This is irreversible; the only way to access the wallet after
+  *          deletion is to restore a backup.
+  */
+WalletErrors deleteWallet(uint32_t wallet_spec)
+{
+	uint32_t address;
+
+	if (getNumberOfWallets() == 0)
+	{
+		return last_error; // propagate error code
+	}
+	if (wallet_spec >= num_wallets)
+	{
+		last_error = WALLET_INVALID_WALLET_NUM;
+		return last_error;
+	}
+	// Always unload current wallet, just in case the current wallet is the
+	// one being deleted.
+	if (uninitWallet() != WALLET_NO_ERROR)
+	{
+		return last_error; // propagate error code
+	}
+	address = ADDRESS_WALLET_START + wallet_spec * sizeof(WalletRecord);
+	last_error = sanitiseNonVolatileStorage(address, address + sizeof(WalletRecord));
+	return last_error;
+}
+
 /** Create new wallet. A brand new wallet contains no addresses and should
   * have a unique, unpredictable deterministic private key generation seed.
   * \param wallet_spec The wallet number of the new wallet.
@@ -620,7 +654,6 @@ WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8
 {
 	uint8_t random_buffer[32];
 	uint8_t uuid[UUID_LENGTH];
-	uint32_t start_address;
 	WalletErrors r;
 
 	if (uninitWallet() != WALLET_NO_ERROR)
@@ -639,57 +672,37 @@ WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8
 	}
 	wallet_nv_address = ADDRESS_WALLET_START + wallet_spec * sizeof(WalletRecord);
 
-	// Generate wallet UUID now, because it is needed to derive the wallet
-	// encryption key.
-	if (getRandom256(random_buffer))
-	{
-		last_error = WALLET_RNG_FAILURE;
-		return last_error;
-	}
-	memcpy(uuid, random_buffer, UUID_LENGTH);
-
-	// Erase all traces of the existing wallet.
-	start_address = wallet_nv_address;
-	if (make_hidden)
-	{
-		// The creation of a hidden wallet is supposed to be discreet; the
-		// existing version/name fields should be left untouched. This is
-		// so an attacker who has access to before and after snapshots of all
-		// the name and version fields can't detect the existence of a hidden
-		// wallet.
-		// However, if there is already an existing wallet (i.e. the version
-		// field is not VERSION_NOTHING_THERE), then the existing version and
-		// name fields have to be cleared, otherwise the hidden wallet won't
-		// look very hidden.
-		r = readWalletRecord(&current_wallet, wallet_nv_address);
-		if (r != WALLET_NO_ERROR)
-		{
-			last_error = r;
-			return last_error;
-		}
-		if (current_wallet.unencrypted.version == VERSION_NOTHING_THERE)
-		{
-			start_address += sizeof(current_wallet.unencrypted);
-			// If the unencrypted fields are not being overwritten, then
-			// the existing wallet UUID needs to be used (not the generated
-			// one) as the salt for key generation, otherwise the hidden
-			// wallet will be impossible to load.
-			memcpy(uuid, current_wallet.unencrypted.uuid, UUID_LENGTH);
-		}
-	}
-	r = sanitiseNonVolatileStorage(start_address, wallet_nv_address + sizeof(WalletRecord));
-	if (r != WALLET_NO_ERROR)
-	{
-		last_error = r;
-		return last_error;
-	}
+	// Check for existing wallet.
 	r = readWalletRecord(&current_wallet, wallet_nv_address);
 	if (r != WALLET_NO_ERROR)
 	{
 		last_error = r;
 		return last_error;
 	}
+	if (current_wallet.unencrypted.version != VERSION_NOTHING_THERE)
+	{
+		last_error = WALLET_ALREADY_EXISTS;
+		return last_error;
+	}
 
+	if (make_hidden)
+	{
+		// The creation of a hidden wallet is supposed to be discreet, so
+		// all unencrypted fields should be left untouched. This forces us to
+		// use the existing UUID.
+		memcpy(uuid, current_wallet.unencrypted.uuid, UUID_LENGTH);
+	}
+	else
+	{
+		// Generate wallet UUID now, because it is needed to derive the wallet
+		// encryption key.
+		if (getRandom256(random_buffer))
+		{
+			last_error = WALLET_RNG_FAILURE;
+			return last_error;
+		}
+		memcpy(uuid, random_buffer, UUID_LENGTH);
+	}
 	deriveAndSetEncryptionKey(uuid, password, password_length);
 
 	// Update unencrypted fields of current_wallet.
@@ -1748,10 +1761,16 @@ int main(void)
 		reportFailure();
 	}
 
-	// Make some new addresses, then create a new wallet and make sure the
-	// new wallet is empty (i.e. check that newWallet() deletes existing
-	// wallet).
-	newWallet(0, name, false, NULL, false, NULL, 0);
+	// Check that newWallet() works.
+	if (newWallet(0, name, false, NULL, false, NULL, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("newWallet() fails for recently sanitised NV storage\n");
+		reportFailure();
+	}
 	if (makeNewAddress(temp, &public_key) != BAD_ADDRESS_HANDLE)
 	{
 		reportSuccess();
@@ -1761,6 +1780,107 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		reportFailure();
 	}
+
+	// newWallet() shouldn't overwrite an existing wallet.
+	if (newWallet(0, name, false, NULL, false, NULL, 0) == WALLET_ALREADY_EXISTS)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("newWallet() overwrites existing wallet\n");
+		reportFailure();
+	}
+
+	// Check that a deleteWallet()/newWallet() sequence does overwrite an
+	// existing wallet.
+	if (deleteWallet(0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("deleteWallet() failed\n");
+		reportFailure();
+	}
+	if (newWallet(0, name, false, NULL, false, NULL, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("newWallet() fails for recently deleted wallet\n");
+		reportFailure();
+	}
+
+	// Check that deleteWallet() deletes wallet.
+	deleteWallet(0);
+	newWallet(0, name, false, NULL, false, NULL, 0);
+	if (initWallet(0, NULL, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("initWallet() failed just after calling newWallet()\n");
+		reportFailure();
+	}
+	deleteWallet(0);
+	if (initWallet(0, NULL, 0) == WALLET_NOT_THERE)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("deleteWallet() isn't deleting wallet\n");
+		reportFailure();
+	}
+
+	// Check that deleteWallet() doesn't affect other wallets.
+	deleteWallet(0);
+	deleteWallet(1);
+	newWallet(0, name, false, NULL, false, NULL, 0);
+	newWallet(1, name, false, NULL, false, NULL, 0);
+	deleteWallet(1);
+	if (initWallet(0, NULL, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("deleteWallet() collateral damage to wallet 0\n");
+		reportFailure();
+	}
+	deleteWallet(0);
+	deleteWallet(1);
+	newWallet(0, name, false, NULL, false, NULL, 0);
+	newWallet(1, name, false, NULL, false, NULL, 0);
+	deleteWallet(0);
+	if (initWallet(1, NULL, 0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("deleteWallet() collateral damage to wallet 1\n");
+		reportFailure();
+	}
+
+	// Make some new addresses, then delete it and create a new wallet,
+	// making sure the new wallet is empty (i.e. check that deleteWallet()
+	// actually deletes a wallet).
+	deleteWallet(0);
+	newWallet(0, name, false, NULL, false, NULL, 0);
+	if (makeNewAddress(temp, &public_key) != BAD_ADDRESS_HANDLE)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("Couldn't create new address in new wallet 2\n");
+		reportFailure();
+	}
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	if ((getNumAddresses() == 0) && (walletGetLastError() == WALLET_EMPTY))
 	{
@@ -1768,7 +1888,7 @@ int main(void)
 	}
 	else
 	{
-		printf("newWallet() doesn't delete existing wallet\n");
+		printf("deleteWallet() doesn't delete existing wallet\n");
 		reportFailure();
 	}
 
@@ -1843,7 +1963,21 @@ int main(void)
 		reportFailure();
 	}
 
+	// deleteWallet() should succeed even if aimed at a wallet that
+	// "isn't there"; this is how hidden wallets can be deleted.
+	deleteWallet(0);
+	if (deleteWallet(0) == WALLET_NO_ERROR)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("deleteWallet() can't delete wallet that isn't there\n");
+		reportFailure();
+	}
+
 	// Create 2 new wallets and check that their addresses aren't the same
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	if (makeNewAddress(address1, &public_key) != BAD_ADDRESS_HANDLE)
 	{
@@ -1854,6 +1988,7 @@ int main(void)
 		printf("Couldn't create new address in new wallet\n");
 		reportFailure();
 	}
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	memset(address2, 0, 20);
 	memset(&public_key, 0, sizeof(PointAffine));
@@ -1907,6 +2042,7 @@ int main(void)
 
 	// Make some new addresses, up to a limit.
 	// Also check that addresses are unique.
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	abort = false;
 	abort_error = false;
@@ -1966,6 +2102,7 @@ int main(void)
 	}
 
 	// Check that getNumAddresses() fails when the wallet is empty.
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	if (getNumAddresses() == 0)
 	{
@@ -2337,6 +2474,7 @@ int main(void)
 
 	// Test the getAddressAndPublicKey() and getPrivateKey() functions on an
 	// empty wallet.
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	if (getAddressAndPublicKey(temp, &public_key, 0) == WALLET_EMPTY)
 	{
@@ -2358,6 +2496,7 @@ int main(void)
 	}
 
 	// Test wallet backup to valid device.
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	if (backupWallet(false, 0) == WALLET_NO_ERROR)
 	{
@@ -2383,6 +2522,7 @@ int main(void)
 	}
 
 	// Delete wallet and check that seed of a new wallet is different.
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	backupWallet(false, 0);
 	memcpy(seed2, test_wallet_backup, SEED_LENGTH);
@@ -2397,6 +2537,7 @@ int main(void)
 	}
 
 	// Try to restore a wallet backup.
+	deleteWallet(0);
 	if (newWallet(0, name, true, seed1, false, test_password0, sizeof(test_password0)) == WALLET_NO_ERROR)
 	{
 		reportSuccess();
@@ -2657,12 +2798,14 @@ int main(void)
 	// (it shouldn't).
 	uninitWallet();
 	memcpy(name, "A wallet with wallet number 0           ", NAME_LENGTH);
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	makeNewAddress(address1, &public_key);
 	makeNewAddress(address1, &public_key);
 	makeNewAddress(address1, &public_key);
 	uninitWallet();
 	memcpy(name2, "A wallet with wallet number 1           ", NAME_LENGTH);
+	deleteWallet(1);
 	newWallet(1, name2, false, NULL, false, NULL, 0);
 	makeNewAddress(address2, &public_key);
 	makeNewAddress(address2, &public_key);
@@ -2724,9 +2867,11 @@ int main(void)
 
 	// Set wallet 1 to have a different encryption key from wallet 0 and
 	// check that the correct encryption key (and only that one) works.
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, test_password0, sizeof(test_password0));
 	makeNewAddress(address1, &public_key);
 	uninitWallet();
+	deleteWallet(1);
 	newWallet(1, name2, false, NULL, false, test_password1, sizeof(test_password1));
 	makeNewAddress(address2, &public_key);
 	uninitWallet();
@@ -2806,6 +2951,7 @@ int main(void)
 	address_buffer = malloc(returned_num_wallets * 20);
 	for (i = 0; i < (int)returned_num_wallets; i++)
 	{
+		deleteWallet((uint32_t)i);
 		newWallet((uint32_t)i, name, false, NULL, false, NULL, 0);
 		makeNewAddress(&(address_buffer[i * 20]), &public_key);
 		uninitWallet();
@@ -3035,7 +3181,9 @@ int main(void)
 	// Create a non-hidden wallet, then overwrite it with a hidden wallet.
 	// The resulting version field should still be VERSION_NOTHING_THERE.
 	uninitWallet();
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, true, NULL, 0);
 	getWalletInfo(&version, temp, wallet_uuid, 0);
 	if (version != VERSION_NOTHING_THERE)
@@ -3050,7 +3198,9 @@ int main(void)
 
 	// Create two wallets. Their UUIDs should not be the same.
 	uninitWallet();
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
+	deleteWallet(1);
 	newWallet(1, name, false, NULL, false, NULL, 0);
 	getWalletInfo(&version, temp, wallet_uuid, 0);
 	getWalletInfo(&version, temp, wallet_uuid2, 1);
@@ -3066,6 +3216,7 @@ int main(void)
 
 	// Overwrite wallet 0. The UUID should change.
 	uninitWallet();
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, test_password0, sizeof(test_password0));
 	getWalletInfo(&version, temp, wallet_uuid2, 0);
 	if (!memcmp(wallet_uuid, wallet_uuid2, UUID_LENGTH))
@@ -3100,6 +3251,7 @@ int main(void)
 
 	// Check that getMasterPublicKey() works.
 	uninitWallet();
+	deleteWallet(0);
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	initWallet(0, NULL, 0);
 	if (getMasterPublicKey(&master_public_key, chain_code) != WALLET_NO_ERROR)

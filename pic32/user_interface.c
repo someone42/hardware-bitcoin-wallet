@@ -92,9 +92,9 @@ void clearOutputsSeen(void)
   */
 static void displayAction(AskUserCommand command)
 {
-	if (command == ASKUSER_NUKE_WALLET)
+	if (command == ASKUSER_NEW_WALLET)
 	{
-		writeStringToDisplayWordWrap("Delete current wallet and create new one?");
+		writeStringToDisplayWordWrap("Create new wallet?");
 	}
 	else if (command == ASKUSER_NEW_ADDRESS)
 	{
@@ -124,6 +124,10 @@ static void displayAction(AskUserCommand command)
 	{
 		writeStringToDisplayWordWrap("Reveal master public key?");
 	}
+    else if (command == ASKUSER_DELETE_WALLET)
+    {
+        writeStringToDisplayWordWrap("Delete existing wallet?");
+    }
 	else
 	{
 		writeStringToDisplayWordWrap("Unknown command");
@@ -145,13 +149,14 @@ bool userDenied(AskUserCommand command)
 	r = true;
     switch(command)
     {
-    case ASKUSER_NUKE_WALLET:
+    case ASKUSER_NEW_WALLET:
     case ASKUSER_NEW_ADDRESS:
     case ASKUSER_CHANGE_NAME:
     case ASKUSER_BACKUP_WALLET:
     case ASKUSER_RESTORE_WALLET:
     case ASKUSER_CHANGE_KEY:
     case ASKUSER_GET_MASTER_KEY:
+    case ASKUSER_DELETE_WALLET:
         waitForNoButtonPress();
 		displayAction(command);
 		r = waitForButtonPress();

@@ -71,6 +71,19 @@ message OtpCancel
 {
 }
 
+// Delete a wallet, making space for another one. Deleting a wallet does not
+// require that wallet to be loaded. Thus it is possible to delete a wallet
+// that you don't own.
+//
+// Direction: Host to Device
+// Responses: Success or Failure
+// Response interjections: ButtonRequest, OtpRequest
+message DeleteWallet
+{
+	// Which wallet to delete.
+	optional uint32 wallet_handle = 1 [default = 0];
+}
+
 // Responses: Success or Failure
 // Response interjections: ButtonRequest
 // wallet_name is stored purely for the convenience of the host. It should be

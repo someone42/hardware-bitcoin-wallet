@@ -58,13 +58,16 @@ typedef enum WalletErrorsEnum
 	/** Invalid wallet number specified. */
 	WALLET_INVALID_WALLET_NUM	=	11,
 	/** The specified operation is not allowed on this type of wallet. */
-	WALLET_INVALID_OPERATION	=	12
+	WALLET_INVALID_OPERATION	=	12,
+	/** A wallet already exists at the specified location. */
+	WALLET_ALREADY_EXISTS		=	13
 } WalletErrors;
 
 extern WalletErrors walletGetLastError(void);
 extern WalletErrors initWallet(uint32_t wallet_spec, const uint8_t *password, const unsigned int password_length);
 extern WalletErrors uninitWallet(void);
 extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
+extern WalletErrors deleteWallet(uint32_t wallet_spec);
 extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8_t *seed, bool make_hidden, const uint8_t *password, const unsigned int password_length);
 extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);
 extern WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah);

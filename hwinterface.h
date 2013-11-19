@@ -32,8 +32,8 @@ typedef enum NonVolatileReturnEnum
   * about. */
 typedef enum AskUserCommandEnum
 {
-	/** Do you want to nuke the current wallet and start afresh? */
-	ASKUSER_NUKE_WALLET			=	1,
+	/** Do you want to create a new wallet? */
+	ASKUSER_NEW_WALLET			=	1,
 	/** Do you want to create a new address in this wallet? */
 	ASKUSER_NEW_ADDRESS			=	2,
 	/** Do you want to do this transaction? */
@@ -49,7 +49,9 @@ typedef enum AskUserCommandEnum
 	/** Do you want to change the encryption key of a wallet? */
 	ASKUSER_CHANGE_KEY			=	8,
 	/** Do you want to give the host access to the master public key? */
-	ASKUSER_GET_MASTER_KEY		=	9
+	ASKUSER_GET_MASTER_KEY		=	9,
+	/** Do you want to delete an existing wallet? */
+	ASKUSER_DELETE_WALLET		=	10
 } AskUserCommand;
 
 /** Values for getString() function which specify which set of strings
