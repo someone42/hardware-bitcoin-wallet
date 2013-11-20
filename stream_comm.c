@@ -48,7 +48,7 @@ bool mainOutputStreamCallback(pb_ostream_t *stream, const uint8_t *buf, size_t c
 static void writeFailureString(StringSet set, uint8_t spec);
 bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg);
 
-/** Maximum size (in bytes) of any protocol buffer message send by functions
+/** Maximum size (in bytes) of any protocol buffer message sent by functions
   * in this file. */
 #define MAX_SEND_SIZE			255
 
@@ -64,6 +64,8 @@ bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg)
   * this file only need to deal with one message at any one time. */
 union MessageBufferUnion
 {
+	Initialize initialize;
+	Features features;
 	Ping ping;
 	PingResponse ping_response;
 	DeleteWallet delete_wallet;
@@ -73,7 +75,6 @@ union MessageBufferUnion
 	NumberOfAddresses number_of_addresses;
 	GetAddressAndPublicKey get_address_and_public_key;
 	LoadWallet load_wallet;
-	UnloadWallet unload_wallet;
 	FormatWalletArea format_wallet_area;
 	ChangeEncryptionKey change_encryption_key;
 	ChangeWalletName change_wallet_name;
@@ -88,6 +89,15 @@ union MessageBufferUnion
 	MasterPublicKey master_public_key;
 };
 
+/** Determines the string that writeStringCallback() will write. */
+struct StringSetAndSpec
+{
+	/** String set (see getString()) of string to be outputted. */
+	StringSet next_set;
+	/** String specifier (see getString()) of string to be outputted. */
+	uint8_t next_spec;
+};
+
 /** The transaction hash of the most recently approved transaction. This is
   * stored so that if a transaction needs to be signed multiple times (eg.
   * if it has more than one input), the user doesn't have to approve every
@@ -100,12 +110,13 @@ static bool prev_transaction_hash_valid;
 /** Length of current packet's payload. */
 static uint32_t payload_length;
 
-/** String set (see getString()) of next string to be outputted by
-  * writeStringCallback(). */
-static StringSet next_set;
-/** String specifier (see getString()) of next string to be outputted by
-  * writeStringCallback(). */
-static uint8_t next_spec;
+/** Argument for writeStringCallback() which determines what string it will
+  * write. Don't put this on the stack, otherwise the consequences of a
+  * dangling pointer are less secure. */
+static struct StringSetAndSpec string_arg;
+/** Alternate copy of #string_arg, for when more than one string needs to be
+  * written. */
+static struct StringSetAndSpec string_arg_alt;
 /** Current number of wallets; used for the listWalletsCallback() callback
   * function. */
 static uint32_t number_of_wallets;
@@ -122,6 +133,12 @@ static SignTransaction sign_transaction;
 static uint8_t field_hash[32];
 /** Whether #field_hash has been set. */
 static bool field_hash_set;
+
+/** Number of valid bytes in #session_id. */
+static size_t session_id_length;
+/** Arbitrary host-supplied bytes which are sent to the host to assure it that
+  * a reset hasn't occurred. */
+static uint8_t session_id[64];
 
 /** nanopb input stream which uses mainInputStreamCallback() as a stream
   * callback. */
@@ -302,8 +319,14 @@ bool writeStringCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
 	uint16_t i;
 	uint16_t length;
 	char c;
+	struct StringSetAndSpec *arg_s;
 
-	length = getStringLength(next_set, next_spec);
+	arg_s = (struct StringSetAndSpec *)arg;
+	if (arg_s == NULL)
+	{
+		fatalError(); // this should never happen
+	}
+	length = getStringLength(arg_s->next_set, arg_s->next_spec);
 	if (!pb_encode_tag_for_field(stream, field))
 	{
 		return false;
@@ -317,7 +340,7 @@ bool writeStringCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
 	}
 	for (i = 0; i < length; i++)
 	{
-		c = getString(next_set, next_spec, i);
+		c = getString(arg_s->next_set, arg_s->next_spec, i);
 		if (!pb_write(stream, (uint8_t *)&c, 1))
 		{
 			return false;
@@ -334,9 +357,10 @@ static void writeFailureString(StringSet set, uint8_t spec)
 {
 	Failure message_buffer;
 
-	next_set = set;
-	next_spec = spec;
+	string_arg.next_set = set;
+	string_arg.next_spec = spec;
 	message_buffer.error_message.funcs.encode = &writeStringCallback;
+	message_buffer.error_message.arg = &string_arg;
 	sendPacket(PACKET_TYPE_FAILURE, Failure_fields, &message_buffer);
 }
 
@@ -860,6 +884,8 @@ void processPacket(void)
 	bool invalid_otp;
 	unsigned int password_length;
 	WalletErrors wallet_return;
+	char ping_greeting[sizeof(message_buffer.ping.greeting)];
+	bool has_ping_greeting;
 
 	message_id = receivePacketHeader();
 
@@ -877,15 +903,95 @@ void processPacket(void)
 	switch (message_id)
 	{
 
+	case PACKET_TYPE_INITIALIZE:
+		// Reset state and report features.
+		session_id_length = 0; // just in case receiveMessage() fails
+		receive_failure = receiveMessage(Initialize_fields, &(message_buffer.initialize));
+		if (!receive_failure)
+		{
+			session_id_length = message_buffer.initialize.session_id.size;
+			if (session_id_length >= sizeof(session_id))
+			{
+				fatalError(); // sanity check failed
+			}
+			memcpy(session_id, message_buffer.initialize.session_id.bytes, session_id_length);
+			prev_transaction_hash_valid = false;
+			sanitiseRam();
+			wallet_return = uninitWallet();
+			if (wallet_return == WALLET_NO_ERROR)
+			{
+				memset(&message_buffer, 0, sizeof(message_buffer));
+				message_buffer.features.echoed_session_id.size = session_id_length;
+				if (session_id_length >= sizeof(message_buffer.features.echoed_session_id.bytes))
+				{
+					fatalError(); // sanity check failed
+				}
+				memcpy(message_buffer.features.echoed_session_id.bytes, session_id, session_id_length);
+				string_arg.next_set = STRINGSET_MISC;
+				string_arg.next_spec = MISCSTR_VENDOR;
+				message_buffer.features.has_vendor = true;
+				message_buffer.features.vendor.funcs.encode = &writeStringCallback;
+				message_buffer.features.vendor.arg = &string_arg;
+				message_buffer.features.has_major_version = true;
+				message_buffer.features.major_version = VERSION_MAJOR;
+				message_buffer.features.has_minor_version = true;
+				message_buffer.features.minor_version = VERSION_MINOR;
+				string_arg_alt.next_set = STRINGSET_MISC;
+				string_arg_alt.next_spec = MISCSTR_CONFIG;
+				message_buffer.features.has_config = true;
+				message_buffer.features.config.funcs.encode = &writeStringCallback;
+				message_buffer.features.config.arg = &string_arg_alt;
+				message_buffer.features.has_otp = true;
+				message_buffer.features.otp = true;
+				message_buffer.features.has_pin = true;
+				message_buffer.features.pin = true;
+				message_buffer.features.has_spv = true;
+				message_buffer.features.spv = true;
+				message_buffer.features.algo_count = 1;
+				message_buffer.features.algo[0] = Algorithm_BIP32;
+				message_buffer.features.has_debug_link = true;
+				message_buffer.features.debug_link = false;
+				sendPacket(PACKET_TYPE_FEATURES, Features_fields, &(message_buffer.features));
+			}
+			else
+			{
+				translateWalletError(wallet_return);
+			}
+		}
+		break;
+
 	case PACKET_TYPE_PING:
 		// Ping request.
-		message_buffer.ping.greeting.funcs.decode = NULL; // throw away greeting
 		receive_failure = receiveMessage(Ping_fields, &(message_buffer.ping));
 		if (!receive_failure)
 		{
-			next_set = STRINGSET_MISC;
-			next_spec = MISCSTR_VERSION;
-			message_buffer.ping_response.version.funcs.encode = &writeStringCallback;
+			has_ping_greeting = message_buffer.ping.has_greeting;
+			if (sizeof(message_buffer.ping.greeting) != sizeof(ping_greeting))
+			{
+				fatalError(); // sanity check failed
+			}
+			if (has_ping_greeting)
+			{
+				memcpy(ping_greeting, message_buffer.ping.greeting, sizeof(ping_greeting));
+			}
+			ping_greeting[sizeof(ping_greeting) - 1] = '\0'; // ensure that string is terminated
+			// Generate ping response message.
+			memset(&message_buffer, 0, sizeof(message_buffer));
+			message_buffer.ping_response.has_echoed_greeting = has_ping_greeting;
+			if (sizeof(ping_greeting) != sizeof(message_buffer.ping_response.echoed_greeting))
+			{
+				fatalError(); // sanity check failed
+			}
+			if (has_ping_greeting)
+			{
+				memcpy(message_buffer.ping_response.echoed_greeting, ping_greeting, sizeof(message_buffer.ping_response.echoed_greeting));
+			}
+			message_buffer.ping_response.echoed_session_id.size = session_id_length;
+			if (session_id_length >= sizeof(message_buffer.ping_response.echoed_session_id.bytes))
+			{
+				fatalError(); // sanity check failed
+			}
+			memcpy(message_buffer.ping_response.echoed_session_id.bytes, session_id, session_id_length);
 			sendPacket(PACKET_TYPE_PING_RESPONSE, PingResponse_fields, &(message_buffer.ping_response));
 		}
 		break;
@@ -1013,18 +1119,6 @@ void processPacket(void)
 			{
 				translateWalletError(wallet_return);
 			}
-		}
-		break;
-
-	case PACKET_TYPE_UNLOAD_WALLET:
-		// Unload wallet.
-		receive_failure = receiveMessage(UnloadWallet_fields, &(message_buffer.unload_wallet));
-		if (!receive_failure)
-		{
-			prev_transaction_hash_valid = false;
-			sanitiseRam();
-			wallet_return = uninitWallet();
-			translateWalletError(wallet_return);
 		}
 		break;
 
@@ -1319,8 +1413,8 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 	{
 		switch (spec)
 		{
-		case MISCSTR_VERSION:
-			return "Hello world v0.1";
+		case MISCSTR_VENDOR:
+			return "Vendor";
 			break;
 		case MISCSTR_PERMISSION_DENIED_USER:
 			return "Permission denied by user";
@@ -1339,6 +1433,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case MISCSTR_OTP_MISMATCH:
 			return "OTP mismatch";
+			break;
+		case MISCSTR_CONFIG:
+			return "Config string";
 			break;
 		default:
 			assert(0);
@@ -1736,9 +1833,9 @@ static const uint8_t test_stream_load_incorrect[] = {
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-/** Test stream data for: unload wallet. */
-static const uint8_t test_stream_unload[] = {
-0x23, 0x23, 0x00, 0x0c, 0x00, 0x00, 0x00, 0x00};
+/** Test stream data for: initialize. */
+static const uint8_t test_stream_init[] = {
+0x23, 0x23, 0x00, 0x17, 0x00, 0x00, 0x00, 0x04, 0x0a, 0x02, 0x61, 0x62};
 
 /** Test stream data for: change encryption key and allow button press. */
 static const uint8_t test_stream_change_key[] = {
@@ -1891,6 +1988,8 @@ int main(void)
 	initWalletTest();
 	initialiseDefaultEntropyPool();
 
+	printf("Initialising...\n");
+	SEND_ONE_TEST_STREAM(test_stream_init);
 	printf("Formatting...\n");
 	SEND_ONE_TEST_STREAM(test_stream_format);
 	printf("Listing wallets...\n");
@@ -1920,8 +2019,8 @@ int main(void)
 	SEND_ONE_TEST_STREAM(test_stream_load_correct);
 	printf("Changing wallet key...\n");
 	SEND_ONE_TEST_STREAM(test_stream_change_key);
-	printf("Unloading wallet...\n");
-	SEND_ONE_TEST_STREAM(test_stream_unload);
+	printf("Initialising again...\n");
+	SEND_ONE_TEST_STREAM(test_stream_init);
 	printf("Loading wallet using changed key...\n");
 	SEND_ONE_TEST_STREAM(test_stream_load_with_changed_key);
 	printf("Changing name...\n");

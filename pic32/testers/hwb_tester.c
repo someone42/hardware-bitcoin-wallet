@@ -58,8 +58,6 @@ static char *packetCommandToText(int command)
 		return "SignTransaction";
 	case 0x0b:
 		return "LoadWallet";
-	case 0x0c:
-		return "UnloadWallet";
 	case 0x0d:
 		return "FormatWalletArea";
 	case 0x0e:
@@ -80,6 +78,8 @@ static char *packetCommandToText(int command)
 		return "GetMasterPublicKey";
 	case 0x16:
 		return "DeleteWallet";
+	case 0x17:
+		return "Initialize";
 	case 0x30:
 		return "Address";
 	case 0x31:
@@ -100,6 +100,8 @@ static char *packetCommandToText(int command)
 		return "MasterPublicKey";
 	case 0x39:
 		return "Signature";
+	case 0x3a:
+		return "Features";
 	case 0x50:
 		return "ButtonRequest";
 	case 0x51:

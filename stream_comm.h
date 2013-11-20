@@ -11,6 +11,11 @@
 
 #include "common.h"
 
+/** Major version number to report to the host. */
+#define VERSION_MAJOR					0
+/** Minor version number to report to the host. */
+#define VERSION_MINOR					4
+
 /**
  * \defgroup PacketTypes Type values for packets.
  *
@@ -33,8 +38,6 @@
 #define PACKET_TYPE_SIGN_TRANSACTION	0x0A
 /** Load (unlock) a wallet. */
 #define PACKET_TYPE_LOAD_WALLET			0x0B
-/** Unload (lock) a wallet. */
-#define PACKET_TYPE_UNLOAD_WALLET		0x0C
 /** Format storage area, erasing everything. */
 #define PACKET_TYPE_FORMAT				0x0D
 /** Change encryption key of a wallet. */
@@ -55,6 +58,8 @@
 #define PACKET_TYPE_GET_MASTER_KEY		0x15
 /** Delete a wallet. */
 #define PACKET_TYPE_DELETE_WALLET		0x16
+/** Initialise device's state. */
+#define PACKET_TYPE_INITIALIZE			0x17
 /** An address from a wallet (response to #PACKET_TYPE_GET_ADDRESS_PUBKEY
   * or #PACKET_TYPE_NEW_ADDRESS). */
 #define PACKET_TYPE_ADDRESS_PUBKEY		0x30
@@ -78,6 +83,8 @@
 #define PACKET_TYPE_MASTER_KEY			0x38
 /** Signature (response to #PACKET_TYPE_SIGN_TRANSACTION). */
 #define PACKET_TYPE_SIGNATURE			0x39
+/** Version information and list of features. */
+#define PACKET_TYPE_FEATURES			0x3a
 /** Device wants to wait for button press (beginning of ButtonRequest
   * interjection). */
 #define PACKET_TYPE_BUTTON_REQUEST		0x50

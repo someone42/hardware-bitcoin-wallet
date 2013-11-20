@@ -1,15 +1,82 @@
 import "nanopb.proto";
 
+// Specifies algorithm used for deterministic wallet.
+enum Algorithm
+{
+	// See https://en.bitcoin.it/wiki/BIP_0032
+	BIP32 = 0;
+	// Note that the BitSafe is unlikely to support Electrum's determinstic
+	// wallet algorithm.
+	ELECTRUM = 1;
+}
+
+// Reset state of wallet. If a wallet is loaded, this message will unload
+// (lock) it.
+//
+// Direction: Host to Device
+// Responses: Features
+message Initialize
+{
+	// Arbitrary session identifier, which will be echoed back in the response
+	// (a Features message).
+    required bytes session_id = 1 [(nanopb).max_size = 64];
+}
+
+// List of features supported by the device.
+//
+// Direction: Device To Host
+// Responses: none
+message Features
+{
+	// Echoed from Initialize message.
+	required bytes echoed_session_id = 1 [(nanopb).max_size = 64];
+	// Name of the manufacturer eg. "Aperture Science".
+	optional string vendor = 2;
+	// Major version number of the device eg. 0.
+	optional uint32 major_version = 3;
+	// Minor version number of the device eg. 9.
+	optional uint32 minor_version = 4;
+	// Vendor-specific configuration information (eg. firmware build options).
+	optional string config = 5;
+	// Whether device is able to use OtpRequest interjections.
+	optional bool otp = 6;
+	// Whether device is able to use PinRequest interjections.
+	optional bool pin = 7;
+	// Whether device expects supporting transactions to be included when
+	// signing a transaction.
+	optional bool spv = 8;
+	// List of supported deterministic wallet algorithms.
+	repeated Algorithm algo = 9 [(nanopb).max_count = 2];
+	// Whether DebugLink is enabled. Production builds will never have
+	// DebugLink enabled.
+	optional bool debug_link = 10;
+}
+
+// Check whether device is still alive.
+//
+// Direction: Host to Device
 // Responses: PingResponse
 message Ping
 {
-	optional string greeting = 1;
+	// Arbitrary greeting which will be echoed back in the response
+	// (PingResponse message).
+	optional string greeting = 1 [(nanopb).max_size = 64];
 }
 
+// Response to Ping message which indicates to the host that the device is
+// still alive.
+//
+// Direction: Device To Host
 // Responses: none
 message PingResponse
 {
-	required string version = 1;
+	// Echoed from Ping message.
+	optional string echoed_greeting = 1 [(nanopb).max_size = 64];
+	// Echoed from most recent Initialize message. The host can use this as
+	// a sanity check to ensure the device hasn't reset itself in the middle
+	// of a session. If Initialize hasn't been called since reset, this will
+	// be filled with 00s.
+	required bytes echoed_session_id = 2 [(nanopb).max_size = 64];
 }
 
 // Responses: none
@@ -147,11 +214,6 @@ message Signature
 message LoadWallet
 {
 	optional uint32 wallet_number = 1 [default = 0];
-}
-
-// Responses: Success or Failure
-message UnloadWallet
-{
 }
 
 // Responses: Success or Failure

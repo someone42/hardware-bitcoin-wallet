@@ -76,8 +76,8 @@ typedef enum StringSetEnum
 /** The miscellaneous strings that can be output. */
 typedef enum MiscStringsEnum
 {
-	/** The device's version string. */
-	MISCSTR_VERSION					=	1,
+	/** The device's vendor string. */
+	MISCSTR_VENDOR					=	1,
 	/** Text explaining that the operation was denied by the user. */
 	MISCSTR_PERMISSION_DENIED_USER	=	2,
 	/** Text explaining that a packet was malformed or unrecognised. */
@@ -90,7 +90,9 @@ typedef enum MiscStringsEnum
 	MISCSTR_UNEXPECTED_PACKET		=	6,
 	/** Text explaining that the submitted one-time password (OTP) did not
 	  * match the generated OTP. */
-	MISCSTR_OTP_MISMATCH			=	7
+	MISCSTR_OTP_MISMATCH			=	7,
+	/** The device's configuration (eg. compile options) string. */
+	MISCSTR_CONFIG					=	8
 } MiscStrings;
 
 /** Obtain one character from one of the device's strings.
