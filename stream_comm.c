@@ -356,9 +356,13 @@ bool writeStringCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
 static void writeFailureString(StringSet set, uint8_t spec)
 {
 	Failure message_buffer;
+	uint32_t code;
 
 	string_arg.next_set = set;
 	string_arg.next_spec = spec;
+	code = (uint32_t)spec & 0xffff;
+	code |= ((uint32_t)set & 0xffff) << 16;
+	message_buffer.error_code = code;
 	message_buffer.error_message.funcs.encode = &writeStringCallback;
 	message_buffer.error_message.arg = &string_arg;
 	sendPacket(PACKET_TYPE_FAILURE, Failure_fields, &message_buffer);

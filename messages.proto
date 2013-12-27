@@ -87,7 +87,10 @@ message Success
 // Responses: none
 message Failure
 {
-	required string error_message = 1;
+	// Numeric identifier of error.
+	required uint32 error_code = 1;
+	// Human-readable description of error.
+	required string error_message = 2;
 }
 
 // Interjection sent from the device to the host specifying that a button
