@@ -46,7 +46,7 @@
 bool mainInputStreamCallback(pb_istream_t *stream, uint8_t *buf, size_t count);
 bool mainOutputStreamCallback(pb_ostream_t *stream, const uint8_t *buf, size_t count);
 static void writeFailureString(StringSet set, uint8_t spec);
-bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg);
+bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void **arg);
 
 /** Maximum size (in bytes) of any protocol buffer message sent by functions
   * in this file. */
@@ -145,7 +145,7 @@ static uint8_t session_id[64];
 pb_istream_t main_input_stream = {&mainInputStreamCallback, NULL, 0, NULL};
 /** nanopb output stream which uses mainOutputStreamCallback() as a stream
   * callback. */
-pb_ostream_t main_output_stream = {&mainOutputStreamCallback, NULL, 0, 0};
+pb_ostream_t main_output_stream = {&mainOutputStreamCallback, NULL, 0, 0, NULL};
 
 #ifdef TEST_STREAM_COMM
 /** When sending test packets, the OTP stored here will be used instead of
@@ -307,21 +307,27 @@ static void sendPacket(uint16_t message_id, const pb_field_t fields[], const voi
 	}
 }
 
-/** nanopb field callback which will write the string specified
-  * by #next_set and #next_spec.
+/** nanopb field callback which will write the string specified by arg.
   * \param stream Output stream to write to.
   * \param field Field which contains the string.
-  * \param arg Unused.
+  * \param arg Pointer to #StringSetAndSpec structure specifying the string
+  *            to write.
   * \return true on success, false on failure (nanopb convention).
   */
-bool writeStringCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
+bool writeStringCallback(pb_ostream_t *stream, const pb_field_t *field, void * const *arg)
 {
 	uint16_t i;
 	uint16_t length;
 	char c;
+	struct StringSetAndSpec **ptr_arg_s;
 	struct StringSetAndSpec *arg_s;
 
-	arg_s = (struct StringSetAndSpec *)arg;
+	ptr_arg_s = (struct StringSetAndSpec **)arg;
+	if (ptr_arg_s == NULL)
+	{
+		fatalError(); // this should never happen
+	}
+	arg_s = *ptr_arg_s;
 	if (arg_s == NULL)
 	{
 		fatalError(); // this should never happen
@@ -594,7 +600,7 @@ static bool otpInterjection(AskUserCommand command)
   * \param arg Unused.
   * \return true on success, false on failure (nanopb convention).
   */
-bool signTransactionCallback(pb_istream_t *stream, const pb_field_t *field, void *arg)
+bool signTransactionCallback(pb_istream_t *stream, const pb_field_t *field, void **arg)
 {
 	AddressHandle ah;
 	bool approved;
@@ -742,7 +748,7 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new, AddressHan
   * \param arg Unused.
   * \return true on success, false on failure (nanopb convention).
   */
-bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
+bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, void * const *arg)
 {
 	uint32_t version;
 	uint32_t i;
@@ -785,7 +791,7 @@ bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
   * \param arg Unused.
   * \return true on success, false on failure (nanopb convention).
   */
-bool getEntropyCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
+bool getEntropyCallback(pb_ostream_t *stream, const pb_field_t *field, void * const *arg)
 {
 	if (entropy_buffer == NULL)
 	{
@@ -852,7 +858,7 @@ static NOINLINE void getBytesOfEntropy(uint32_t num_bytes)
   * \param arg Unused.
   * \return true on success, false on failure (nanopb convention).
   */
-bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void *arg)
+bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void **arg)
 {
 	uint8_t one_byte;
 	HashState hs;
@@ -937,7 +943,6 @@ void processPacket(void)
 				memcpy(message_buffer.features.echoed_session_id.bytes, session_id, session_id_length);
 				string_arg.next_set = STRINGSET_MISC;
 				string_arg.next_spec = MISCSTR_VENDOR;
-				message_buffer.features.has_vendor = true;
 				message_buffer.features.vendor.funcs.encode = &writeStringCallback;
 				message_buffer.features.vendor.arg = &string_arg;
 				message_buffer.features.has_major_version = true;
@@ -946,7 +951,6 @@ void processPacket(void)
 				message_buffer.features.minor_version = VERSION_MINOR;
 				string_arg_alt.next_set = STRINGSET_MISC;
 				string_arg_alt.next_spec = MISCSTR_CONFIG;
-				message_buffer.features.has_config = true;
 				message_buffer.features.config.funcs.encode = &writeStringCallback;
 				message_buffer.features.config.arg = &string_arg_alt;
 				message_buffer.features.has_otp = true;

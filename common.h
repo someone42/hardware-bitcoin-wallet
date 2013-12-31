@@ -12,6 +12,8 @@
 #ifndef COMMON_H_INCLUDED
 #define COMMON_H_INCLUDED
 
+#include <stddef.h>
+
 // Some platforms or toolchains lack stdint.h. Please define NO_STDINT_H and
 // modify the three typedefs below if this is the case.
 #ifdef NO_STDINT_H
