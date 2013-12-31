@@ -253,9 +253,8 @@ message ListWallets
 message WalletInfo
 {
 	required uint32 wallet_number = 1;
-	required uint32 version = 2;
-	required bytes wallet_name = 3 [(nanopb).max_size = 40];
-	required bytes wallet_uuid = 4 [(nanopb).max_size = 16];
+	required bytes wallet_name = 2 [(nanopb).max_size = 40];
+	required bytes wallet_uuid = 3 [(nanopb).max_size = 16];
 }
 
 // Responses: none

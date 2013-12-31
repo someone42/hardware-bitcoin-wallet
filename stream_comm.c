@@ -744,6 +744,7 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new, AddressHan
   */
 bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const void *arg)
 {
+	uint32_t version;
 	uint32_t i;
 	WalletInfo message_buffer;
 
@@ -753,7 +754,7 @@ bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
 		message_buffer.wallet_name.size = NAME_LENGTH;
 		message_buffer.wallet_uuid.size = UUID_LENGTH;
 		if (getWalletInfo(
-			&(message_buffer.version),
+			&version,
 			message_buffer.wallet_name.bytes,
 			message_buffer.wallet_uuid.bytes,
 			i) != WALLET_NO_ERROR)
@@ -762,13 +763,16 @@ bool listWalletsCallback(pb_ostream_t *stream, const pb_field_t *field, const vo
 			// array now.
 			return true;
 		}
-		if (!pb_encode_tag_for_field(stream, field))
+		if (version != VERSION_NOTHING_THERE)
 		{
-			return false;
-		}
-		if (!pb_encode_submessage(stream, WalletInfo_fields, &message_buffer))
-		{
-			return false;
+			if (!pb_encode_tag_for_field(stream, field))
+			{
+				return false;
+			}
+			if (!pb_encode_submessage(stream, WalletInfo_fields, &message_buffer))
+			{
+				return false;
+			}
 		}
 	}
 	return true;

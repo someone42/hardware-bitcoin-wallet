@@ -27,6 +27,24 @@ typedef uint32_t AddressHandle;
 /** Maximum length, in bytes, of the name of a wallet. */
 #define NAME_LENGTH			40
 
+/** Possible values for the version field of a wallet record. */
+typedef enum WalletVersionEnum
+{
+	/** Version number which means "nothing here".
+	  * \warning This must be 0 or sanitiseNonVolatileStorage() won't clear
+	  *          version fields correctly.
+	  */
+	VERSION_NOTHING_THERE		= 0x00000000,
+	/** Version number which means "wallet is not encrypted".
+	  * \warning A wallet which uses an encryption key consisting of
+	  *          all zeroes (see isEncryptionKeyNonZero()) is considered to be
+	  *          unencrypted.
+	  */
+	VERSION_UNENCRYPTED			= 0x00000002,
+	/** Version number which means "wallet is encrypted". */
+	VERSION_IS_ENCRYPTED		= 0x00000003
+} WalletVersion;
+
 /** Return values for walletGetLastError(). Many other wallet functions will
   * also return one of these values. */
 typedef enum WalletErrorsEnum
