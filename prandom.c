@@ -471,6 +471,7 @@ bool generateDeterministic256(BigNum256 out, const uint8_t *seed, const uint32_t
 	// http://www.secg.org/collateral/sec1_final.pdf section 2.3 ("Data Types
 	// and Conversions"). The gist of it is: 0x04, followed by x, then y in
 	// big-endian format.
+	// TODO: Remove this all and implement updated BIP 32
 	hmac_message[0] = 0x04;
 	memcpy(&(hmac_message[1]), cached_parent_public_key.x, 32);
 	swapEndian256(&(hmac_message[1]));

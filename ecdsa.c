@@ -33,6 +33,7 @@
 #include "common.h"
 #include "bignum256.h"
 #include "ecdsa.h"
+#include "endian.h"
 
 /** A point on the elliptic curve, in Jacobian coordinates. The
   * Jacobian coordinates (x, y, z) are related to affine coordinates
@@ -80,6 +81,14 @@ static const uint8_t secp256k1_complement_n[17] = {
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
 
+/** This is #secp256k1_p plus 1, then divided by 4. It is a constant used for
+  * decompressing elliptic curve points. */
+static const uint8_t secp256k1_p_plus1over4[32] = {
+0x0c, 0xff, 0xff, 0xbf, 0xff, 0xff, 0xff, 0xff,
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f};
+
 /** The x component of the base point G used in secp256k1. */
 static const uint8_t secp256k1_Gx[32] PROGMEM = {
 0x98, 0x17, 0xf8, 0x16, 0x5b, 0x81, 0xf2, 0x59,
@@ -93,6 +102,13 @@ static const uint8_t secp256k1_Gy[32] PROGMEM = {
 0x19, 0x54, 0x85, 0xa6, 0x48, 0xb4, 0x17, 0xfd,
 0xa8, 0x08, 0x11, 0x0e, 0xfc, 0xfb, 0xa4, 0x5d,
 0x65, 0xc4, 0xa3, 0x26, 0x77, 0xda, 0x3a, 0x48};
+
+/** The curve parameter b of secp256k1. The other parameter, a, is zero. */
+static const uint8_t secp256k1_b[32] = {
+0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /** Convert a point from affine coordinates to Jacobian coordinates. This
   * is very fast.
@@ -417,14 +433,238 @@ uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_ke
 	return 0;
 }
 
+/** Serialise an elliptic curve point in a manner which is Bitcoin-compatible.
+  * This means using the serialisation rules in:
+  * "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
+  * 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
+  * sections 2.3.2 ("OctetString-to-BitString Conversion") and
+  * 2.3.3 ("EllipticCurvePoint-to-OctetString Conversion").
+  * The document basically says that integers should be represented big-endian
+  * and that a prefix byte should be prepended to indicate that the public key
+  * is compressed or not.
+  * \param out Where the serialised point will be written to. This must be a
+  *            byte array with space for at least #ECDSA_MAX_SERIALISE_SIZE
+  *            bytes.
+  * \param point The elliptic point curve to serialise.
+  * \param do_compress Whether to apply point compression - this will reduce
+  *                    the size of public keys and hence transactions.
+  *                    As of 2014, all Bitcoin clients out there are able to
+  *                    decompress points, so it should be safe to always
+  *                    compress points.
+  * \return The number of bytes written to out.
+  */
+uint8_t ecdsaSerialise(uint8_t *out, const PointAffine *point, const bool do_compress)
+{
+	PointAffine temp;
+
+	memcpy(&temp, point, sizeof(temp)); // need temp for endian reversing
+	if (temp.is_point_at_infinity)
+	{
+		// Special case for point at infinity.
+		out[0] = 0x00;
+		return 1;
+	}
+	else if (!do_compress)
+	{
+		// Uncompressed point.
+		out[0] = 0x04;
+		swapEndian256(temp.x);
+		swapEndian256(temp.y);
+		memcpy(&(out[1]), temp.x, 32);
+		memcpy(&(out[33]), temp.y, 32);
+		return 65;
+	}
+	else
+	{
+		// Compressed point.
+		if ((temp.y[0] & 1) != 0)
+		{
+			out[0] = 0x03; // is odd
+		}
+		else
+		{
+			out[0] = 0x02; // is not odd
+		}
+		swapEndian256(temp.x);
+		memcpy(&(out[1]), temp.x, 32);
+		return 33;
+	}
+}
+
+/** Decompress an elliptic curve point - that is, given only the x value of
+  * a point, this will calculate the y value. This means that only the x value
+  * needs to be stored, which decreases memory use at the expense of time.
+  * \param point The point to decompress. Only the x field needs to be filled
+  *              in - the y field will be ignored and overwritten.
+  * \param is_odd For any x value, there are two valid y values - one odd and
+  *               one even. This parameter instructs the function to pick
+  *               one of them. Use 0 to pick the even one, 1 to pick the odd
+  *               one.
+  */
+void ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
+{
+	uint8_t temp[32];
+	uint8_t sqrt_y_squared[32];
+	uint8_t is_sqrt_y_squared_odd;
+	uint8_t supposed_to_be_odd;
+	BigNum256 lookup[2];
+	unsigned int i;
+	unsigned int byte_num;
+	unsigned int bit_num;
+
+	setFieldToP();
+	bigMultiply(temp, point->x, point->x);
+	bigMultiply(temp, temp, point->x);
+	bigAdd(temp, temp, (BigNum256)secp256k1_b); // temp = x^3 + b = y^2
+	// Since y^2 = x^3 + b in secp256k1, y = sqrt(x^3 + b). The square
+	// root can be performed using the Tonelli-Shanks algorithm. Here, a special
+	// case is used, which only works for p = 3 (mod 4) - this is satisfied for
+	// the secp256k1 curve. For more information see:
+	// http://point-at-infinity.org/ecc/Algorithm_of_Shanks_&_Tonelli.html
+	// Exponentiation is done by a standard binary square-and-multiply
+	// algorithm.
+	bigSetZero(sqrt_y_squared);
+	sqrt_y_squared[0] = 1;
+	for (i = 255; i < 256; i--)
+	{
+		bigMultiply(sqrt_y_squared, sqrt_y_squared, sqrt_y_squared);
+		byte_num = i >> 3;
+		bit_num = i & 7;
+		// Yes, this is a data-dependent branch, but it is based on
+		// secp256k1_p_plus1over4, which is a (public) constant.
+		if (((secp256k1_p_plus1over4[byte_num] >> bit_num) & 1) != 0)
+		{
+			bigMultiply(sqrt_y_squared, sqrt_y_squared, temp);
+		}
+	}
+	// sqrt(y^2) has two solutions ("positive" and "negative"). One of the
+	// solutions is odd and the other even. The is_odd parameter controls
+	// which one is picked.
+	bigSubtractNoModulo(temp, (BigNum256)secp256k1_p, sqrt_y_squared); // temp = -sqrt_y_squared
+	is_sqrt_y_squared_odd = (uint8_t)(sqrt_y_squared[0] & 1);
+	supposed_to_be_odd = (uint8_t)(is_odd & 1);
+	lookup[0] = sqrt_y_squared; // sqrt_y_squared has correct least significant bit
+	lookup[1] = temp; // sqrt_y_squared has incorrect least significant bit; use -sqrt_y_squared
+	memcpy(point->y, lookup[is_sqrt_y_squared_odd ^ supposed_to_be_odd], sizeof(point->y));
+
+	// At this point there really should be a check that y^2 does actually
+	// equal x^3 + b (i.e. the point is on the curve) - but that's only really
+	// needed if decompressing arbitrary points. This function is only
+	// expected to be used for decompressing points inside static lookup
+	// tables.
+}
+
 #ifdef TEST_ECDSA
 
-/** The curve parameter b of secp256k1. The other parameter, a, is zero. */
-static const uint8_t secp256k1_b[32] = {
-0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+/** Test vector generated using https://brainwallet.github.io/, which is a
+  * convenient way to generate serialised public keys. */
+struct BrainwalletTestCase
+{
+	/** Private key (brainwallet.org calls this the private exponent. This is
+	  * big-endian. */
+	uint8_t private_exponent[32];
+	/** Whether the public key should be compressed. */
+	bool is_compressed;
+	/** Serialised public key. */
+	uint8_t serialised[ECDSA_MAX_SERIALISE_SIZE];
+	/** Size of serialised public key, in bytes. */
+	uint8_t serialised_size;
+};
+
+static const struct BrainwalletTestCase brainwallet_test_cases[] = {
+
+{ // uncompressed example 1
+{0x9f, 0x79, 0xfd, 0x6c, 0xdc, 0x88, 0x0e, 0x39, // private exponent
+0x14, 0xac, 0x75, 0xb5, 0x0d, 0x71, 0x22, 0x2d,
+0x29, 0xd4, 0xe5, 0xe8, 0x68, 0x0b, 0xc1, 0x4e,
+0x18, 0xe5, 0xef, 0x28, 0xc1, 0x98, 0x14, 0x84},
+false, // is compressed?
+{0x04, 0x99, 0xf9, 0xe0, 0x0e, 0x30, 0x53, 0x1d, // public key
+0x93, 0x12, 0x72, 0x8c, 0x37, 0x7a, 0x56, 0x5c,
+0x8f, 0xef, 0x86, 0x2a, 0x6e, 0xbc, 0x10, 0x77,
+0x33, 0x27, 0x70, 0xae, 0x79, 0xf5, 0xd6, 0x82,
+0xfb, 0xae, 0x86, 0x1a, 0x5e, 0x55, 0x55, 0xc0,
+0x1f, 0x65, 0x37, 0x3d, 0xd6, 0xea, 0xb4, 0x7b,
+0xee, 0xe0, 0x2d, 0x7a, 0xb7, 0x62, 0x6a, 0x00,
+0xd3, 0x82, 0xd4, 0x34, 0xfa, 0xba, 0x84, 0xfe,
+0x60},
+65 // public key length
+},
+
+{ // uncompressed example 2 (only 1 different from above)
+{0x9f, 0x79, 0xfd, 0x6c, 0xdc, 0x88, 0x0e, 0x39, // private exponent
+0x14, 0xac, 0x75, 0xb5, 0x0d, 0x71, 0x22, 0x2d,
+0x29, 0xd4, 0xe5, 0xe8, 0x68, 0x0b, 0xc1, 0x4e,
+0x18, 0xe5, 0xef, 0x28, 0xc1, 0x98, 0x14, 0x85},
+false, // is compressed?
+{0x04, 0x3b, 0x70, 0x76, 0x2c, 0xfa, 0xda, 0xbd, // public key
+0x45, 0x03, 0xdc, 0x5b, 0x71, 0x8c, 0xae, 0x17,
+0xff, 0xa0, 0x9e, 0x0c, 0xc8, 0xd8, 0x0b, 0xa7,
+0xb9, 0xf8, 0x6a, 0x4a, 0x7c, 0xe5, 0xc8, 0x72,
+0x55, 0x65, 0x2c, 0xd6, 0x5d, 0x60, 0xc7, 0x30,
+0x8f, 0x27, 0x61, 0xd1, 0xca, 0xdd, 0x2a, 0x0c,
+0x69, 0x23, 0xfa, 0x24, 0x11, 0x9d, 0x03, 0xb5,
+0x5e, 0xf6, 0xb2, 0xd5, 0xbc, 0x9a, 0xeb, 0x1f,
+0xdf},
+65 // public key length
+},
+
+{ // compressed example with 0x02 prefix
+{0x9f, 0x79, 0xfd, 0x6c, 0xdc, 0x88, 0x0e, 0x39, // private exponent
+0x14, 0xac, 0x75, 0xb5, 0x0d, 0x71, 0x22, 0x2d,
+0x29, 0xd4, 0xe5, 0xe8, 0x68, 0x0b, 0xc1, 0x4e,
+0x18, 0xe5, 0xef, 0x28, 0xc1, 0x98, 0x14, 0x84},
+true, // is compressed?
+{0x02, 0x99, 0xf9, 0xe0, 0x0e, 0x30, 0x53, 0x1d, // public key
+0x93, 0x12, 0x72, 0x8c, 0x37, 0x7a, 0x56, 0x5c,
+0x8f, 0xef, 0x86, 0x2a, 0x6e, 0xbc, 0x10, 0x77,
+0x33, 0x27, 0x70, 0xae, 0x79, 0xf5, 0xd6, 0x82,
+0xfb},
+33 // public key length
+},
+
+{ // compressed example with 0x03 prefix
+{0x9f, 0x79, 0xfd, 0x6c, 0xdc, 0x88, 0x0e, 0x39, // private exponent
+0x14, 0xac, 0x75, 0xb5, 0x0d, 0x71, 0x22, 0x2d,
+0x29, 0xd4, 0xe5, 0xe8, 0x68, 0x0b, 0xc1, 0x4e,
+0x18, 0xe5, 0xef, 0x28, 0xc1, 0x98, 0x14, 0x85},
+true, // is compressed?
+{0x03, 0x3b, 0x70, 0x76, 0x2c, 0xfa, 0xda, 0xbd, // public key
+0x45, 0x03, 0xdc, 0x5b, 0x71, 0x8c, 0xae, 0x17,
+0xff, 0xa0, 0x9e, 0x0c, 0xc8, 0xd8, 0x0b, 0xa7,
+0xb9, 0xf8, 0x6a, 0x4a, 0x7c, 0xe5, 0xc8, 0x72,
+0x55},
+33 // public key length
+},
+
+{ // another compressed example with 0x03 prefix
+{0x9a, 0xbf, 0x38, 0x28, 0xda, 0xad, 0xb8, 0x73, // private exponent
+0xea, 0xc9, 0xff, 0x3a, 0xeb, 0x79, 0xc9, 0x3e,
+0x03, 0xca, 0x9c, 0x28, 0x6c, 0x63, 0x44, 0xf9,
+0x37, 0x62, 0x27, 0x99, 0x04, 0x0c, 0x5d, 0x74},
+true, // is compressed?
+{0x03, 0x68, 0xd6, 0xaf, 0xa4, 0xe1, 0x62, 0xa1, // public key
+0xa2, 0x46, 0x94, 0x30, 0xf9, 0x2d, 0xee, 0x74,
+0x10, 0xf9, 0x4d, 0xd9, 0x9c, 0xa8, 0xca, 0x29,
+0x8a, 0x2b, 0xcc, 0x6c, 0x5a, 0xb7, 0x92, 0xfc,
+0xa3},
+33 // public key length
+},
+
+{ // another compressed example with 0x02 prefix
+{0x3c, 0x01, 0xb9, 0xbf, 0x95, 0x9a, 0x97, 0x35, // private exponent
+0x35, 0x06, 0x81, 0xdc, 0xba, 0x7b, 0xe7, 0xe6,
+0x62, 0xc2, 0x43, 0x9c, 0x1b, 0xa7, 0xb5, 0x9a,
+0xc0, 0x71, 0x32, 0x44, 0xf3, 0x03, 0x95, 0x24},
+true, // is compressed?
+{0x02, 0xdc, 0x07, 0x31, 0xa3, 0x17, 0x61, 0x9c,
+0xfd, 0x7c, 0x40, 0xf1, 0x7f, 0xa2, 0x0e, 0x7b,
+0xd4, 0x4f, 0x2b, 0x5c, 0x68, 0x52, 0x5c, 0x1a,
+0x09, 0xdb, 0x54, 0x41, 0xa4, 0xfb, 0xb6, 0xd6,
+0xa6},
+33 // public key length
+}
+};
 
 /** Check if a point is on the elliptic curve. This signals success/failure
   * by calling reportSuccess() or reportFailure().
@@ -532,6 +772,20 @@ static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNu
 	}
 }
 
+/** Fill array with pseudo-random testing data.
+  * \param out Byte array to fill.
+  * \param len Number of bytes to write.
+  */
+static void fillWithRandom(uint8_t *out, unsigned int len)
+{
+	unsigned int i;
+
+	for (i = 0; i < len; i++)
+	{
+		out[i] = (uint8_t)rand();
+	}
+}
+
 int main(void)
 {
 	PointAffine p;
@@ -545,8 +799,11 @@ int main(void)
 	uint8_t public_key_x[32];
 	uint8_t public_key_y[32];
 	uint8_t hash[32];
+	uint8_t serialised[ECDSA_MAX_SERIALISE_SIZE + 10];
+	uint8_t serialised_sentinel[10]; // used to detect writes beyond serialised[ECDSA_MAX_SERIALISE_SIZE]
+	uint8_t serialised_size;
+	uint8_t is_odd;
 	int i;
-	int j;
 	FILE *f;
 
 	initTests(__FILE__);
@@ -725,6 +982,46 @@ int main(void)
 		checkPointIsOnCurve(&p);
 	}
 
+	// Test that those points can be serialised and decompressed.
+	for (i = 1; i < 300; i++)
+	{
+		fillWithRandom(serialised_sentinel, sizeof(serialised_sentinel));
+		memcpy(&compare, &p, sizeof(compare));
+		memcpy(&(serialised[ECDSA_MAX_SERIALISE_SIZE]), serialised_sentinel, sizeof(serialised_sentinel));
+		ecdsaSerialise(serialised, &p, true);
+		if (memcmp(serialised_sentinel, &(serialised[ECDSA_MAX_SERIALISE_SIZE]), sizeof(serialised_sentinel)) != 0)
+		{
+			printf("Serialisation of public key %d wrote beyond end of ECDSA_MAX_SERIALISE_SIZE\n", i);
+			reportFailure();
+		}
+		else if (serialised[0] == 0x02)
+		{
+			is_odd = 0;
+			reportSuccess();
+		}
+		else if (serialised[0] == 0x03)
+		{
+			is_odd = 1;
+			reportSuccess();
+		}
+		else
+		{
+			printf("Serialisation of public key %d gave unexpected prefix\n", i);
+			reportFailure();
+		}
+		memset(compare.y, 42, sizeof(compare.y)); // invalidate y component
+		ecdsaPointDecompress(&compare, is_odd);
+		if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		{
+			printf("Could not decompress public key %d\n", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+	}
+
 	// Test that n * G = O.
 	setToG(&p);
 	pointMultiply(&p, (BigNum256)secp256k1_n);
@@ -862,10 +1159,7 @@ int main(void)
 		else
 		{
 			// Use a pseudo-random hash.
-			for (j = 0; j < 32; j++)
-			{
-				hash[j] = (uint8_t)rand();
-			}
+			fillWithRandom(hash, sizeof(hash));
 		}
 		skipWhiteSpace(f);
 		bigFRead(private_key, f);
@@ -876,10 +1170,7 @@ int main(void)
 		skipWhiteSpace(f);
 		do
 		{
-			for (j = 0; j < 32; j++)
-			{
-				temp[j] = (uint8_t)rand();
-			}
+			fillWithRandom(temp, sizeof(temp));
 		} while (ecdsaSign(r, s, hash, private_key, temp));
 		if (crappyVerifySignature(r, s, hash, public_key_x, public_key_y))
 		{
@@ -913,6 +1204,136 @@ int main(void)
 		}
 	}
 	fclose(f);
+
+	// Test serialisation/decompression against vectors in pointMultiply test
+	// (the ones generated by OpenSSL).
+	srand(42);
+	f = fopen("keypairs.txt", "r");
+	if (f == NULL)
+	{
+		printf("Could not open keypairs.txt for reading\n");
+		printf("Please generate it using the instructions in the source\n");
+		exit(1);
+	}
+	for (i = 0; i < 300; i++)
+	{
+		skipWhiteSpace(f);
+		bigFRead(private_key, f);
+		skipWhiteSpace(f);
+		bigFRead(p.x, f);
+		skipWhiteSpace(f);
+		bigFRead(p.y, f);
+		skipWhiteSpace(f);
+		p.is_point_at_infinity = 0;
+		fillWithRandom(serialised_sentinel, sizeof(serialised_sentinel));
+		memcpy(&compare, &p, sizeof(compare));
+		memcpy(&(serialised[ECDSA_MAX_SERIALISE_SIZE]), serialised_sentinel, sizeof(serialised_sentinel));
+		ecdsaSerialise(serialised, &p, true);
+		if (memcmp(serialised_sentinel, &(serialised[ECDSA_MAX_SERIALISE_SIZE]), sizeof(serialised_sentinel)) != 0)
+		{
+			printf("Serialisation of OpenSSL public key %d wrote beyond end of ECDSA_MAX_SERIALISE_SIZE\n", i);
+			reportFailure();
+		}
+		else if (serialised[0] == 0x02)
+		{
+			is_odd = 0;
+			reportSuccess();
+		}
+		else if (serialised[0] == 0x03)
+		{
+			is_odd = 1;
+			reportSuccess();
+		}
+		else
+		{
+			printf("Serialisation of OpenSSL public key %d gave unexpected prefix\n", i);
+			reportFailure();
+		}
+		memset(compare.y, 1, sizeof(compare.y)); // invalidate y component
+		ecdsaPointDecompress(&compare, is_odd);
+		if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		{
+			printf("Could not decompress OpenSSL public key %d\n", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+		// Also check that uncompressed serialisation doesn't write beyond
+		// end of array.
+		fillWithRandom(serialised_sentinel, sizeof(serialised_sentinel));
+		memcpy(&(serialised[ECDSA_MAX_SERIALISE_SIZE]), serialised_sentinel, sizeof(serialised_sentinel));
+		ecdsaSerialise(serialised, &p, false);
+		if (memcmp(serialised_sentinel, &(serialised[ECDSA_MAX_SERIALISE_SIZE]), sizeof(serialised_sentinel)) != 0)
+		{
+			printf("Uncompressed serialisation of OpenSSL public key %d wrote beyond end of ECDSA_MAX_SERIALISE_SIZE\n", i);
+			reportFailure();
+		}
+		else if (serialised[0] == 0x02)
+		{
+			reportSuccess();
+		}
+	}
+	fclose(f);
+
+	// Test that serialisation produces the same results as
+	// https://brainwallet.github.io/ and that point decompression also
+	// recovers the public key.
+	// These tests are mainly to ensure the 0x02/0x03 prefixes are round the
+	// right way.
+	for (i = 0; i < (sizeof(brainwallet_test_cases) / sizeof(struct BrainwalletTestCase)); i++)
+	{
+		fillWithRandom(serialised_sentinel, sizeof(serialised_sentinel));
+		memcpy(private_key, brainwallet_test_cases[i].private_exponent, sizeof(private_key));
+		swapEndian256(private_key); // private_exponent is big-endian, pointMultiply() expects little-endian
+		setToG(&p);
+		pointMultiply(&p, private_key);
+		// Test serialisation
+		memcpy(&(serialised[ECDSA_MAX_SERIALISE_SIZE]), serialised_sentinel, sizeof(serialised_sentinel));
+		serialised_size = ecdsaSerialise(serialised, &p, brainwallet_test_cases[i].is_compressed);
+		if (memcmp(serialised_sentinel, &(serialised[ECDSA_MAX_SERIALISE_SIZE]), sizeof(serialised_sentinel)) != 0)
+		{
+			printf("Brainwallet test case %d causes write beyond end of ECDSA_MAX_SERIALISE_SIZE", i);
+			reportFailure();
+		}
+		else if (serialised_size != brainwallet_test_cases[i].serialised_size)
+		{
+			printf("Brainwallet test case %d produced mismatching serialised size", i);
+			reportFailure();
+		}
+		else if (memcmp(serialised, brainwallet_test_cases[i].serialised, serialised_size) != 0)
+		{
+			printf("Brainwallet test case %d produced mismatching serialised contents", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+
+		// Test decompression
+		memcpy(&compare, &p, sizeof(compare));
+		memset(compare.y, 0, sizeof(compare.y)); // invalidate y component
+		if (brainwallet_test_cases[i].is_compressed)
+		{
+			is_odd = brainwallet_test_cases[i].serialised[0] & 1; // get is_odd from prefix
+		}
+		else
+		{
+			is_odd = brainwallet_test_cases[i].serialised[33] & 1; // get is_odd from test case y component
+		}
+		ecdsaPointDecompress(&compare, is_odd);
+		if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		{
+			printf("Could not decompress brainwallet public key %d\n", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+	}
 
 	finishTests();
 

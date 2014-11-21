@@ -101,6 +101,8 @@ static P2SHGeneratorErrors generateMultiSigAddressInternal(uint8_t num_sigs, uin
 	uint8_t one_byte;
 	HashState hs;
 	char address[TEXT_ADDRESS_LENGTH];
+	uint8_t serialised[ECDSA_MAX_SERIALISE_SIZE];
+	uint8_t serialised_size;
 
 	if ((num_sigs < 1) || (num_sigs > 16))
 	{
@@ -123,18 +125,18 @@ static P2SHGeneratorErrors generateMultiSigAddressInternal(uint8_t num_sigs, uin
 	{
 		if (i == supplied_pubkey_num)
 		{
-			sha256WriteByte(&hs, 0x41); // 41 bytes of data follows
-			sha256WriteByte(&hs, 0x04);
-			// The counters run backwards because Bitcoin expects public
-			// keys to be in big-endian format, but they're in little-endian
-			// format here.
-			for (j = 32; j--; )
+			serialised_size = ecdsaSerialise(serialised, public_key, true);
+			if ((serialised_size < 1) || (serialised_size >> 75))
 			{
-				sha256WriteByte(&hs, public_key->x[j]);
+				// serialised_size is out-of-range for script data push.
+				// This should never happen.
+				fatalError();
+				return P2SHGEN_INVALID_FORMAT;
 			}
-			for (j = 32; j--; )
+			sha256WriteByte(&hs, serialised_size); // serialised_size bytes of data follows
+			for (j = 0; j < serialised_size; j++)
 			{
-				sha256WriteByte(&hs, public_key->y[j]);
+				sha256WriteByte(&hs, serialised[j]);
 			}
 		}
 		else
@@ -286,6 +288,18 @@ struct P2SHAddrGenTestCase
 	/** Expected contents of #last_displayed_address. */
 	char *expected_result;
 };
+
+
+
+
+// ***************************************************************************
+// WARNING
+// These tests are all wrong now that compressed keys are being used.
+// ***************************************************************************
+
+
+
+
 
 /** Tests which should be successful. */
 struct P2SHAddrGenTestCase good_tests[] = {

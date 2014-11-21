@@ -14,6 +14,10 @@
 #include "common.h"
 #include "bignum256.h"
 
+/** Maximum size, in bytes, of a serialised elliptic curve point, as is
+  * written by ecdsaSerialise(). */
+#define ECDSA_MAX_SERIALISE_SIZE	65
+
 /** A point on the elliptic curve, in affine coordinates. Affine
   * coordinates are the (x, y) that satisfy the elliptic curve
   * equation y ^ 2 = x ^ 3 + a * x + b.
@@ -34,5 +38,7 @@ extern void setFieldToN(void);
 extern void setToG(PointAffine *p);
 extern void pointMultiply(PointAffine *p, BigNum256 k);
 extern uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k);
+extern uint8_t ecdsaSerialise(uint8_t *out, const PointAffine *point, const bool do_compress);
+extern void ecdsaPointDecompress(PointAffine *point, uint8_t is_odd);
 
 #endif // #ifndef ECDSA_H_INCLUDED

@@ -158,6 +158,22 @@ void bigAssign(BigNum256 r, BigNum256 op1)
 	memcpy(r, op1, 32);
 }
 
+/** Swap endian representation of a 256 bit integer.
+  * \param buffer An array of 32 bytes representing the integer to change.
+  */
+void swapEndian256(BigNum256 buffer)
+{
+	uint8_t i;
+	uint8_t temp;
+
+	for (i = 0; i < 16; i++)
+	{
+		temp = buffer[i];
+		buffer[i] = buffer[31 - i];
+		buffer[31 - i] = temp;
+	}
+}
+
 /** Set prime finite field parameters. The arrays passed as parameters to
   * this function will never be written to, hence the const modifiers.
   * \param in_n See #n.
@@ -231,7 +247,7 @@ uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t *op2, 
   * \param op2 The 32 byte operand to subtract off op1. This may alias r or op1.
   * \return 1 if borrow occurred, 0 if no borrow occurred.
   */
-static uint8_t bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
+uint8_t bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2)
 {
 	return bigSubtractVariableSizeNoModulo(r, op1, op2, 32);
 }

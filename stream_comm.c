@@ -720,19 +720,12 @@ static NOINLINE void getAndSendAddressAndPublicKey(bool generate_new, AddressHan
 	if (r == WALLET_NO_ERROR)
 	{
 		message_buffer.address_handle = ah;
-		// The format of public keys sent is compatible with
-		// "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
-		// 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
-		// section 2.3 ("Data Types and Conversions"). The document basically
-		// says that integers should be represented big-endian and that a 0x04
-		// should be prepended to indicate that the public key is
-		// uncompressed.
-		message_buffer.public_key.bytes[0] = 0x04;
-		swapEndian256(public_key.x);
-		swapEndian256(public_key.y);
-		memcpy(&(message_buffer.public_key.bytes[1]), public_key.x, 32);
-		memcpy(&(message_buffer.public_key.bytes[33]), public_key.y, 32);
-		message_buffer.public_key.size = 65;
+		if (sizeof(message_buffer.public_key.bytes) < ECDSA_MAX_SERIALISE_SIZE) // sanity check
+		{
+			fatalError();
+			return;
+		}
+		message_buffer.public_key.size = ecdsaSerialise(message_buffer.public_key.bytes, &public_key, true);
 		sendPacket(PACKET_TYPE_ADDRESS_PUBKEY, Address_fields, &message_buffer);
 	}
 	else
@@ -1318,12 +1311,12 @@ void processPacket(void)
 					if (wallet_return == WALLET_NO_ERROR)
 					{
 						message_buffer.master_public_key.chain_code.size = 32;
-						message_buffer.master_public_key.public_key.size = 65;
-						message_buffer.master_public_key.public_key.bytes[0] = 0x04;
-						memcpy(&(message_buffer.master_public_key.public_key.bytes[1]), master_public_key.x, 32);
-						swapEndian256(&(message_buffer.master_public_key.public_key.bytes[1]));
-						memcpy(&(message_buffer.master_public_key.public_key.bytes[33]), master_public_key.y, 32);
-						swapEndian256(&(message_buffer.master_public_key.public_key.bytes[33]));
+						if (sizeof(message_buffer.master_public_key.public_key.bytes) < ECDSA_MAX_SERIALISE_SIZE) // sanity check
+						{
+							fatalError();
+							return;
+						}
+						message_buffer.master_public_key.public_key.size = ecdsaSerialise(message_buffer.master_public_key.public_key.bytes, &master_public_key, true);
 						sendPacket(PACKET_TYPE_MASTER_KEY, MasterPublicKey_fields, &(message_buffer.master_public_key));
 					}
 					else

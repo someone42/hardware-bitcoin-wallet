@@ -804,6 +804,8 @@ AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key)
 WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_public_key, AddressHandle ah)
 {
 	uint8_t buffer[32];
+	uint8_t serialised[ECDSA_MAX_SERIALISE_SIZE];
+	uint8_t serialised_size;
 	HashState hs;
 	WalletErrors r;
 	uint8_t i;
@@ -834,18 +836,18 @@ WalletErrors getAddressAndPublicKey(uint8_t *out_address, PointAffine *out_publi
 	// Calculate public key.
 	setToG(out_public_key);
 	pointMultiply(out_public_key, buffer);
-	// Calculate address. The Bitcoin convention is to hash the public key in
-	// big-endian format, which is why the counters run backwards in the next
-	// two loops.
-	sha256Begin(&hs);
-	sha256WriteByte(&hs, 0x04);
-	for (i = 32; i--; )
+	// Calculate address.
+	serialised_size = ecdsaSerialise(serialised, out_public_key, true);
+	if (serialised_size < 2)
 	{
-		sha256WriteByte(&hs, out_public_key->x[i]);
+		// Somehow, the public ended up as the point at infinity.
+		last_error = WALLET_INVALID_HANDLE;
+		return last_error;
 	}
-	for (i = 32; i--; )
+	sha256Begin(&hs);
+	for (i = 0; i < serialised_size; i++)
 	{
-		sha256WriteByte(&hs, out_public_key->y[i]);
+		sha256WriteByte(&hs, serialised[i]);
 	}
 	sha256Finish(&hs);
 	writeHashToByteArray(buffer, &hs, true);
