@@ -69,7 +69,7 @@ static const uint8_t secp256k1_complement_p[5] = {
 0xd1, 0x03, 0x00, 0x00, 0x01};
 
 /** The order of the base point used in secp256k1. */
-static const uint8_t secp256k1_n[32] = {
+const uint8_t secp256k1_n[32] = {
 0x41, 0x41, 0x36, 0xd0, 0x8c, 0x5e, 0xd2, 0xbf,
 0x3b, 0xa0, 0x48, 0xaf, 0xe6, 0xdc, 0xae, 0xba,
 0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -500,11 +500,13 @@ uint8_t ecdsaSerialise(uint8_t *out, const PointAffine *point, const bool do_com
   *               one even. This parameter instructs the function to pick
   *               one of them. Use 0 to pick the even one, 1 to pick the odd
   *               one.
+  * \return false on success, true if point could not be decompressed.
   */
-void ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
+bool ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
 {
 	uint8_t temp[32];
 	uint8_t sqrt_y_squared[32];
+	uint8_t x_cubed_plus_b[32];
 	uint8_t is_sqrt_y_squared_odd;
 	uint8_t supposed_to_be_odd;
 	BigNum256 lookup[2];
@@ -513,9 +515,9 @@ void ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
 	unsigned int bit_num;
 
 	setFieldToP();
-	bigMultiply(temp, point->x, point->x);
-	bigMultiply(temp, temp, point->x);
-	bigAdd(temp, temp, (BigNum256)secp256k1_b); // temp = x^3 + b = y^2
+	bigMultiply(x_cubed_plus_b, point->x, point->x);
+	bigMultiply(x_cubed_plus_b, x_cubed_plus_b, point->x);
+	bigAdd(x_cubed_plus_b, x_cubed_plus_b, (BigNum256)secp256k1_b); // x_cubed_plus_b = x^3 + b = y^2
 	// Since y^2 = x^3 + b in secp256k1, y = sqrt(x^3 + b). The square
 	// root can be performed using the Tonelli-Shanks algorithm. Here, a special
 	// case is used, which only works for p = 3 (mod 4) - this is satisfied for
@@ -534,7 +536,7 @@ void ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
 		// secp256k1_p_plus1over4, which is a (public) constant.
 		if (((secp256k1_p_plus1over4[byte_num] >> bit_num) & 1) != 0)
 		{
-			bigMultiply(sqrt_y_squared, sqrt_y_squared, temp);
+			bigMultiply(sqrt_y_squared, sqrt_y_squared, x_cubed_plus_b);
 		}
 	}
 	// sqrt(y^2) has two solutions ("positive" and "negative"). One of the
@@ -547,11 +549,17 @@ void ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
 	lookup[1] = temp; // sqrt_y_squared has incorrect least significant bit; use -sqrt_y_squared
 	memcpy(point->y, lookup[is_sqrt_y_squared_odd ^ supposed_to_be_odd], sizeof(point->y));
 
-	// At this point there really should be a check that y^2 does actually
-	// equal x^3 + b (i.e. the point is on the curve) - but that's only really
-	// needed if decompressing arbitrary points. This function is only
-	// expected to be used for decompressing points inside static lookup
-	// tables.
+	// Check that y^2 does actually equal x^3 + b (i.e. the point is on the
+	// curve).
+	bigMultiply(temp, point->y, point->y);
+	if (bigCompare(temp, x_cubed_plus_b) == BIGCMP_EQUAL)
+	{
+		return false; // success
+	}
+	else
+	{
+		return true; // could not decompress (resulting point is not on curve)
+	}
 }
 
 #ifdef TEST_ECDSA
@@ -803,6 +811,7 @@ int main(void)
 	uint8_t serialised_sentinel[10]; // used to detect writes beyond serialised[ECDSA_MAX_SERIALISE_SIZE]
 	uint8_t serialised_size;
 	uint8_t is_odd;
+	int fail_count;
 	int i;
 	FILE *f;
 
@@ -1010,10 +1019,14 @@ int main(void)
 			reportFailure();
 		}
 		memset(compare.y, 42, sizeof(compare.y)); // invalidate y component
-		ecdsaPointDecompress(&compare, is_odd);
-		if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		if(ecdsaPointDecompress(&compare, is_odd))
 		{
-			printf("Could not decompress public key %d\n", i);
+			printf("ecdsaPointDecompress() failed to decompress public key %d\n", i);
+			reportFailure();
+		}
+		else if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		{
+			printf("Decompressed public key %d does not match original\n", i);
 			reportFailure();
 		}
 		else
@@ -1028,6 +1041,29 @@ int main(void)
 	if (!p.is_point_at_infinity) 
 	{
 		printf("n * P != O\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Test that ecdsaPointDecompress() doesn't always succeed.
+	fail_count = 0;
+	for (i = 0; i < 100; i++)
+	{
+		// Statistically, about 50% of x values can't be decompressed as an
+		// appropriate quadratic residue does not exist.
+		p.is_point_at_infinity = 0;
+		fillWithRandom(p.x, sizeof(p.x));
+		if (ecdsaPointDecompress(&p, false))
+		{
+			fail_count++;
+		}
+	}
+	if (fail_count == 0)
+	{
+		printf("ecdsaPointDecompress() always succeeds");
 		reportFailure();
 	}
 	else
@@ -1250,10 +1286,14 @@ int main(void)
 			reportFailure();
 		}
 		memset(compare.y, 1, sizeof(compare.y)); // invalidate y component
-		ecdsaPointDecompress(&compare, is_odd);
-		if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		if (ecdsaPointDecompress(&compare, is_odd))
 		{
-			printf("Could not decompress OpenSSL public key %d\n", i);
+			printf("ecdsaPointDecompress() failed to decompress OpenSSL public key %d\n", i);
+			reportFailure();
+		}
+		else if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		{
+			printf("Decompressed OpenSSL public key %d does not match original\n", i);
 			reportFailure();
 		}
 		else
@@ -1323,10 +1363,14 @@ int main(void)
 		{
 			is_odd = brainwallet_test_cases[i].serialised[33] & 1; // get is_odd from test case y component
 		}
-		ecdsaPointDecompress(&compare, is_odd);
-		if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		if (ecdsaPointDecompress(&compare, is_odd))
 		{
-			printf("Could not decompress brainwallet public key %d\n", i);
+			printf("ecdsaPointDecompress() failed to decompress brainwallet public key %d\n", i);
+			reportFailure();
+		}
+		else if (memcmp(&compare, &p, sizeof(compare)) != 0) // was the y component recovered?
+		{
+			printf("Decompressed brainwallet public key %d does not match original\n", i);
 			reportFailure();
 		}
 		else
