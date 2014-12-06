@@ -19,14 +19,14 @@
 # This file is licensed as described by the file LICENCE.
 
 # List C source files here.
-SRC = aes.c baseconv.c bignum256.c ecdsa.c endian.c fft.c fix16.c hash.c \
-hmac_sha512.c messages.pb.c p2sh_addr_gen.c pbkdf2.c pb_decode.c pb_encode.c \
-prandom.c ripemd160.c sha256.c statistics.c stream_comm.c test_helpers.c \
-transaction.c wallet.c xex.c
+SRC = aes.c baseconv.c bignum256.c bip32 ecdsa.c endian.c fft.c fix16.c \
+hash.c hmac_sha512.c messages.pb.c p2sh_addr_gen.c pbkdf2.c pb_decode.c \
+pb_encode.c prandom.c ripemd160.c sha256.c statistics.c stream_comm.c \
+test_helpers.c transaction.c wallet.c xex.c
 
 # List file names (without .c extension) which have unit tests.
-TESTLIST = aes baseconv bignum256 ecdsa hmac_sha512 p2sh_addr_gen pbkdf2 \
-prandom ripemd160 sha256 stream_comm transaction wallet xex
+TESTLIST = aes baseconv bignum256 bip32 ecdsa hmac_sha512 p2sh_addr_gen \
+pbkdf2 prandom ripemd160 sha256 stream_comm transaction wallet xex
 
 # Define programs and commands.
 CC = gcc

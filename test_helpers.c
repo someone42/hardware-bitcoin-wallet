@@ -95,6 +95,21 @@ void printLittleEndian32(const BigNum256 buffer)
 	bigPrintVariableSize(buffer, 32, false);
 }
 
+
+/** Fill array with pseudo-random testing data.
+  * \param out Byte array to fill.
+  * \param len Number of bytes to write.
+  */
+void fillWithRandom(uint8_t *out, unsigned int len)
+{
+	unsigned int i;
+
+	for (i = 0; i < len; i++)
+	{
+		out[i] = (uint8_t)rand();
+	}
+}
+
 /** Call this whenever a test case succeeds. */
 void reportSuccess(void)
 {

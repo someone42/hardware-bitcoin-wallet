@@ -780,20 +780,6 @@ static int crappyVerifySignature(BigNum256 r, BigNum256 s, BigNum256 hash, BigNu
 	}
 }
 
-/** Fill array with pseudo-random testing data.
-  * \param out Byte array to fill.
-  * \param len Number of bytes to write.
-  */
-static void fillWithRandom(uint8_t *out, unsigned int len)
-{
-	unsigned int i;
-
-	for (i = 0; i < len; i++)
-	{
-		out[i] = (uint8_t)rand();
-	}
-}
-
 int main(void)
 {
 	PointAffine p;
