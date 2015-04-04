@@ -81,14 +81,6 @@ static const uint8_t secp256k1_complement_n[17] = {
 0xc4, 0x5f, 0xb7, 0x50, 0x19, 0x23, 0x51, 0x45,
 0x01};
 
-/** This is #secp256k1_p plus 1, then divided by 4. It is a constant used for
-  * decompressing elliptic curve points. */
-static const uint8_t secp256k1_p_plus1over4[32] = {
-0x0c, 0xff, 0xff, 0xbf, 0xff, 0xff, 0xff, 0xff,
-0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f};
-
 /** The x component of the base point G used in secp256k1. */
 static const uint8_t secp256k1_Gx[32] PROGMEM = {
 0x98, 0x17, 0xf8, 0x16, 0x5b, 0x81, 0xf2, 0x59,
@@ -102,13 +94,6 @@ static const uint8_t secp256k1_Gy[32] PROGMEM = {
 0x19, 0x54, 0x85, 0xa6, 0x48, 0xb4, 0x17, 0xfd,
 0xa8, 0x08, 0x11, 0x0e, 0xfc, 0xfb, 0xa4, 0x5d,
 0x65, 0xc4, 0xa3, 0x26, 0x77, 0xda, 0x3a, 0x48};
-
-/** The curve parameter b of secp256k1. The other parameter, a, is zero. */
-static const uint8_t secp256k1_b[32] = {
-0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /** Convert a point from affine coordinates to Jacobian coordinates. This
   * is very fast.
@@ -491,78 +476,22 @@ uint8_t ecdsaSerialise(uint8_t *out, const PointAffine *point, const bool do_com
 	}
 }
 
-/** Decompress an elliptic curve point - that is, given only the x value of
-  * a point, this will calculate the y value. This means that only the x value
-  * needs to be stored, which decreases memory use at the expense of time.
-  * \param point The point to decompress. Only the x field needs to be filled
-  *              in - the y field will be ignored and overwritten.
-  * \param is_odd For any x value, there are two valid y values - one odd and
-  *               one even. This parameter instructs the function to pick
-  *               one of them. Use 0 to pick the even one, 1 to pick the odd
-  *               one.
-  * \return false on success, true if point could not be decompressed.
-  */
-bool ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
-{
-	uint8_t temp[32];
-	uint8_t sqrt_y_squared[32];
-	uint8_t x_cubed_plus_b[32];
-	uint8_t is_sqrt_y_squared_odd;
-	uint8_t supposed_to_be_odd;
-	BigNum256 lookup[2];
-	unsigned int i;
-	unsigned int byte_num;
-	unsigned int bit_num;
-
-	setFieldToP();
-	bigMultiply(x_cubed_plus_b, point->x, point->x);
-	bigMultiply(x_cubed_plus_b, x_cubed_plus_b, point->x);
-	bigAdd(x_cubed_plus_b, x_cubed_plus_b, (BigNum256)secp256k1_b); // x_cubed_plus_b = x^3 + b = y^2
-	// Since y^2 = x^3 + b in secp256k1, y = sqrt(x^3 + b). The square
-	// root can be performed using the Tonelli-Shanks algorithm. Here, a special
-	// case is used, which only works for p = 3 (mod 4) - this is satisfied for
-	// the secp256k1 curve. For more information see:
-	// http://point-at-infinity.org/ecc/Algorithm_of_Shanks_&_Tonelli.html
-	// Exponentiation is done by a standard binary square-and-multiply
-	// algorithm.
-	bigSetZero(sqrt_y_squared);
-	sqrt_y_squared[0] = 1;
-	for (i = 255; i < 256; i--)
-	{
-		bigMultiply(sqrt_y_squared, sqrt_y_squared, sqrt_y_squared);
-		byte_num = i >> 3;
-		bit_num = i & 7;
-		// Yes, this is a data-dependent branch, but it is based on
-		// secp256k1_p_plus1over4, which is a (public) constant.
-		if (((secp256k1_p_plus1over4[byte_num] >> bit_num) & 1) != 0)
-		{
-			bigMultiply(sqrt_y_squared, sqrt_y_squared, x_cubed_plus_b);
-		}
-	}
-	// sqrt(y^2) has two solutions ("positive" and "negative"). One of the
-	// solutions is odd and the other even. The is_odd parameter controls
-	// which one is picked.
-	bigSubtractNoModulo(temp, (BigNum256)secp256k1_p, sqrt_y_squared); // temp = -sqrt_y_squared
-	is_sqrt_y_squared_odd = (uint8_t)(sqrt_y_squared[0] & 1);
-	supposed_to_be_odd = (uint8_t)(is_odd & 1);
-	lookup[0] = sqrt_y_squared; // sqrt_y_squared has correct least significant bit
-	lookup[1] = temp; // sqrt_y_squared has incorrect least significant bit; use -sqrt_y_squared
-	memcpy(point->y, lookup[is_sqrt_y_squared_odd ^ supposed_to_be_odd], sizeof(point->y));
-
-	// Check that y^2 does actually equal x^3 + b (i.e. the point is on the
-	// curve).
-	bigMultiply(temp, point->y, point->y);
-	if (bigCompare(temp, x_cubed_plus_b) == BIGCMP_EQUAL)
-	{
-		return false; // success
-	}
-	else
-	{
-		return true; // could not decompress (resulting point is not on curve)
-	}
-}
-
 #ifdef TEST_ECDSA
+
+/** The curve parameter b of secp256k1. The other parameter, a, is zero. */
+static const uint8_t secp256k1_b[32] = {
+0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+/** This is #secp256k1_p plus 1, then divided by 4. It is a constant used for
+  * decompressing elliptic curve points. */
+static const uint8_t secp256k1_p_plus1over4[32] = {
+0x0c, 0xff, 0xff, 0xbf, 0xff, 0xff, 0xff, 0xff,
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x3f};
 
 /** Test vector generated using https://brainwallet.github.io/, which is a
   * convenient way to generate serialised public keys. */
@@ -707,6 +636,77 @@ static void checkPointIsOnCurve(PointAffine *p)
 	else
 	{
 		reportSuccess();
+	}
+}
+
+/** Decompress an elliptic curve point - that is, given only the x value of
+  * a point, this will calculate the y value. This means that only the x value
+  * needs to be stored, which decreases memory use at the expense of time.
+  * \param point The point to decompress. Only the x field needs to be filled
+  *              in - the y field will be ignored and overwritten.
+  * \param is_odd For any x value, there are two valid y values - one odd and
+  *               one even. This parameter instructs the function to pick
+  *               one of them. Use 0 to pick the even one, 1 to pick the odd
+  *               one.
+  * \return false on success, true if point could not be decompressed.
+  */
+static bool ecdsaPointDecompress(PointAffine *point, uint8_t is_odd)
+{
+	uint8_t temp[32];
+	uint8_t sqrt_y_squared[32];
+	uint8_t x_cubed_plus_b[32];
+	uint8_t is_sqrt_y_squared_odd;
+	uint8_t supposed_to_be_odd;
+	BigNum256 lookup[2];
+	unsigned int i;
+	unsigned int byte_num;
+	unsigned int bit_num;
+
+	setFieldToP();
+	bigMultiply(x_cubed_plus_b, point->x, point->x);
+	bigMultiply(x_cubed_plus_b, x_cubed_plus_b, point->x);
+	bigAdd(x_cubed_plus_b, x_cubed_plus_b, (BigNum256)secp256k1_b); // x_cubed_plus_b = x^3 + b = y^2
+	// Since y^2 = x^3 + b in secp256k1, y = sqrt(x^3 + b). The square
+	// root can be performed using the Tonelli-Shanks algorithm. Here, a special
+	// case is used, which only works for p = 3 (mod 4) - this is satisfied for
+	// the secp256k1 curve. For more information see:
+	// http://point-at-infinity.org/ecc/Algorithm_of_Shanks_&_Tonelli.html
+	// Exponentiation is done by a standard binary square-and-multiply
+	// algorithm.
+	bigSetZero(sqrt_y_squared);
+	sqrt_y_squared[0] = 1;
+	for (i = 255; i < 256; i--)
+	{
+		bigMultiply(sqrt_y_squared, sqrt_y_squared, sqrt_y_squared);
+		byte_num = i >> 3;
+		bit_num = i & 7;
+		// Yes, this is a data-dependent branch, but it is based on
+		// secp256k1_p_plus1over4, which is a (public) constant.
+		if (((secp256k1_p_plus1over4[byte_num] >> bit_num) & 1) != 0)
+		{
+			bigMultiply(sqrt_y_squared, sqrt_y_squared, x_cubed_plus_b);
+		}
+	}
+	// sqrt(y^2) has two solutions ("positive" and "negative"). One of the
+	// solutions is odd and the other even. The is_odd parameter controls
+	// which one is picked.
+	bigSubtractNoModulo(temp, (BigNum256)secp256k1_p, sqrt_y_squared); // temp = -sqrt_y_squared
+	is_sqrt_y_squared_odd = (uint8_t)(sqrt_y_squared[0] & 1);
+	supposed_to_be_odd = (uint8_t)(is_odd & 1);
+	lookup[0] = sqrt_y_squared; // sqrt_y_squared has correct least significant bit
+	lookup[1] = temp; // sqrt_y_squared has incorrect least significant bit; use -sqrt_y_squared
+	memcpy(point->y, lookup[is_sqrt_y_squared_odd ^ supposed_to_be_odd], sizeof(point->y));
+
+	// Check that y^2 does actually equal x^3 + b (i.e. the point is on the
+	// curve).
+	bigMultiply(temp, point->y, point->y);
+	if (bigCompare(temp, x_cubed_plus_b) == BIGCMP_EQUAL)
+	{
+		return false; // success
+	}
+	else
+	{
+		return true; // could not decompress (resulting point is not on curve)
 	}
 }
 
