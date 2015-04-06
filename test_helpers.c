@@ -60,9 +60,9 @@ void skipLine(FILE *f)
   *                      big-endian format and should be false if the number
   *                      is stored in little-endian format.
   */
-void bigPrintVariableSize(const uint8_t *number, uint8_t size, bool is_big_endian)
+void bigPrintVariableSize(const uint8_t *number, const unsigned int size, const bool is_big_endian)
 {
-	uint8_t i;
+	unsigned int i;
 	if (is_big_endian)
 	{
 		for (i = 0; i < size; i++)

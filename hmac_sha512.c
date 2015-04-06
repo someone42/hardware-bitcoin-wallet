@@ -338,7 +338,7 @@ void hmacSha512(uint8_t *out, const uint8_t *key, const unsigned int key_length,
 	}
 	// Calculate hash = H((K_0 XOR ipad) || text).
 	sha512Begin(&hs64);
-	for (i = 0; i < 128; i++)
+	for (i = 0; i < sizeof(padded_key); i++)
 	{
 		sha512WriteByte(&hs64, (uint8_t)(padded_key[i] ^ 0x36));
 	}
@@ -349,7 +349,7 @@ void hmacSha512(uint8_t *out, const uint8_t *key, const unsigned int key_length,
 	sha512Finish(hash, &hs64);
 	// Calculate H((K_0 XOR opad) || hash).
 	sha512Begin(&hs64);
-	for (i = 0; i < 128; i++)
+	for (i = 0; i < sizeof(padded_key); i++)
 	{
 		sha512WriteByte(&hs64, (uint8_t)(padded_key[i] ^ 0x5c));
 	}

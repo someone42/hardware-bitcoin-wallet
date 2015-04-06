@@ -3,8 +3,6 @@
   * \brief Describes functions, types and constants exported and used by
   *        ecdsa.c.
   *
-  *
-  *
   * This file is licensed as described by the file LICENCE.
   */
 
