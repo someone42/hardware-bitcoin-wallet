@@ -24,7 +24,7 @@
 #ifndef TESTNET
 #define ADDRESS_VERSION_P2SH		0x05
 #else // #ifndef TESTNET
-#define ADDRESS_VERSION_PUBKEY		0xc4
+#define ADDRESS_VERSION_P2SH		0xc4
 #endif // #ifndef TESTNET
 
 /** Required size of a buffer which stores the text of a transaction output

@@ -647,22 +647,6 @@ TransactionErrors parseTransaction(BigNum256 sig_hash, BigNum256 transaction_has
 	return r;
 }
 
-/** Swap endian representation of a 256 bit integer.
-  * \param buffer An array of 32 bytes representing the integer to change.
-  */
-void swapEndian256(BigNum256 buffer)
-{
-	uint8_t i;
-	uint8_t temp;
-
-	for (i = 0; i < 16; i++)
-	{
-		temp = buffer[i];
-		buffer[i] = buffer[31 - i];
-		buffer[31 - i] = temp;
-	}
-}
-
 /**
  * \defgroup DEROffsets Offsets for DER signature encapsulation.
  *

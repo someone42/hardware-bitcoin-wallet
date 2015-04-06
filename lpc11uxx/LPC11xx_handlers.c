@@ -95,7 +95,7 @@ void SysTick_Handler(void)      WEAK_ALIAS(fault_undefined);
  *****************************************************************************/
 
 // Prototype the entry values, which are handled by the linker script
-extern void __startup( void );
+extern void Reset_Handler( void );
 extern int __stack_end;	
 
 // Defined irq vectors using simple c code following the description in a white 
@@ -105,7 +105,7 @@ const void *vectors[] SECTION(".vectors") =
 {
   // Stack and program reset entry point
   &__stack_end,          // The initial stack pointer
-  __startup,            // The reset handler
+  Reset_Handler,         // The reset handler
 
   // Various fault handlers
   NMI_Handler,           // The NMI handler
