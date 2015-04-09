@@ -37,7 +37,7 @@ extern const uint8_t secp256k1_n[];
 extern void setFieldToN(void);
 extern void setToG(PointAffine *p);
 extern void pointMultiply(PointAffine *p, BigNum256 k);
-extern uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 privatekey, BigNum256 k);
+extern void ecdsaSign(BigNum256 r, BigNum256 s, const BigNum256 hash, const BigNum256 privatekey);
 extern uint8_t ecdsaSerialise(uint8_t *out, const PointAffine *point, const bool do_compress);
 
 #endif // #ifndef ECDSA_H_INCLUDED

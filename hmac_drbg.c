@@ -41,21 +41,18 @@
   */
 
 #ifdef TEST_HMAC_DRBG
-#include <stdlib.h>
 #include <stdio.h>
-#include "test_helpers.h"
 #endif // #ifdef TEST_HMAC_DRBG
 
+#include <stdlib.h> // for definition of NULL
 #include <string.h>
 #include "common.h"
 #include "sha256.h"
 #include "hmac_drbg.h"
 
-/** Because stdlib.h might not be included, NULL might be undefined. NULL
-  * is used to represent "Null"/not included in NIST SP 800-90A. */
-#ifndef NULL
-#define NULL ((void *)0) 
-#endif // #ifndef NULL
+#ifdef TEST_HMAC_DRBG
+#include "test_helpers.h"
+#endif // #ifdef TEST_HMAC_DRBG
 
 /** Calculate a 32 byte HMAC of an arbitrary message and key using SHA-256 as
   * the hash function.

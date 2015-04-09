@@ -327,6 +327,26 @@ void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2)
 	bigAddVariableSizeNoModulo(r, r, lookup[too_small], 32);
 }
 
+/** Divide a 32 byte multi-precision number by 2, truncating if necessary.
+  * \param r The 32 byte result will be written into here.
+  * \param op1 The 32 byte operand to divide by 2. This may alias r.
+  */
+void bigShiftRightNoModulo(BigNum256 r, const BigNum256 op1)
+{
+	uint8_t i;
+	uint8_t carry;
+	uint8_t old_carry;
+
+	bigAssign(r, op1);
+	old_carry = 0;
+	for (i = 31; i < 32; i--)
+	{
+		carry = (uint8_t)(r[i] & 1);
+		r[i] = (uint8_t)((r[i] >> 1) | (old_carry << 7));
+		old_carry = carry;
+	}
+}
+
 #ifndef PLATFORM_SPECIFIC_BIGMULTIPLY
 
 /** Multiplies (r = op1 x op2) two multi-precision numbers of arbitrary size,
@@ -826,6 +846,32 @@ int main(void)
 			} // for (j = 0; j < TOTAL_CASES; j++)
 		} // for (i = 0; i < TOTAL_CASES; i++)
 	} // for (operation = 0; operation < 3; operation++)
+
+	// Test bigShiftRightNoModulo().
+	for (i = 0; i < TOTAL_CASES; i++)
+	{
+		bigAssign(op1, test_cases[i]);
+		bigShiftRightNoModulo(result, op1);
+		byteToMpn(mpn_op1, op1, 8);
+		mpn_rshift(mpn_result, mpn_op1, 8, 1);
+		mpnToByte(result_compare, mpn_result, 8);
+		if (memcmp(result, result_compare, 32))
+		{
+			printf("Test failed (shift right)\n");
+			printf("op1: ");
+			printLittleEndian32(op1);
+			printf("\nExpected: ");
+			printLittleEndian32(result_compare);
+			printf("\nGot: ");
+			printLittleEndian32(result);
+			printf("\n");
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+	}
 
 	// Test non-internal functions, which do modular reduction. The modular
 	// reduction is tested against both p and n.

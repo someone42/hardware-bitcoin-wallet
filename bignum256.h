@@ -55,6 +55,7 @@ extern uint8_t bigSubtractVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t
 extern uint8_t bigSubtractNoModulo(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigAdd(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigSubtract(BigNum256 r, BigNum256 op1, BigNum256 op2);
+extern void bigShiftRightNoModulo(BigNum256 r, const BigNum256 op1);
 extern void bigMultiplyVariableSizeNoModulo(uint8_t *r, uint8_t *op1, uint8_t op1_size, uint8_t *op2, uint8_t op2_size);
 extern void bigMultiply(BigNum256 r, BigNum256 op1, BigNum256 op2);
 extern void bigInvert(BigNum256 r, BigNum256 op1);

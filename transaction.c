@@ -759,23 +759,14 @@ static uint8_t encapsulateSignature(uint8_t *signature, BigNum256 r, BigNum256 s
   * \return false on success, or true if an error occurred while trying to
   *         obtain a random number.
   */
-bool signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key)
+void signTransaction(uint8_t *signature, uint8_t *out_length, BigNum256 sig_hash, BigNum256 private_key)
 {
-	uint8_t k[32];
 	uint8_t r[32];
 	uint8_t s[32];
 
 	*out_length = 0;
-	do
-	{
-		if (getRandom256(k))
-		{
-			return true; // problem with RNG system
-		}
-	} while (ecdsaSign(r, s, sig_hash, private_key, k));
-
+	ecdsaSign(r, s, sig_hash, private_key);
 	*out_length = encapsulateSignature(signature, r, s);
-	return false; // success
 }
 
 #ifdef TEST
@@ -2706,10 +2697,6 @@ static void prependGoodP2SHInputsTestTransaction(const uint8_t *buffer, uint32_t
 int main(void)
 {
 	int i;
-	int j;
-	bool abort;
-	bool abort_error;
-	bool abort_no_write;
 	int num_tests;
 	char name[1024];
 	uint8_t bad_full_transaction[sizeof(good_full_transaction)];
@@ -2727,8 +2714,6 @@ int main(void)
 	uint8_t transaction_hash_output_changed[32];
 	uint8_t signature[MAX_SIGNATURE_LENGTH];
 	uint8_t signature_length;
-	uint8_t *signatures_buffer;
-	uint8_t *signatures_length;
 	HashState test_hs;
 
 	initTests(__FILE__);
@@ -3162,85 +3147,22 @@ int main(void)
 		}
 	}
 
-	// Call signTransaction() a couple of times and make sure signatures don't
-	// repeat. A repeating signature would indicate that signTransaction()
-	// isn't using a different k for each signature.
-	signatures_buffer = calloc(10, MAX_SIGNATURE_LENGTH);
-	signatures_length = calloc(10, 1);
-	abort = false;
-	abort_error = false;
-	abort_no_write = false;
-	for (i = 0; i < 10; i++)
+	// Check that signTransaction() actually writes to the signature buffer and
+	// signature length.
+	memset(signature, 0, sizeof(signature));
+	memset(&signature_length, 0, sizeof(signature_length));
+	memset(sig_hash, 42, 32);
+	signTransaction(signature, &signature_length, sig_hash, (BigNum256)private_key);
+	if ((signature[0] != 0x30)
+		|| (signature_length == 0))
 	{
-		memset(sig_hash, 42, 32);
-		if (signTransaction(&(signatures_buffer[i * MAX_SIGNATURE_LENGTH]),
-			&(signatures_length[i]),
-			sig_hash,
-			(BigNum256)private_key))
-		{
-			printf("signTransaction() failed unexpectedly\n");
-			reportFailure();
-			abort_error = true;
-			break;
-		}
-		// Check that signTransaction() wrote to the signature buffer and
-		// signature length arrays.
-		if ((signatures_buffer[i * MAX_SIGNATURE_LENGTH] != 0x30)
-			|| (signatures_length[i] == 0))
-		{
-			printf("signTransaction() isn't writing to its outputs\n");
-			reportFailure();
-			abort_no_write = true;
-			break;
-		}
-		for (j = 0; j < i; j++)
-		{
-			if (signatures_length[i] == signatures_length[j])
-			{
-				if (!memcmp(&(signatures_buffer[i * MAX_SIGNATURE_LENGTH]),
-					&(signatures_buffer[j * MAX_SIGNATURE_LENGTH]),
-					signatures_length[i]))
-				{
-					printf("signTransaction() is producing repeating signatures\n");
-					reportFailure();
-					abort = true;
-					break;
-				}
-			}
-		}
-		if (abort)
-		{
-			break;
-		}
-	} // end for (i = 0; i < 10; i++)
-	if (!abort)
-	{
-		reportSuccess();
-	}
-	if (!abort_error)
-	{
-		reportSuccess();
-	}
-	if (!abort_no_write)
-	{
-		reportSuccess();
-	}
-	free(signatures_buffer);
-	free(signatures_length);
-
-	// Disable the random number generator and make sure that
-	// signTransaction() fails.
-	corruptEntropyPool();
-	if (!signTransaction(signature, &signature_length, sig_hash, (BigNum256)private_key))
-	{
-		printf("signTransaction() doesn't recognise when RNG is disabled\n");
+		printf("signTransaction() isn't writing to its outputs\n");
 		reportFailure();
 	}
 	else
 	{
 		reportSuccess();
 	}
-	initialiseDefaultEntropyPool(); // restore RNG for further tests
 
 	finishTests();
 	exit(0);

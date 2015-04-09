@@ -12,17 +12,15 @@
   */
 
 #ifdef TEST
-#include <stdlib.h>
+
 #include <assert.h>
 #endif // #ifdef TEST
 
 #ifdef TEST_PRANDOM
 #include <stdio.h>
-#include "test_helpers.h"
-#include "wallet.h"
-
 #endif // #ifdef TEST_PRANDOM
 
+#include <stdlib.h> // for definition of NULL
 #include "common.h"
 #include "aes.h"
 #include "sha256.h"
@@ -31,10 +29,15 @@
 #include "endian.h"
 #include "ecdsa.h"
 #include "bignum256.h"
-#include "transaction.h" // for swapEndian256()
+#include "transaction.h"
 #include "prandom.h"
 #include "hwinterface.h"
 #include "storage_common.h"
+
+#ifdef TEST_PRANDOM
+#include "test_helpers.h"
+#include "wallet.h"
+#endif // #ifdef TEST_PRANDOM
 
 /** Because stdlib.h might not be included, NULL might be undefined. NULL
   * is only used as a placeholder pointer for getRandom256Internal() if

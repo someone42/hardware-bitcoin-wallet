@@ -10,6 +10,8 @@
   * "SEC 2: Recommended Elliptic Curve Domain Parameters" by Certicom
   * research, obtained 11-August-2011 from:
   * http://www.secg.org/collateral/sec2_final.pdf
+  * References to RFC 6979 refer to the version dated August 2013, obtained
+  * http://tools.ietf.org/html/rfc6979 on 4 April 2015.
   *
   * The operations here are written in a way as to encourage them to run in
   * (mostly) constant time. This provides some resistance against timing
@@ -34,6 +36,7 @@
 #include "bignum256.h"
 #include "ecdsa.h"
 #include "endian.h"
+#include "hmac_drbg.h"
 
 /** A point on the elliptic curve, in Jacobian coordinates. The
   * Jacobian coordinates (x, y, z) are related to affine coordinates
@@ -355,67 +358,92 @@ void setToG(PointAffine *p)
 	bigAssign(p->y, (BigNum256)buffer);
 }
 
-/** Attempt to sign the message with a given message digest.
+/** Create a deterministic ECDSA signature of a given message (digest) and
+  * private key.
   * This is an implementation of the algorithm described in the document
   * "SEC 1: Elliptic Curve Cryptography" by Certicom research, obtained
   * 15-August-2011 from: http://www.secg.org/collateral/sec1_final.pdf
-  * section 4.1.3 ("Signing Operation").
-  * \param r The "r" component of the signature will be written to here (upon
-  *          successful completion), as a 32 byte multi-precision number.
-  * \param s The "s" component of the signature will be written to here, (upon
-  *          successful completion), as a 32 byte multi-precision number.
+  * section 4.1.3 ("Signing Operation"). The ephemeral private key "k" will
+  * be deterministically generated according to RFC 6979.
+  * \param r The "r" component of the signature will be written to here as
+  *          a 32 byte multi-precision number.
+  * \param s The "s" component of the signature will be written to here, as
+  *          a 32 byte multi-precision number.
   * \param hash The message digest of the message to sign, represented as a
-  *          32 byte multi-precision number.
+  *             32 byte multi-precision number.
   * \param private_key The private key to use in the signing operation,
   *                    represented as a 32 byte multi-precision number.
-  * \param k A (truly) random 32 byte multi-precision number. This must be
-  *          different for each call to this function.
-  *
-  * \return 0 and fills r and s with the signature upon success; 1 upon
-  *         failure. If this function returns 1, an appropriate course of
-  *         action is to pick another random integer k and try again. If a
-  *         random number generator is truly random, failure should only occur
-  *         if you are extremely unlucky.
   */
-uint8_t ecdsaSign(BigNum256 r, BigNum256 s, BigNum256 hash, BigNum256 private_key, BigNum256 k)
+void ecdsaSign(BigNum256 r, BigNum256 s, const BigNum256 hash, const BigNum256 private_key)
 {
 	PointAffine big_r;
+	uint8_t k[32];
+	uint8_t seed_material[32 + SHA256_HASH_LENGTH];
+	HMACDRBGState state;
 
-	// This is one of many data-dependent branches in this function. They do
-	// not compromise timing attack resistance because these branches are
-	// expected to occur extremely infrequently.
-	if (bigIsZero(k))
-	{
-		return 1;
-	}
-	if (bigCompare(k, (BigNum256)secp256k1_n) != BIGCMP_LESS)
-	{
-		return 1;
-	}
+	// From RFC 6979, section 3.3a:
+	// seed_material = int2octets(private_key) || bits2octets(hash)
+	// int2octets and bits2octets both interpret the number as big-endian.
+	// However, both the private_key and hash parameters are BigNum256, which
+	// is little-endian.
+	bigAssign(seed_material, private_key);
+	swapEndian256(seed_material); // little-endian -> big-endian
+	bigAssign(&(seed_material[32]), hash);
+	swapEndian256(&(seed_material[32])); // little-endian -> big-endian
+	drbgInstantiate(&state, seed_material, sizeof(seed_material));
 
-	// Compute ephemeral elliptic curve key pair (k, big_r).
-	setToG(&big_r);
-	pointMultiply(&big_r, k);
-	// big_r now contains k * G.
-	setFieldToN();
-	bigModulo(r, big_r.x);
-	// r now contains (k * G).x (mod n).
-	if (bigIsZero(r))
+	while (true)
 	{
-		return 1;
-	}
-	bigMultiply(s, r, private_key);
-	bigModulo(big_r.y, hash); // use big_r.y as temporary
-	bigAdd(s, s, big_r.y);
-	bigInvert(big_r.y, k);
-	bigMultiply(s, s, big_r.y);
-	// s now contains (hash + (r * private_key)) / k (mod n).
-	if (bigIsZero(s))
-	{
-		return 1;
-	}
+		drbgGenerate(k, &state, 32, NULL, 0);
+		// From RFC 6979, section 3.3b, the output of the DRBG is run through
+		// the bits2int function, which interprets the output as a big-endian
+		// integer. However, functions in bignum256.c expect a little-endian
+		// integer.
+		swapEndian256(k); // big-endian -> little-endian
 
-	return 0;
+		// This is one of many data-dependent branches in this function. They do
+		// not compromise timing attack resistance because these branches are
+		// expected to occur extremely infrequently.
+		if (bigIsZero(k))
+		{
+			continue;
+		}
+		if (bigCompare(k, (BigNum256)secp256k1_n) != BIGCMP_LESS)
+		{
+			continue;
+		}
+
+		// Compute ephemeral elliptic curve key pair (k, big_r).
+		setToG(&big_r);
+		pointMultiply(&big_r, k);
+		// big_r now contains k * G.
+		setFieldToN();
+		bigModulo(r, big_r.x);
+		// r now contains (k * G).x (mod n).
+		if (bigIsZero(r))
+		{
+			continue;
+		}
+		bigMultiply(s, r, private_key);
+		bigModulo(big_r.y, hash); // use big_r.y as temporary
+		bigAdd(s, s, big_r.y);
+		bigInvert(big_r.y, k);
+		bigMultiply(s, s, big_r.y);
+		// s now contains (hash + (r * private_key)) / k (mod n).
+		if (bigIsZero(s))
+		{
+			continue;
+		}
+
+		// Canonicalise s by negating it if s > secp256k1_n / 2.
+		// See https://github.com/bitcoin/bitcoin/pull/3016 for more info.
+		bigShiftRightNoModulo(k, (const BigNum256)secp256k1_n); // use k as temporary
+		if (bigCompare(s, k) == BIGCMP_GREATER)
+		{
+			bigSubtractNoModulo(s, (BigNum256)secp256k1_n, s);
+		}
+		break;
+	}
 }
 
 /** Serialise an elliptic curve point in a manner which is Bitcoin-compatible.
@@ -603,6 +631,190 @@ true, // is compressed?
 }
 };
 
+/** Test vectors for RFC 6979 (deterministic signatures) test cases. */
+struct RFC6979TestCase
+{
+	/** Private key. This is big-endian. */
+	uint8_t private_key[32];
+	/** Message to sign. */
+	const char *message;
+	/** Expected signature, as r concatenated with s, big-endian. */
+	uint8_t expected_signature[32 + 32];
+	/** Whether to hash message twice or not. */
+	bool double_hash;
+};
+
+static const struct RFC6979TestCase rfc6979_test_cases[] = {
+// These next 5 test vectors are from user fpgaminer on the bitcointalk
+// forums. These were obtained from
+// https://bitcointalk.org/index.php?topic=285142.msg3299061#msg3299061
+// on 9 April 2015.
+{ // fpgaminer test vector 1
+{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // private key
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+"Satoshi Nakamoto", // message
+{0x93, 0x4b, 0x1e, 0xa1, 0x0a, 0x4b, 0x3c, 0x17, // expected signature: r || s
+0x57, 0xe2, 0xb0, 0xc0, 0x17, 0xd0, 0xb6, 0x14,
+0x3c, 0xe3, 0xc9, 0xa7, 0xe6, 0xa4, 0xa4, 0x98,
+0x60, 0xd7, 0xa6, 0xab, 0x21, 0x0e, 0xe3, 0xd8,
+0x24, 0x42, 0xce, 0x9d, 0x2b, 0x91, 0x60, 0x64,
+0x10, 0x80, 0x14, 0x78, 0x3e, 0x92, 0x3e, 0xc3,
+0x6b, 0x49, 0x74, 0x3e, 0x2f, 0xfa, 0x1c, 0x44,
+0x96, 0xf0, 0x1a, 0x51, 0x2a, 0xaf, 0xd9, 0xe5},
+false // use SHA-256 once
+},
+{ // fpgaminer test vector 2
+{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // private key
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01},
+"All those moments will be lost in time, like tears in rain. Time to die...", // message
+{0x86, 0x00, 0xdb, 0xd4, 0x1e, 0x34, 0x8f, 0xe5, // expected signature: r || s
+0xc9, 0x46, 0x5a, 0xb9, 0x2d, 0x23, 0xe3, 0xdb,
+0x8b, 0x98, 0xb8, 0x73, 0xbe, 0xec, 0xd9, 0x30,
+0x73, 0x64, 0x88, 0x69, 0x64, 0x38, 0xcb, 0x6b,
+0x54, 0x7f, 0xe6, 0x44, 0x27, 0x49, 0x6d, 0xb3,
+0x3b, 0xf6, 0x60, 0x19, 0xda, 0xcb, 0xf0, 0x03,
+0x9c, 0x04, 0x19, 0x9a, 0xbb, 0x01, 0x22, 0x91,
+0x86, 0x01, 0xdb, 0x38, 0xa7, 0x2c, 0xfc, 0x21},
+false // use SHA-256 once
+},
+{ // fpgaminer test vector 3
+{0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // private key
+0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE,
+0xBA, 0xAE, 0xDC, 0xE6, 0xAF, 0x48, 0xA0, 0x3B,
+0xBF, 0xD2, 0x5E, 0x8C, 0xD0, 0x36, 0x41, 0x40},
+"Satoshi Nakamoto", // message
+{0xfd, 0x56, 0x7d, 0x12, 0x1d, 0xb6, 0x6e, 0x38, // expected signature: r || s
+0x29, 0x91, 0x53, 0x4a, 0xda, 0x77, 0xa6, 0xbd,
+0x31, 0x06, 0xf0, 0xa1, 0x09, 0x8c, 0x23, 0x1e,
+0x47, 0x99, 0x34, 0x47, 0xcd, 0x6a, 0xf2, 0xd0,
+0x6b, 0x39, 0xcd, 0x0e, 0xb1, 0xbc, 0x86, 0x03,
+0xe1, 0x59, 0xef, 0x5c, 0x20, 0xa5, 0xc8, 0xad,
+0x68, 0x5a, 0x45, 0xb0, 0x6c, 0xe9, 0xbe, 0xbe,
+0xd3, 0xf1, 0x53, 0xd1, 0x0d, 0x93, 0xbe, 0xd5},
+false // use SHA-256 once
+},
+{ // fpgaminer test vector 4
+{0xf8, 0xb8, 0xaf, 0x8c, 0xe3, 0xc7, 0xcc, 0xa5, // private key
+0xe3, 0x00, 0xd3, 0x39, 0x39, 0x54, 0x0c, 0x10,
+0xd4, 0x5c, 0xe0, 0x01, 0xb8, 0xf2, 0x52, 0xbf,
+0xbc, 0x57, 0xba, 0x03, 0x42, 0x90, 0x41, 0x81},
+"Alan Turing", // message
+{0x70, 0x63, 0xae, 0x83, 0xe7, 0xf6, 0x2b, 0xbb, // expected signature: r || s
+0x17, 0x17, 0x98, 0x13, 0x1b, 0x4a, 0x05, 0x64,
+0xb9, 0x56, 0x93, 0x00, 0x92, 0xb3, 0x3b, 0x07,
+0xb3, 0x95, 0x61, 0x5d, 0x9e, 0xc7, 0xe1, 0x5c,
+0x58, 0xdf, 0xcc, 0x1e, 0x00, 0xa3, 0x5e, 0x15,
+0x72, 0xf3, 0x66, 0xff, 0xe3, 0x4b, 0xa0, 0xfc,
+0x47, 0xdb, 0x1e, 0x71, 0x89, 0x75, 0x9b, 0x9f,
+0xb2, 0x33, 0xc5, 0xb0, 0x5a, 0xb3, 0x88, 0xea},
+false // use SHA-256 once
+},
+{ // fpgaminer test vector 5
+{0xe9, 0x16, 0x71, 0xc4, 0x62, 0x31, 0xf8, 0x33, // private key
+0xa6, 0x40, 0x6c, 0xcb, 0xea, 0x0e, 0x3e, 0x39,
+0x2c, 0x76, 0xc1, 0x67, 0xba, 0xc1, 0xcb, 0x01,
+0x3f, 0x6f, 0x10, 0x13, 0x98, 0x04, 0x55, 0xc2},
+"There is a computer disease that anybody who works with computers knows about. It's a very serious disease and it interferes completely with the work. The trouble with computers is that you 'play' with them!", // message
+{0xb5, 0x52, 0xed, 0xd2, 0x75, 0x80, 0x14, 0x1f, // expected signature: r || s
+0x3b, 0x2a, 0x54, 0x63, 0x04, 0x8c, 0xb7, 0xcd,
+0x3e, 0x04, 0x7b, 0x97, 0xc9, 0xf9, 0x80, 0x76,
+0xc3, 0x2d, 0xbd, 0xf8, 0x5a, 0x68, 0x71, 0x8b,
+0x27, 0x9f, 0xa7, 0x2d, 0xd1, 0x9b, 0xfa, 0xe0,
+0x55, 0x77, 0xe0, 0x6c, 0x7c, 0x0c, 0x19, 0x00,
+0xc3, 0x71, 0xfc, 0xd5, 0x89, 0x3f, 0x7e, 0x1d,
+0x56, 0xa3, 0x7d, 0x30, 0x17, 0x46, 0x71, 0xf6},
+false // use SHA-256 once
+},
+
+// These next 2 test vectors are from user plaprade on the bitcointalk
+// forums. These were obtained from
+// https://bitcointalk.org/index.php?topic=285142.msg3300992#msg3300992
+// on 9 April 2015. One requires s to be negated and the other doesn't.
+{ // plaprade test vector 1
+{0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, // private key
+0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
+0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x40},
+"Equations are more important to me, because politics is for the present, but an equation is something for eternity.", // message
+{0x54, 0xc4, 0xa3, 0x3c, 0x64, 0x23, 0xd6, 0x89, // expected signature: r || s
+0x37, 0x8f, 0x16, 0x0a, 0x7f, 0xf8, 0xb6, 0x13,
+0x30, 0x44, 0x4a, 0xbb, 0x58, 0xfb, 0x47, 0x0f,
+0x96, 0xea, 0x16, 0xd9, 0x9d, 0x4a, 0x2f, 0xed,
+0x07, 0x08, 0x23, 0x04, 0x41, 0x0e, 0xfa, 0x6b,
+0x29, 0x43, 0x11, 0x1b, 0x6a, 0x4e, 0x0a, 0xaa,
+0x7b, 0x7d, 0xb5, 0x5a, 0x07, 0xe9, 0x86, 0x1d,
+0x1f, 0xb3, 0xcb, 0x1f, 0x42, 0x10, 0x44, 0xa5},
+false // use SHA-256 once
+},
+{ // plaprade test vector 2
+{0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // private key
+0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+0x00, 0x00, 0x00, 0x00, 0x00, 0x05, 0x69, 0x16,
+0xd0, 0xf9, 0xb3, 0x1d, 0xc9, 0xb6, 0x37, 0xf3},
+"The question of whether computers can think is like the question of whether submarines can swim.", // message
+{0xcd, 0xe1, 0x30, 0x2d, 0x83, 0xf8, 0xdd, 0x83, // expected signature: r || s
+0x5d, 0x89, 0xae, 0xf8, 0x03, 0xc7, 0x4a, 0x11,
+0x9f, 0x56, 0x1f, 0xba, 0xef, 0x3e, 0xb9, 0x12,
+0x9e, 0x45, 0xf3, 0x0d, 0xe8, 0x6a, 0xbb, 0xf9,
+0x06, 0xce, 0x64, 0x3f, 0x50, 0x49, 0xee, 0x1f,
+0x27, 0x89, 0x04, 0x67, 0xb7, 0x7a, 0x6a, 0x8e,
+0x11, 0xec, 0x46, 0x61, 0xcc, 0x38, 0xcd, 0x8b,
+0xad, 0xf9, 0x01, 0x15, 0xfb, 0xd0, 0x3c, 0xef},
+false // use SHA-256 once
+},
+
+// These next 2 test vectors are from Bitcoin Core's test suite. They were
+// obtained from:
+// https://github.com/bitcoin/bitcoin/blob/master/src/test/key_tests.cpp
+// on 10 April 2015.
+// Commit: 92fd887fd42a61e95f716d3193104827f60f856c
+{ // Bitcoin Core: strSecret1
+{0x12, 0xb0, 0x04, 0xff, 0xf7, 0xf4, 0xb6, 0x9e, // private key = 5HxWvvfubhXpYYpS3tJkw6fq9jE9j18THftkZjHHfmFiWtmAbrj
+0xf8, 0x65, 0x0e, 0x76, 0x7f, 0x18, 0xf1, 0x1e,
+0xde, 0x15, 0x81, 0x48, 0xb4, 0x25, 0x66, 0x07,
+0x23, 0xb9, 0xf9, 0xa6, 0x6e, 0x61, 0xf7, 0x47},
+"Very deterministic message", // message
+{0x5d, 0xbb, 0xdd, 0xda, 0x71, 0x77, 0x2d, 0x95, // expected signature: r || s
+0xce, 0x91, 0xcd, 0x2d, 0x14, 0xb5, 0x92, 0xcf,
+0xbc, 0x1d, 0xd0, 0xaa, 0xbd, 0x6a, 0x39, 0x4b,
+0x6c, 0x2d, 0x37, 0x7b, 0xbe, 0x59, 0xd3, 0x1d,
+0x14, 0xdd, 0xda, 0x21, 0x49, 0x4a, 0x4e, 0x22,
+0x1f, 0x08, 0x24, 0xf0, 0xb8, 0xb9, 0x24, 0xc4,
+0x3f, 0xa4, 0x3c, 0x0a, 0xd5, 0x7d, 0xcc, 0xda,
+0xa1, 0x1f, 0x81, 0xa6, 0xbd, 0x45, 0x82, 0xf6},
+true // use SHA-256 twice
+},
+{ // Bitcoin Core: strSecret2
+{0xb5, 0x24, 0xc2, 0x8b, 0x61, 0xc9, 0xb2, 0xc4, // private key = 5KC4ejrDjv152FGwP386VD1i2NYc5KkfSMyv1nGy1VGDxGHqVY3
+0x9b, 0x2c, 0x7d, 0xd4, 0xc2, 0xd7, 0x58, 0x87,
+0xab, 0xb7, 0x87, 0x68, 0xc0, 0x54, 0xbd, 0x7c,
+0x01, 0xaf, 0x40, 0x29, 0xf6, 0xc0, 0xd1, 0x17},
+"Very deterministic message", // message
+{0x52, 0xd8, 0xa3, 0x20, 0x79, 0xc1, 0x1e, 0x79, // expected signature: r || s
+0xdb, 0x95, 0xaf, 0x63, 0xbb, 0x96, 0x00, 0xc5,
+0xb0, 0x4f, 0x21, 0xa9, 0xca, 0x33, 0xdc, 0x12,
+0x9c, 0x2b, 0xfa, 0x8a, 0xc9, 0xdc, 0x1c, 0xd5,
+0x61, 0xd8, 0xae, 0x5e, 0x0f, 0x6c, 0x1a, 0x16,
+0xbd, 0xe3, 0x71, 0x9c, 0x64, 0xc2, 0xfd, 0x70,
+0xe4, 0x04, 0xb6, 0x42, 0x8a, 0xb9, 0xa6, 0x95,
+0x66, 0x96, 0x2e, 0x87, 0x71, 0xb5, 0x94, 0x4d},
+true // use SHA-256 twice
+}
+
+};
+
+/** Order ("n") divided by 2. Obtained from BIP 0062, from the
+  * section "Low S values in signatures". */
+static const uint8_t halforder[32] = {
+0xA0, 0x20, 0x1B, 0x68, 0x46, 0x2F, 0xE9, 0xDF,
+0x1D, 0x50, 0xA4, 0x57, 0x73, 0x6E, 0x57, 0x5D,
+0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F};
+
 /** Check if a point is on the elliptic curve. This signals success/failure
   * by calling reportSuccess() or reportFailure().
   * \param p The point to check.
@@ -789,6 +1001,8 @@ int main(void)
 	uint8_t temp[32];
 	uint8_t r[32];
 	uint8_t s[32];
+	uint8_t r_again[32];
+	uint8_t s_again[32];
 	uint8_t private_key[32];
 	uint8_t public_key_x[32];
 	uint8_t public_key_y[32];
@@ -799,7 +1013,9 @@ int main(void)
 	uint8_t is_odd;
 	int fail_count;
 	int i;
+	unsigned int j;
 	FILE *f;
+	HashState hs;
 
 	initTests(__FILE__);
 
@@ -1111,51 +1327,6 @@ int main(void)
 	}
 	fclose(f);
 
-	// ecdsaSign() should fail when k == 0 or k >= n.
-	bigSetZero(temp);
-	if (!ecdsaSign(r, s, temp, temp, temp))
-	{
-		printf("ecdsaSign() accepts k == 0\n");
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-	bigAssign(temp, (BigNum256)secp256k1_n);
-	if (!ecdsaSign(r, s, temp, temp, temp))
-	{
-		printf("ecdsaSign() accepts k == n\n");
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-	memset(temp, 0xff, 32);
-	if (!ecdsaSign(r, s, temp, temp, temp))
-	{
-		printf("ecdsaSign() accepts k > n\n");
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-
-	// But it should succeed for k == n - 1.
-	bigAssign(temp, (BigNum256)secp256k1_n);
-	temp[0] = 0x40;
-	if (ecdsaSign(r, s, temp, temp, temp))
-	{
-		printf("ecdsaSign() does not accept k == n - 1\n");
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-
 	// Test signatures by signing and then verifying. For keypairs, just
 	// use the ones generated for the pointMultiply test.
 	srand(42);
@@ -1190,10 +1361,7 @@ int main(void)
 		skipWhiteSpace(f);
 		bigFRead(public_key_y, f);
 		skipWhiteSpace(f);
-		do
-		{
-			fillWithRandom(temp, sizeof(temp));
-		} while (ecdsaSign(r, s, hash, private_key, temp));
+		ecdsaSign(r, s, hash, private_key);
 		if (crappyVerifySignature(r, s, hash, public_key_x, public_key_y))
 		{
 			printf("Signature verify failed\n");
@@ -1364,6 +1532,99 @@ int main(void)
 			reportSuccess();
 		}
 	}
+
+	// Test that ecdsaSign() produces deterministic signatures which match
+	// other implementations.
+	for (i = 0; i < (sizeof(rfc6979_test_cases) / sizeof(struct RFC6979TestCase)); i++)
+	{
+		sha256Begin(&hs);
+		for (j = 0; j < strlen(rfc6979_test_cases[i].message); j++)
+		{
+			sha256WriteByte(&hs, rfc6979_test_cases[i].message[j]);
+		}
+		if (rfc6979_test_cases[i].double_hash)
+		{
+			sha256FinishDouble(&hs);
+		}
+		else
+		{
+			sha256Finish(&hs);
+		}
+		writeHashToByteArray(hash, &hs, false);
+		memcpy(private_key, rfc6979_test_cases[i].private_key, 32);
+		swapEndian256(private_key); // big-endian -> little-endian
+		ecdsaSign(r, s, hash, private_key);
+		swapEndian256(r); // little-endian -> big-endian
+		swapEndian256(s); // little-endian -> big-endian
+		if (memcmp(r, rfc6979_test_cases[i].expected_signature, 32)
+			|| memcmp(s, &(rfc6979_test_cases[i].expected_signature[32]), 32))
+		{
+			printf("RFC6979 test case %d mismatch\n", i);
+			printf("Expected:\n r = ");
+			bigPrintVariableSize((const BigNum256)rfc6979_test_cases[i].expected_signature, 32, true);
+			printf("\n s = ");
+			bigPrintVariableSize((const BigNum256)&(rfc6979_test_cases[i].expected_signature[32]), 32, true);
+			printf("\n");
+			printf("Got:\n r = ");
+			bigPrintVariableSize(r, 32, true);
+			printf("\n s = ");
+			bigPrintVariableSize(s, 32, true);
+			printf("\n");
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+		// Test that the signature actually is deterministic (is always the
+		// same).
+		ecdsaSign(r_again, s_again, hash, private_key);
+		swapEndian256(r_again); // little-endian -> big-endian
+		swapEndian256(s_again); // little-endian -> big-endian
+		if (memcmp(r, r_again, 32)
+			|| memcmp(s, s_again, 32))
+		{
+			printf("RFC6979 test case %d appears to be non-deterministic\n", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+	}
+
+	// Test that signatures always have s <= order/2 (i.e. are canonical).
+	srand(42);
+	f = fopen("keypairs.txt", "r");
+	if (f == NULL)
+	{
+		printf("Could not open keypairs.txt for reading\n");
+		printf("Please generate it using the instructions in the source\n");
+		exit(1);
+	}
+	for (i = 0; i < 300; i++)
+	{
+		skipWhiteSpace(f);
+		bigFRead(private_key, f);
+		skipWhiteSpace(f);
+		bigFRead(p.x, f);
+		skipWhiteSpace(f);
+		bigFRead(p.y, f);
+		skipWhiteSpace(f);
+		p.is_point_at_infinity = 0;
+		fillWithRandom(hash, sizeof(hash));
+		ecdsaSign(r, s, hash, private_key);
+		if (bigCompare(s, (const BigNum256)halforder) == BIGCMP_GREATER)
+		{
+			printf("Signature generated using private key %d not canonical\n", i);
+			reportFailure();
+		}
+		else
+		{
+			reportSuccess();
+		}
+	}
+	fclose(f);
 
 	finishTests();
 

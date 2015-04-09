@@ -16,16 +16,15 @@
   */
 
 #ifdef TEST
-#include <stdlib.h>
 #include <stdio.h>
 #include <assert.h>
 #endif // #ifdef TEST
 
 #ifdef TEST_STREAM_COMM
 #include <string.h>
-#include "test_helpers.h"
 #endif // #ifdef TEST_STREAM_COMM
 
+#include <stdlib.h> // for definition of NULL
 #include "common.h"
 #include "endian.h"
 #include "hwinterface.h"
@@ -42,6 +41,10 @@
 #include "messages.pb.h"
 #include "sha256.h"
 
+#ifdef TEST_STREAM_COMM
+#include "test_helpers.h"
+#endif // #ifdef TEST_STREAM_COMM
+
 // Prototypes for forward-referenced functions.
 bool mainInputStreamCallback(pb_istream_t *stream, uint8_t *buf, size_t count);
 bool mainOutputStreamCallback(pb_ostream_t *stream, const uint8_t *buf, size_t count);
@@ -51,13 +54,6 @@ bool hashFieldCallback(pb_istream_t *stream, const pb_field_t *field, void **arg
 /** Maximum size (in bytes) of any protocol buffer message sent by functions
   * in this file. */
 #define MAX_SEND_SIZE			255
-
-/** Because stdlib.h might not be included, NULL might be undefined. NULL
-  * is only used as a placeholder pointer for translateWalletError() if
-  * there is no appropriate pointer. */
-#ifndef NULL
-#define NULL ((void *)0) 
-#endif // #ifndef NULL
 
 /** Union of field buffers for all protocol buffer messages. They're placed
   * in a union to make memory access more efficient, since the functions in
@@ -666,15 +662,9 @@ bool signTransactionCallback(pb_istream_t *stream, const pb_field_t *field, void
 				// This should never happen.
 				fatalError();
 			}
-			if (signTransaction(message_buffer.signature_data.bytes, &signature_length, sig_hash, private_key))
-			{
-				translateWalletError(WALLET_RNG_FAILURE);
-			}
-			else
-			{
-				message_buffer.signature_data.size = signature_length;
-				sendPacket(PACKET_TYPE_SIGNATURE, Signature_fields, &message_buffer);
-			}
+			signTransaction(message_buffer.signature_data.bytes, &signature_length, sig_hash, private_key);
+			message_buffer.signature_data.size = signature_length;
+			sendPacket(PACKET_TYPE_SIGNATURE, Signature_fields, &message_buffer);
 		}
 		else
 		{
