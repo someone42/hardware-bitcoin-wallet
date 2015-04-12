@@ -13,20 +13,32 @@
 #define HWINTERFACE_H_INCLUDED
 
 #include "common.h"
-#include "wallet.h"
-#include "transaction.h"
 
 /** Return values for non-volatile storage I/O functions. */
 typedef enum NonVolatileReturnEnum
 {
 	/** No error actually occurred. */
 	NV_NO_ERROR					=	0,
-	/** Invalid address supplied (or, I/O would go beyond end of storage
-	  * space). */
+	/** Invalid address or partition supplied (or, I/O would go beyond end of
+	  * storage space). */
 	NV_INVALID_ADDRESS			=	1,
 	/** Catch-all for all other read/write errors. */
 	NV_IO_ERROR					=	2,
 } NonVolatileReturn;
+
+/** Non-volatile memory is divided into partitions, which are contiguous
+  * areas which do not overlap each other. Partitioning non-volatile memory
+  * means that the platform-dependent side can decide how to divide up its
+  * storage. For example, */
+typedef enum NVPartitionsEnum
+{
+	/** Partition for data that is shared between all accounts. This includes the
+	  * DRBG state. Making this larger reduces wear on the storage medium. */
+	PARTITION_GLOBAL		=	0,
+	/** Partition for accounts. Making this larger means the wallet can store
+	  * more accounts simultaneously. */
+	PARTITION_ACCOUNTS		=	1
+} NVPartitions;
 
 /** Values for userDenied() function which specify what to ask the user
   * about. */
@@ -211,24 +223,37 @@ extern void clearOTP(void);
   */
 extern int hardwareRandom32Bytes(uint8_t *buffer);
 
-/** Write to non-volatile storage.
+/** Get size of a partition.
+  * \param out_size On success, the size of the partition (in number of bytes)
+  *                 will be written here.
+  * \param partition Partition to query. Must be one of #NVPartitions.
+  * \return See #NonVolatileReturnEnum for return values.
+  * \warning The size of each partition must be a multiple of 4.
+  */
+extern NonVolatileReturn nonVolatileGetSize(uint32_t *out_size, NVPartitions partition);
+/** Write to non-volatile storage. All platform-independent code assumes that
+  * non-volatile memory acts like NOR flash/EEPROM: arbitrary bits may be
+  * reset from 1 to 0 ("programmed") in any order, but setting bits
+  * from 0 to 1 ("erasing") is very expensive.
   * \param data A pointer to the data to be written.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to write to. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start writing to.
   * \param length The number of bytes to write.
   * \return See #NonVolatileReturnEnum for return values.
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-extern NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length);
+extern NonVolatileReturn nonVolatileWrite(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length);
 /** Read from non-volatile storage.
   * \param data A pointer to the buffer which will receive the data.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to read from. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start reading from.
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-extern NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length);
+extern NonVolatileReturn nonVolatileRead(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length);
 /** Ensure that all buffered writes are committed to non-volatile storage.
   * \return See #NonVolatileReturnEnum for return values.
   */

@@ -141,12 +141,12 @@ bool setEntropyPool(uint8_t *in_pool_state)
 {
 	uint8_t checksum[POOL_CHECKSUM_LENGTH];
 
-	if (nonVolatileWrite(in_pool_state, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileWrite(in_pool_state, PARTITION_GLOBAL, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
 	{
 		return true; // non-volatile write error
 	}
 	calculateEntropyPoolChecksum(checksum, in_pool_state);
-	if (nonVolatileWrite(checksum, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileWrite(checksum, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
 	{
 		return true; // non-volatile write error
 	}
@@ -169,12 +169,12 @@ bool getEntropyPool(uint8_t *out_pool_state)
 	uint8_t checksum_read[POOL_CHECKSUM_LENGTH];
 	uint8_t checksum_calculated[POOL_CHECKSUM_LENGTH];
 
-	if (nonVolatileRead(out_pool_state, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileRead(out_pool_state, PARTITION_GLOBAL, ADDRESS_ENTROPY_POOL, ENTROPY_POOL_LENGTH) != NV_NO_ERROR)
 	{
 		return true; // non-volatile read error
 	}
 	calculateEntropyPoolChecksum(checksum_calculated, out_pool_state);
-	if (nonVolatileRead(checksum_read, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileRead(checksum_read, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, POOL_CHECKSUM_LENGTH) != NV_NO_ERROR)
 	{
 		return true; // non-volatile read error
 	}
@@ -514,9 +514,9 @@ void corruptEntropyPool(void)
 {
 	uint8_t one_byte;
 
-	nonVolatileRead(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	nonVolatileRead(&one_byte, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, 1);
 	one_byte = (uint8_t)(one_byte ^ 0xde);
-	nonVolatileWrite(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	nonVolatileWrite(&one_byte, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, 1);
 }
 
 /** Set this to true to simulate the HWRNG breaking. */
@@ -883,9 +883,9 @@ int main(int argc, char **argv)
 	abort = false;
 	for (i = 0; i < ENTROPY_POOL_LENGTH; i++)
 	{
-		nonVolatileRead(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1); // save
+		nonVolatileRead(&one_byte, PARTITION_GLOBAL, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1); // save
 		one_byte_corrupted = (uint8_t)(one_byte ^ 0xde);
-		nonVolatileWrite(&one_byte_corrupted, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1);
+		nonVolatileWrite(&one_byte_corrupted, PARTITION_GLOBAL, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1);
 		if (!getEntropyPool(pool_state))
 		{
 			printf("getEntropyPool() not detecting corruption at i = %d\n", i);
@@ -893,7 +893,7 @@ int main(int argc, char **argv)
 			abort = true;
 			break;
 		}
-		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1); // restore
+		nonVolatileWrite(&one_byte, PARTITION_GLOBAL, (uint32_t)(ADDRESS_ENTROPY_POOL + i), 1); // restore
 	}
 	if (!abort)
 	{
@@ -905,9 +905,9 @@ int main(int argc, char **argv)
 	abort = false;
 	for (i = 0; i < POOL_CHECKSUM_LENGTH; i++)
 	{
-		nonVolatileRead(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1); // save
+		nonVolatileRead(&one_byte,PARTITION_GLOBAL,  (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1); // save
 		one_byte_corrupted = (uint8_t)(one_byte ^ 0xde);
-		nonVolatileWrite(&one_byte_corrupted, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1);
+		nonVolatileWrite(&one_byte_corrupted, PARTITION_GLOBAL, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1);
 		if (!getEntropyPool(pool_state))
 		{
 			printf("getEntropyPool() not detecting corruption at i = %d\n", i);
@@ -915,7 +915,7 @@ int main(int argc, char **argv)
 			abort = true;
 			break;
 		}
-		nonVolatileWrite(&one_byte, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1); // restore
+		nonVolatileWrite(&one_byte, PARTITION_GLOBAL, (uint32_t)(ADDRESS_POOL_CHECKSUM + i), 1); // restore
 	}
 	if (!abort)
 	{
@@ -959,9 +959,9 @@ int main(int argc, char **argv)
 	// the current state is invalid.
 	memset(pool_state, 0, ENTROPY_POOL_LENGTH);
 	setEntropyPool(pool_state); // make sure entropy pool state is valid before corrupting it
-	nonVolatileRead(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	nonVolatileRead(&one_byte, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, 1);
 	one_byte_corrupted = (uint8_t)(one_byte ^ 0xde);
-	nonVolatileWrite(&one_byte_corrupted, ADDRESS_POOL_CHECKSUM, 1);
+	nonVolatileWrite(&one_byte_corrupted, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, 1);
 	memset(pool_state, 43, ENTROPY_POOL_LENGTH);
 	if (initialiseEntropyPool(pool_state))
 	{
@@ -1016,9 +1016,9 @@ int main(int argc, char **argv)
 
 	// Check that generateInsecureOTP() still works when the entropy
 	// pool is corrupted.
-	nonVolatileRead(&one_byte, ADDRESS_POOL_CHECKSUM, 1);
+	nonVolatileRead(&one_byte, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, 1);
 	one_byte_corrupted = (uint8_t)(one_byte ^ 0xde);
-	nonVolatileWrite(&one_byte_corrupted, ADDRESS_POOL_CHECKSUM, 1);
+	nonVolatileWrite(&one_byte_corrupted, PARTITION_GLOBAL, ADDRESS_POOL_CHECKSUM, 1);
 	generateInsecureOTP(otp);
 	generateInsecureOTP(otp2);
 	if (!memcmp(otp, otp2, sizeof(otp)))

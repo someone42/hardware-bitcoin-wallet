@@ -15,7 +15,7 @@
   * \warning This must be a power of 2, or some bit masks in sst25x.c will
   *          be invalid.
   */
-#define SECTOR_SIZE			4096
+#define SECTOR_SIZE             4096
 /** Total number of bytes in non-volatile storage.
   * This has been temporarily reduced to the size of the wallet storage area.
   * It will be increased back to the real value when storage partitioning is
@@ -23,7 +23,14 @@
   * \warning This must be much smaller than 2 ^ 32 or some overflow checks
   *          in nvmem_manager.c won't work.
   */
-#define NV_MEMORY_SIZE		4096
+#define NV_MEMORY_SIZE          4096
+/** Size of global partition, in bytes. This is large enough to reduce wear
+  * (due to DRBG state writes) by a factor of at least 10, but only reduces
+  * maximum number of simultaneous accounts by about 25%. */
+#define GLOBAL_PARTITION_SIZE   1024
+/** Size of accounts partition, in bytes. This is
+  * just #NV_MEMORY_SIZE - #GLOBAL_PARTITION_SIZE. */
+#define ACCOUNTS_PARTITION_SIZE 3072
 
 extern void initSST25x(void);
 extern uint8_t sst25xReadStatusRegister(void);

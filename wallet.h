@@ -10,6 +10,7 @@
 
 #include "common.h"
 #include "ecdsa.h"
+#include "hwinterface.h"
 
 /** A value which has a one-to-one association with Bitcoin addresses in a
   * given wallet. Address handles are more efficient to deal with than the
@@ -59,8 +60,6 @@ typedef enum WalletErrorsEnum
 	WALLET_READ_ERROR			=	3,
 	/** Problem(s) writing to non-volatile storage device. */
 	WALLET_WRITE_ERROR			=	4,
-	/** Address not in wallet (or, invalid address supplied). */
-	WALLET_ADDRESS_NOT_FOUND	=	5,
 	/** There is no wallet at the specified location (or, wrong encryption key
 	  * used). */
 	WALLET_NOT_THERE			=	6,
@@ -78,13 +77,15 @@ typedef enum WalletErrorsEnum
 	/** The specified operation is not allowed on this type of wallet. */
 	WALLET_INVALID_OPERATION	=	12,
 	/** A wallet already exists at the specified location. */
-	WALLET_ALREADY_EXISTS		=	13
+	WALLET_ALREADY_EXISTS		=	13,
+	/** Bad non-volatile storage address or partition number. */
+	WALLET_BAD_ADDRESS			=	14
 } WalletErrors;
 
 extern WalletErrors walletGetLastError(void);
 extern WalletErrors initWallet(uint32_t wallet_spec, const uint8_t *password, const unsigned int password_length);
 extern WalletErrors uninitWallet(void);
-extern WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end);
+extern WalletErrors sanitiseEverything(void);
 extern WalletErrors deleteWallet(uint32_t wallet_spec);
 extern WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8_t *seed, bool make_hidden, const uint8_t *password, const unsigned int password_length);
 extern AddressHandle makeNewAddress(uint8_t *out_address, PointAffine *out_public_key);

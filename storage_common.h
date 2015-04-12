@@ -27,8 +27,4 @@
 /** Address where device UUID is located. */
 #define ADDRESS_DEVICE_UUID		128
 
-/** Address where wallet records start at. From here on, non-volatile storage
-  * will consist of sequential wallet records. */
-#define ADDRESS_WALLET_START	(ADDRESS_DEVICE_UUID + UUID_LENGTH)
-
 #endif // #ifndef STORAGE_COMMON_H_INCLUDED

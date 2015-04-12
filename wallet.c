@@ -213,11 +213,19 @@ static WalletErrors readWalletRecord(WalletRecord *wallet_record, uint32_t addre
 		return WALLET_INVALID_OPERATION;
 	}
 
-	if (nonVolatileRead((uint8_t *)&(wallet_record->unencrypted), address + offsetof(WalletRecord, unencrypted), unencrypted_size) != NV_NO_ERROR)
+	if (nonVolatileRead(
+		(uint8_t *)&(wallet_record->unencrypted),
+		PARTITION_ACCOUNTS,
+		address + offsetof(WalletRecord, unencrypted),
+		unencrypted_size) != NV_NO_ERROR)
 	{
 		return WALLET_READ_ERROR;
 	}
-	if (encryptedNonVolatileRead((uint8_t *)&(wallet_record->encrypted), address + offsetof(WalletRecord, encrypted), encrypted_size) != NV_NO_ERROR)
+	if (encryptedNonVolatileRead(
+		(uint8_t *)&(wallet_record->encrypted),
+		PARTITION_ACCOUNTS,
+		address + offsetof(WalletRecord, encrypted),
+		encrypted_size) != NV_NO_ERROR)
 	{
 		return WALLET_READ_ERROR;
 	}
@@ -231,11 +239,19 @@ static WalletErrors readWalletRecord(WalletRecord *wallet_record, uint32_t addre
   */
 static WalletErrors writeCurrentWalletRecord(uint32_t address)
 {
-	if (nonVolatileWrite((uint8_t *)&(current_wallet.unencrypted), address, sizeof(current_wallet.unencrypted)) != NV_NO_ERROR)
+	if (nonVolatileWrite(
+		(uint8_t *)&(current_wallet.unencrypted),
+		PARTITION_ACCOUNTS,
+		address + offsetof(WalletRecord, unencrypted),
+		sizeof(current_wallet.unencrypted)) != NV_NO_ERROR)
 	{
 		return WALLET_WRITE_ERROR;
 	}
-	if (encryptedNonVolatileWrite((uint8_t *)&(current_wallet.encrypted), address + sizeof(current_wallet.unencrypted), sizeof(current_wallet.encrypted)) != NV_NO_ERROR)
+	if (encryptedNonVolatileWrite(
+		(uint8_t *)&(current_wallet.encrypted),
+		PARTITION_ACCOUNTS,
+		address + sizeof(current_wallet.unencrypted),
+		sizeof(current_wallet.encrypted)) != NV_NO_ERROR)
 	{
 		return WALLET_WRITE_ERROR;
 	}
@@ -307,9 +323,9 @@ WalletErrors initWallet(uint32_t wallet_spec, const uint8_t *password, const uns
 		last_error = WALLET_INVALID_WALLET_NUM;
 		return last_error;
 	}
-	wallet_nv_address = ADDRESS_WALLET_START + wallet_spec * sizeof(WalletRecord);
+	wallet_nv_address = wallet_spec * sizeof(WalletRecord);
 
-	if (nonVolatileRead(uuid, wallet_nv_address + offsetof(WalletRecord, unencrypted.uuid), UUID_LENGTH) != NV_NO_ERROR)
+	if (nonVolatileRead(uuid, PARTITION_ACCOUNTS, wallet_nv_address + offsetof(WalletRecord, unencrypted.uuid), UUID_LENGTH) != NV_NO_ERROR)
 	{
 		last_error = WALLET_READ_ERROR;
 		return last_error;
@@ -370,28 +386,47 @@ WalletErrors uninitWallet(void)
 void logVersionFieldWrite(uint32_t address);
 #endif // #ifdef TEST_WALLET
 
-/** Sanitise (clear) a selected area of non-volatile storage. This will clear
-  * the area between start (inclusive) and end (exclusive).
-  * \param start The first address which will be cleared.
-  * \param end One byte past the last address which will be cleared.
+/** Sanitise (clear) a selected area of non-volatile storage.
+  * \param partition The partition the area is contained in. Must be one
+  *                  of #NVPartitions.
+  * \param start The first address within the partition which will be cleared.
+  *              Must be a multiple of 4.
+  * \param length The number of bytes to clear. Must be a multiple of 4.
   * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
-  *         error occurred. This will still return #WALLET_NO_ERROR even if
-  *         end is an address beyond the end of the non-volatile storage area.
-  *         This is done so that using start = 0 and end = 0xffffffff will
-  *         clear the entire non-volatile storage area.
+  *         error occurred.
   */
-WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
+static WalletErrors sanitiseNonVolatileStorage(NVPartitions partition, uint32_t start, uint32_t length)
 {
 	uint8_t buffer[32];
 	uint8_t pool_state[ENTROPY_POOL_LENGTH];
 	uint32_t address;
-	uint32_t remaining;
+	uint32_t bytes_written;
+	uint32_t bytes_to_write;
 	NonVolatileReturn r;
 	uint8_t pass;
 
 	if (getEntropyPool(pool_state))
 	{
 		last_error = WALLET_RNG_FAILURE;
+		return last_error;
+	}
+
+	// The following check guards all occurrences of (address + length + offset)
+	// from integer overflow, for all reasonable values of "offset".
+	if ((start > 0x10000000) || (length >  0x10000000))
+	{
+		// address might overflow.
+		last_error = WALLET_BAD_ADDRESS;
+		return last_error;
+	}
+
+	// The "must be a multiple of 4" checks are there so that version fields
+	// (which are 4 bytes long) are always either completely cleared or not
+	// touched at all.
+	if (((start % 4) != 0) || ((length % 4) != 0))
+	{
+		// start and length not multiples of 4.
+		last_error = WALLET_BAD_ADDRESS;
 		return last_error;
 	}
 
@@ -404,7 +439,8 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 	for (pass = 0; pass < 4; pass++)
 	{
 		address = start;
-		while (address < end)
+		bytes_written = 0;
+		while (bytes_written < length)
 		{
 			if (pass == 0)
 			{
@@ -433,35 +469,23 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 					return last_error;
 				}
 			}
-			remaining = end - address;
-			if (remaining > 32)
+			bytes_to_write = length - bytes_written;
+			if (bytes_to_write > sizeof(buffer))
 			{
-				remaining = 32;
+				bytes_to_write = sizeof(buffer);
 			}
-			if (remaining > 0)
+			if (bytes_to_write > 0)
 			{
-				r = nonVolatileWrite(buffer, address, remaining);
-				if (r == NV_INVALID_ADDRESS)
-				{
-					// Got to end of non-volatile memory.
-					break;
-				}
-				else if (r != NV_NO_ERROR)
+				r = nonVolatileWrite(buffer, partition, address, bytes_to_write);
+				if (r != NV_NO_ERROR)
 				{
 					last_error = WALLET_WRITE_ERROR;
 					return last_error;
 				}
 			}
-			if (address <= (0xffffffff - 32))
-			{
-				address += 32;
-			}
-			else
-			{
-				// Overflow in address will occur.
-				break;
-			}
-		} // end while (address < end)
+			address += bytes_to_write;
+			bytes_written += bytes_to_write;
+		} // end while (bytes_written < length)
 
 		// After each pass, flush write buffers to ensure that
 		// non-volatile memory is actually overwritten.
@@ -485,6 +509,9 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 		}
 	}
 
+	// At this point the selected area is now filled with random data.
+	// Some functions in this file expect non-random data in certain locations.
+
 	// If the selected area includes the device UUID, then a new device
 	// UUID needs to be written. But if the selected area includes the
 	// device UUID, then it will be overwritten with random data in the
@@ -494,63 +521,76 @@ WalletErrors sanitiseNonVolatileStorage(uint32_t start, uint32_t end)
 	// version field. This ensures that a wallet won't accidentally
 	// (1 in 2 ^ 31 chance) be recognised as a valid wallet by
 	// getWalletInfo().
-	if (start < ADDRESS_WALLET_START)
+	if (partition == PARTITION_ACCOUNTS)
 	{
-		address = 0;
-	}
-	else
-	{
-		address = start - ADDRESS_WALLET_START;
-	}
-	address /= sizeof(WalletRecord);
-	address *= sizeof(WalletRecord);
-	address += (ADDRESS_WALLET_START + offsetof(WalletRecord, unencrypted.version));
-	// address is now rounded down to the first possible address where
-	// the version field of a wallet could be stored.
-	memset(buffer, 0, sizeof(uint32_t));
-	// The "address <= (0xffffffff - sizeof(uint32_t))" is there to ensure that
-	// (address + sizeof(uint32_t)) cannot overflow.
-	while ((address <= (0xffffffff - sizeof(uint32_t))) && ((address + sizeof(uint32_t)) <= end))
-	{
-		// An additional range check against start is needed because the
-		// initial value of address is rounded down; thus it could be
-		// rounded down below start.
-		if (address >= start)
+		address = start;
+		address /= sizeof(WalletRecord);
+		address *= sizeof(WalletRecord);
+		address += offsetof(WalletRecord, unencrypted.version);
+		// address is now rounded down to the first possible address where
+		// the version field of a wallet could be stored.
+		memset(buffer, 0, sizeof(uint32_t));
+		while ((address + sizeof(uint32_t)) <= (start + length))
 		{
-			r = nonVolatileWrite(buffer, address, sizeof(uint32_t));
-			if (r == NV_NO_ERROR)
+			// An additional range check against start is needed because the
+			// initial value of address is rounded down; thus it could be
+			// rounded down below start.
+			if (address >= start)
 			{
-				r = nonVolatileFlush();
-			}
-			if (r == NV_INVALID_ADDRESS)
-			{
-				// Got to end of non-volatile memory.
-				break;
-			}
-			else if (r != NV_NO_ERROR)
-			{
-				last_error = WALLET_WRITE_ERROR;
-				return last_error;
-			}
+				r = nonVolatileWrite(buffer, partition, address, sizeof(uint32_t));
+				if (r == NV_NO_ERROR)
+				{
+					r = nonVolatileFlush();
+				}
+				else if (r != NV_NO_ERROR)
+				{
+					last_error = WALLET_WRITE_ERROR;
+					return last_error;
+				}
 #ifdef TEST_WALLET
-			if (r == NV_NO_ERROR)
-			{
-				logVersionFieldWrite(address);
-			}
+				if (r == NV_NO_ERROR)
+				{
+					logVersionFieldWrite(address);
+				}
 #endif // #ifdef TEST_WALLET
-		}
-		if (address <= (0xffffffff - sizeof(WalletRecord)))
-		{
+			}
 			address += sizeof(WalletRecord);
-		}
-		else
-		{
-			// Overflow in address will occur.
-			break;
-		}
-	} // end while ((address <= (0xffffffff - sizeof(uint32_t))) && ((address + sizeof(uint32_t)) <= end))
+		} // end while ((address + sizeof(uint32_t)) <= (start + length))
+	} // end if (partition == PARTITION_ACCOUNTS)
 
 	last_error = WALLET_NO_ERROR;
+	return last_error;
+}
+
+/** Sanitise (clear) the entire contents of a partition.
+  * \param partition The partition to clear. Must be one of #NVPartitions.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
+static WalletErrors sanitisePartition(NVPartitions partition)
+{
+	uint32_t size;
+
+	if (nonVolatileGetSize(&size, partition) != NV_NO_ERROR)
+	{
+		last_error = WALLET_BAD_ADDRESS;
+		return last_error;
+	}
+	last_error = sanitiseNonVolatileStorage(partition, 0, size);
+	return last_error;
+}
+
+/** Sanitise (clear) all partitions.
+  * \return #WALLET_NO_ERROR on success, or one of #WalletErrorsEnum if an
+  *         error occurred.
+  */
+WalletErrors sanitiseEverything(void)
+{
+	last_error = sanitisePartition(PARTITION_GLOBAL);
+	if (last_error == WALLET_NO_ERROR)
+	{
+		last_error = sanitisePartition(PARTITION_ACCOUNTS);
+	}
 	return last_error;
 }
 
@@ -606,8 +646,8 @@ WalletErrors deleteWallet(uint32_t wallet_spec)
 	{
 		return last_error; // propagate error code
 	}
-	address = ADDRESS_WALLET_START + wallet_spec * sizeof(WalletRecord);
-	last_error = sanitiseNonVolatileStorage(address, address + sizeof(WalletRecord));
+	address = wallet_spec * sizeof(WalletRecord);
+	last_error = sanitiseNonVolatileStorage(PARTITION_ACCOUNTS, address, sizeof(WalletRecord));
 	return last_error;
 }
 
@@ -652,7 +692,7 @@ WalletErrors newWallet(uint32_t wallet_spec, uint8_t *name, bool use_seed, uint8
 		last_error = WALLET_INVALID_WALLET_NUM;
 		return last_error;
 	}
-	wallet_nv_address = ADDRESS_WALLET_START + wallet_spec * sizeof(WalletRecord);
+	wallet_nv_address = wallet_spec * sizeof(WalletRecord);
 
 	// Check for existing wallet.
 	r = readWalletRecord(&current_wallet, wallet_nv_address);
@@ -1054,7 +1094,7 @@ WalletErrors getWalletInfo(uint32_t *out_version, uint8_t *out_name, uint8_t *ou
 		last_error = WALLET_INVALID_WALLET_NUM;
 		return last_error;
 	}
-	local_wallet_nv_address = ADDRESS_WALLET_START + wallet_spec * sizeof(WalletRecord);
+	local_wallet_nv_address = wallet_spec * sizeof(WalletRecord);
 	r = readWalletRecord(&local_wallet_record, local_wallet_nv_address);
 	if (r != WALLET_NO_ERROR)
 	{
@@ -1118,41 +1158,6 @@ WalletErrors backupWallet(bool do_encrypt, uint32_t destination_device)
 	}
 }
 
-/** Obtain the size of non-volatile storage by doing a bunch of test reads.
-  * \return The size in bytes, less one, of non-volatile storage. 0 indicates
-  *         that a read error occurred. For example, a return value of 9999
-  *         means that non-volatile storage is 10000 bytes large (or
-  *         equivalently, 9999 is the largest valid address).
-  */
-static uint32_t findOutNonVolatileSize(void)
-{
-	uint32_t test_bit;
-	uint32_t size;
-	uint8_t junk;
-	NonVolatileReturn r;
-
-	// Find out size using binary search.
-	test_bit = 0x80000000;
-	size = 0;
-	while (test_bit != 0)
-	{
-		size |= test_bit;
-		r = nonVolatileRead(&junk, size, 1);
-		if (r == NV_INVALID_ADDRESS)
-		{
-			size ^= test_bit; // too big; clear it
-		}
-		else if (r != NV_NO_ERROR)
-		{
-			last_error = WALLET_READ_ERROR;
-			return 0; // read error occurred
-		}
-		test_bit >>= 1;
-	}
-	last_error = WALLET_NO_ERROR;
-	return size;
-}
-
 /** Get the number of wallets which can fit in non-volatile storage, assuming
   * the storage format specified in storage_common.h.
   * This will set #num_wallets.
@@ -1167,83 +1172,124 @@ uint32_t getNumberOfWallets(void)
 	{
 		// Need to calculate number of wallets that can fit in non-volatile
 		// storage.
-		size = findOutNonVolatileSize();
-		if (size != 0)
+		if (nonVolatileGetSize(&size, PARTITION_ACCOUNTS) == NV_NO_ERROR)
 		{
-			if (size != 0xffffffff)
-			{
-				// findOutNonVolatileSize() returns the size of non-volatile
-				// storage, less one byte.
-				size++;
-			}
-			num_wallets = (size - ADDRESS_WALLET_START) / sizeof(WalletRecord);
+			num_wallets = size / sizeof(WalletRecord);
 		}
-		// If findOutNonVolatileSize() returned 0, num_wallets will still be
-		// 0, signifying that a read error occurred. last_error will also
-		// be set appropriately.
+		else
+		{
+			last_error = WALLET_READ_ERROR;
+			num_wallets = 0;
+		}
 	}
 	return num_wallets;
 }
 
 #ifdef TEST
 
-/** Size of storage area, in bytes. */
-#define TEST_FILE_SIZE 1024
+/** Size of global partition, in bytes. */
+#define TEST_GLOBAL_PARTITION_SIZE		512
+/** Size of accounts partition, in bytes. */
+#define TEST_ACCOUNTS_PARTITION_SIZE	1024
 
 /** Use this to stop nonVolatileWrite() from logging
   * all non-volatile writes to stdout. */
 static bool suppress_write_debug_info;
 
+/** Size of accounts partition. This can be modified to test the behaviour of
+  * getNumberOfWallets(). */
+static uint32_t accounts_partition_size = TEST_ACCOUNTS_PARTITION_SIZE;
+
 #ifdef TEST_WALLET
-/** Highest non-volatile address that nonVolatileWrite() has written to. */
-static uint32_t maximum_address_written;
-/** Lowest non-volatile address that nonVolatileWrite() has written to. */
-static uint32_t minimum_address_written;
+/** Highest non-volatile address that nonVolatileWrite() has written to.
+  * Index to this array = partition number. */
+static uint32_t maximum_address_written[2];
+/** Lowest non-volatile address that nonVolatileWrite() has written to.
+  * Index to this array = partition number. */
+static uint32_t minimum_address_written[2];
 #endif // #ifdef TEST_WALLET
 
-/** Write to non-volatile storage.
+/** Get size of a partition.
+  * \param out_size On success, the size of the partition (in number of bytes)
+  *                 will be written here.
+  * \param partition Partition to query. Must be one of #NVPartitions.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
+extern NonVolatileReturn nonVolatileGetSize(uint32_t *out_size, NVPartitions partition)
+{
+	if (partition == PARTITION_GLOBAL)
+	{
+		*out_size = TEST_GLOBAL_PARTITION_SIZE;
+		return NV_NO_ERROR;
+	}
+	else if (partition == PARTITION_ACCOUNTS)
+	{
+		*out_size = accounts_partition_size;
+		return NV_NO_ERROR;
+	}
+	else
+	{
+		return NV_INVALID_ADDRESS;
+	}
+}
+
+/** Write to non-volatile storage. All platform-independent code assumes that
+  * non-volatile memory acts like NOR flash/EEPROM: arbitrary bits may be
+  * reset from 1 to 0 ("programmed") in any order, but setting bits
+  * from 0 to 1 ("erasing") is very expensive.
   * \param data A pointer to the data to be written.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to write to. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start writing to.
   * \param length The number of bytes to write.
   * \return See #NonVolatileReturnEnum for return values.
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
+NonVolatileReturn nonVolatileWrite(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length)
 {
+	uint32_t partition_offset;
+	uint32_t size;
+	NonVolatileReturn r;
 #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
-	unsigned int i;
+	uint32_t i;
 #endif // #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 
-	if (address > (0xffffffff - length))
+	if ((address > 0x10000000) || (length > 0x10000000))
 	{
-		// address + length will overflow.
+		// address + length might overflow.
 		return NV_INVALID_ADDRESS;
 	}
-	if ((address + length) > TEST_FILE_SIZE)
+	r = nonVolatileGetSize(&size, partition);
+	if (r != NV_NO_ERROR)
+	{
+		return r;
+	}
+	if ((address + length) > size)
 	{
 		return NV_INVALID_ADDRESS;
 	}
+
 #ifdef TEST_WALLET
 	if (length > 0)
 	{
-		if (address < minimum_address_written)
+		if (address < minimum_address_written[partition])
 		{
-			minimum_address_written = address;
+			minimum_address_written[partition] = address;
 		}
-		if ((address + length - 1) > maximum_address_written)
+		if ((address + length - 1) > maximum_address_written[partition])
 		{
-			maximum_address_written = address + length - 1;
+			maximum_address_written[partition] = address + length - 1;
 		}
 	}
 #endif // #ifdef TEST_WALLET
+
 	// Don't output write debugging info when testing xex.c or prandom.c,
 	// otherwise the console will go crazy (since they do a lot of writing).
 #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
 	if (!suppress_write_debug_info)
 	{
-		printf("nv write, addr = 0x%08x, length = 0x%04x, data =", (int)address, (int)length);
+		printf("nv write, part = %d, addr = 0x%08x, length = 0x%04x, data =", (int)partition, (int)address, (int)length);
 		for (i = 0; i < length; i++)
 		{
 			printf(" %02x", data[i]);
@@ -1251,45 +1297,57 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t len
 		printf("\n");
 	}
 #endif // #if !defined(TEST_XEX) && !defined(TEST_PRANDOM)
-	fseek(wallet_test_file, (long)address, SEEK_SET);
+	if (partition == PARTITION_GLOBAL)
+	{
+		partition_offset = 0;
+	}
+	else
+	{
+		assert(nonVolatileGetSize(&partition_offset, PARTITION_GLOBAL) == NV_NO_ERROR);
+	}
+	fseek(wallet_test_file, (long)(partition_offset + address), SEEK_SET);
 	fwrite(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
 }
 
-/** Non-volatile reads between addresses TEST_FILE_SIZE (inclusive) and this
-  * value (inclusive) will still succeed, but will do nothing. This
-  * behaviour is used to test findOutNonVolatileSize(). If this is
-  * set to #TEST_FILE_SIZE - 1, then nothing special will happen. */
-static uint32_t allow_test_reads_up_to = TEST_FILE_SIZE - 1;
-
 /** Read from non-volatile storage.
   * \param data A pointer to the buffer which will receive the data.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to read from. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start reading from.
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
+extern NonVolatileReturn nonVolatileRead(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length)
 {
-	if (address > (0xffffffff - length))
+	uint32_t partition_offset;
+	uint32_t size;
+	NonVolatileReturn r;
+
+	if ((address > 0x10000000) || (length > 0x10000000))
 	{
-		// address + length will overflow.
+		// address + length might overflow.
 		return NV_INVALID_ADDRESS;
 	}
-	if ((address + length) > TEST_FILE_SIZE)
+	r = nonVolatileGetSize(&size, partition);
+	if (r != NV_NO_ERROR)
 	{
-		if ((address + length) > (allow_test_reads_up_to + 1))
-		{
-			return NV_INVALID_ADDRESS;
-		}
-		else
-		{
-			// It's just a test read, so allow it, but don't actually read
-			// anything.
-			return NV_NO_ERROR;
-		}
+		return r;
 	}
-	fseek(wallet_test_file, (long)address, SEEK_SET);
+	if ((address + length) > size)
+	{
+		return NV_INVALID_ADDRESS;
+	}
+
+	if (partition == PARTITION_GLOBAL)
+	{
+		partition_offset = 0;
+	}
+	else
+	{
+		assert(nonVolatileGetSize(&partition_offset, PARTITION_GLOBAL) == NV_NO_ERROR);
+	}
+	fseek(wallet_test_file, (long)(partition_offset + address), SEEK_SET);
 	fread(data, (size_t)length, 1, wallet_test_file);
 	return NV_NO_ERROR;
 }
@@ -1360,7 +1418,7 @@ bool writeBackupSeed(uint8_t *seed, bool is_encrypted, uint32_t destination_devi
 #ifdef TEST_WALLET
 
 /** List of non-volatile addresses that logVersionFieldWrite() received. */
-uint32_t version_field_writes[TEST_FILE_SIZE / sizeof(WalletRecord) + 2];
+uint32_t version_field_writes[TEST_ACCOUNTS_PARTITION_SIZE / sizeof(WalletRecord) + 2];
 /** Index into #version_field_writes where next entry will be written. */
 int version_field_index;
 
@@ -1554,24 +1612,6 @@ static void checkWalletSpecFunctions(uint32_t wallet_spec, bool should_succeed)
 	}
 }
 
-/** Test findOutNonVolatileSize() for a given non-volatile storage size.
-  * \param size The size of non-volatile storage, in number of bytes less
-  *             one.
-  */
-static void testFindOutNonVolatileSize(uint32_t size)
-{
-	allow_test_reads_up_to = size;
-	if (findOutNonVolatileSize() != size)
-	{
-		printf("findOutNonVolatileSize() failed for size = %u\n", size);
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-}
-
 const uint8_t test_password0[] = "1234";
 const uint8_t test_password1[] = "ABCDEFGHJ!!!!";
 const uint8_t new_test_password[] = "new password";
@@ -1615,6 +1655,11 @@ int main(void)
 	int j;
 	int version_field_counter;
 	bool found;
+	uint32_t histogram[256];
+	uint32_t histogram_count;
+	uint8_t copy_of_nv[TEST_GLOBAL_PARTITION_SIZE + TEST_ACCOUNTS_PARTITION_SIZE];
+	uint8_t copy_of_nv2[TEST_GLOBAL_PARTITION_SIZE + TEST_ACCOUNTS_PARTITION_SIZE];
+	uint8_t pool_state[ENTROPY_POOL_LENGTH];
 
 	initTests(__FILE__);
 
@@ -1623,20 +1668,66 @@ int main(void)
 	suppress_set_entropy_pool = false;
 	// Blank out non-volatile storage area (set to all nulls).
 	temp[0] = 0;
-	for (i = 0; i < TEST_FILE_SIZE; i++)
+	for (i = 0; i < (TEST_GLOBAL_PARTITION_SIZE + TEST_ACCOUNTS_PARTITION_SIZE); i++)
 	{
 		fwrite(temp, 1, 1, wallet_test_file);
 	}
 
-	// sanitiseNonVolatileStorage() should nuke everything.
-	if (sanitiseNonVolatileStorage(0, 0xffffffff) == WALLET_NO_ERROR)
+	// Check that sanitiseEverything() is able to function with NV
+	// storage in this state.
+	minimum_address_written[PARTITION_GLOBAL] = 0xffffffff;
+	maximum_address_written[PARTITION_GLOBAL] = 0;
+	minimum_address_written[PARTITION_ACCOUNTS] = 0xffffffff;
+	maximum_address_written[PARTITION_ACCOUNTS] = 0;
+	if (sanitiseEverything() == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
 	else
 	{
-		printf("Cannot nuke NV storage using sanitiseNonVolatileStorage()\n");
+		printf("Cannot nuke NV storage using sanitiseEverything()\n");
 		reportFailure();
+	}
+
+	// Check that sanitiseNonVolatileStorage() overwrote (almost) everything
+	// with random data.
+	memset(histogram, 0, sizeof(histogram));
+	histogram_count = 0;
+	fseek(wallet_test_file, 0, SEEK_SET);
+	for (i = 0; i < (TEST_GLOBAL_PARTITION_SIZE + TEST_ACCOUNTS_PARTITION_SIZE); i++)
+	{
+		fread(temp, 1, 1, wallet_test_file);
+		histogram[temp[0]]++;
+		histogram_count++;
+	}
+	// "Random data" here is defined as: no value appears more than 1/16 of the time.
+	abort = false;
+	for (i = 0; i < 256; i++)
+	{
+		if (histogram[i] > (histogram_count / 16))
+		{
+			printf("sanitiseNonVolatileStorage() causes %02x to appear improbably often\n", i);
+			reportFailure();
+			abort = true;
+		}
+	}
+	if (!abort)
+	{
+		reportSuccess();
+	}
+
+	// Check that sanitiseEverything() overwrote everything.
+	if ((minimum_address_written[PARTITION_GLOBAL] != 0)
+		|| (maximum_address_written[PARTITION_GLOBAL] != (TEST_GLOBAL_PARTITION_SIZE - 1))
+		|| (minimum_address_written[PARTITION_ACCOUNTS] != 0)
+		|| (maximum_address_written[PARTITION_ACCOUNTS] != (TEST_ACCOUNTS_PARTITION_SIZE - 1)))
+	{
+		printf("sanitiseEverything() did not overwrite everything\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
 	}
 
 	// Check that the version field is "wallet not there".
@@ -1726,7 +1817,7 @@ int main(void)
 	}
 
 	// Check that sanitise_nv_wallet() deletes wallet.
-	if (sanitiseNonVolatileStorage(0, 0xffffffff) == WALLET_NO_ERROR)
+	if (sanitiseEverything() == WALLET_NO_ERROR)
 	{
 		reportSuccess();
 	}
@@ -1741,7 +1832,7 @@ int main(void)
 	}
 	else
 	{
-		printf("sanitiseNonVolatileStorage() isn't deleting wallet\n");
+		printf("sanitiseEverything() isn't deleting wallet\n");
 		reportFailure();
 	}
 
@@ -1909,16 +2000,16 @@ int main(void)
 		reportFailure();
 	}
 	abort = false;
-	for (i = ADDRESS_WALLET_START; i < (ADDRESS_WALLET_START + sizeof(WalletRecord)); i++)
+	for (i = 0; i < sizeof(WalletRecord); i++)
 	{
-		if (nonVolatileRead(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
+		if (nonVolatileRead(&one_byte, PARTITION_ACCOUNTS, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
 			printf("NV read fail\n");
 			abort = true;
 			break;
 		}
 		one_byte++;
-		if (nonVolatileWrite(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
+		if (nonVolatileWrite(&one_byte, PARTITION_ACCOUNTS, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
 			printf("NV write fail\n");
 			abort = true;
@@ -1931,7 +2022,7 @@ int main(void)
 			break;
 		}
 		one_byte--;
-		if (nonVolatileWrite(&one_byte, (uint32_t)i, 1) != NV_NO_ERROR)
+		if (nonVolatileWrite(&one_byte, PARTITION_ACCOUNTS, (uint32_t)i, 1) != NV_NO_ERROR)
 		{
 			printf("NV write fail\n");
 			abort = true;
@@ -2030,7 +2121,7 @@ int main(void)
 	newWallet(0, name, false, NULL, false, NULL, 0);
 	abort = false;
 	abort_error = false;
-	address_buffer = malloc(MAX_TESTING_ADDRESSES * 20);
+	address_buffer = (uint8_t *)malloc(MAX_TESTING_ADDRESSES * 20);
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
 		if (makeNewAddress(&(address_buffer[i * 20]), &public_key) == BAD_ADDRESS_HANDLE)
@@ -2108,9 +2199,9 @@ int main(void)
 
 	// Create a bunch of addresses in the (now empty) wallet and check that
 	// getNumAddresses() returns the right number.
-	address_buffer = malloc(MAX_TESTING_ADDRESSES * 20);
-	public_key_buffer = malloc(MAX_TESTING_ADDRESSES * sizeof(PointAffine));
-	handles_buffer = malloc(MAX_TESTING_ADDRESSES * sizeof(AddressHandle));
+	address_buffer = (uint8_t *)malloc(MAX_TESTING_ADDRESSES * 20);
+	public_key_buffer = (PointAffine *)malloc(MAX_TESTING_ADDRESSES * sizeof(PointAffine));
+	handles_buffer = (AddressHandle *)malloc(MAX_TESTING_ADDRESSES * sizeof(AddressHandle));
 	abort = false;
 	for (i = 0; i < MAX_TESTING_ADDRESSES; i++)
 	{
@@ -2573,6 +2664,56 @@ int main(void)
 		reportFailure();
 	}
 
+	// Test that sanitiseNonVolatileStorage() doesn't accept addresses which
+	// aren't a multiple of 4.
+	if (sanitiseNonVolatileStorage(PARTITION_GLOBAL, 1, 16) == WALLET_BAD_ADDRESS)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitiseNonVolatileStorage() accepts start address which is not a multiple of 4\n");
+		reportFailure();
+	}
+	if (sanitiseNonVolatileStorage(PARTITION_GLOBAL, 0, 15) == WALLET_BAD_ADDRESS)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitiseNonVolatileStorage() accepts length which is not a multiple of 4\n");
+		reportFailure();
+	}
+
+	// Test that sanitiseNonVolatileStorage() detects possible overflows.
+	if (sanitiseNonVolatileStorage(PARTITION_GLOBAL, 0x80000000, 0x80000000) == WALLET_BAD_ADDRESS)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitiseNonVolatileStorage() not detecting overflow 1\n");
+		reportFailure();
+	}
+	if (sanitiseNonVolatileStorage(PARTITION_GLOBAL, 0xffffffff, 1) == WALLET_BAD_ADDRESS)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitiseNonVolatileStorage() not detecting overflow 2\n");
+		reportFailure();
+	}
+	if (sanitiseNonVolatileStorage(PARTITION_GLOBAL, 1, 0xffffffff) == WALLET_BAD_ADDRESS)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitiseNonVolatileStorage() not detecting overflow 3\n");
+		reportFailure();
+	}
+
 	// Test that sanitiseNonVolatileStorage() clears the correct area.
 	// Previously, sanitiseNonVolatileStorage() required the start and end
 	// parameters to be a multiple of 32 (because it uses a write buffer
@@ -2584,19 +2725,19 @@ int main(void)
 	for (i = 0; i < 2000; i++)
 	{
 		initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
-		minimum_address_written = 0xffffffff;
-		maximum_address_written = 0;
-		start_address = (uint32_t)(rand() % TEST_FILE_SIZE);
-		end_address = start_address + (uint32_t)(rand() % TEST_FILE_SIZE);
-		if (end_address > TEST_FILE_SIZE)
+		minimum_address_written[PARTITION_ACCOUNTS] = 0xffffffff;
+		maximum_address_written[PARTITION_ACCOUNTS] = 0;
+		start_address = (uint32_t)((rand() % TEST_ACCOUNTS_PARTITION_SIZE) & 0xfffffffc);
+		end_address = start_address + (uint32_t)((rand() % TEST_ACCOUNTS_PARTITION_SIZE) & 0xfffffffc);
+		if (end_address > TEST_ACCOUNTS_PARTITION_SIZE)
 		{
-			end_address = TEST_FILE_SIZE;
+			end_address = TEST_ACCOUNTS_PARTITION_SIZE;
 		}
 		if (start_address != end_address)
 		{
-			sanitiseNonVolatileStorage(start_address, end_address);
-			if ((minimum_address_written != start_address)
-				|| (maximum_address_written != (end_address - 1)))
+			sanitiseNonVolatileStorage(PARTITION_ACCOUNTS, start_address, end_address - start_address);
+			if ((minimum_address_written[PARTITION_ACCOUNTS] != start_address)
+				|| (maximum_address_written[PARTITION_ACCOUNTS] != (end_address - 1)))
 			{
 				printf("sanitiseNonVolatileStorage() not clearing correct area\n");
 				printf("start = 0x%08x, end = 0x%08x\n", start_address, end_address);
@@ -2611,34 +2752,17 @@ int main(void)
 		reportSuccess();
 	}
 
-	// Also check that sanitiseNonVolatileStorage() does nothing if start
-	// and end are the same.
+	// Also check that sanitiseNonVolatileStorage() does nothing if length is 0.
 	initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
-	minimum_address_written = 0xffffffff;
-	maximum_address_written = 0;
-	// Use ADDRESS_WALLET_START + offsetof(WalletRecord, unencrypted.version) to try and
+	minimum_address_written[PARTITION_ACCOUNTS] = 0xffffffff;
+	maximum_address_written[PARTITION_ACCOUNTS] = 0;
+	// Use offsetof(WalletRecord, unencrypted.version) to try and
 	// trick the "clear version field" logic.
-	start_address = ADDRESS_WALLET_START + offsetof(WalletRecord, unencrypted.version);
-	sanitiseNonVolatileStorage(start_address, start_address);
-	if ((minimum_address_written != 0xffffffff) || (maximum_address_written != 0))
+	start_address = offsetof(WalletRecord, unencrypted.version);
+	sanitiseNonVolatileStorage(PARTITION_ACCOUNTS, start_address, 0);
+	if ((minimum_address_written[PARTITION_ACCOUNTS] != 0xffffffff) || (maximum_address_written[PARTITION_ACCOUNTS] != 0))
 	{
 		printf("sanitiseNonVolatileStorage() clearing something when it's not supposed to\n");
-		reportFailure();
-	}
-	else
-	{
-		reportSuccess();
-	}
-
-	// ..and check that sanitiseNonVolatileStorage() does nothing if start
-	// is > end.
-	initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
-	minimum_address_written = 0xffffffff;
-	maximum_address_written = 0;
-	sanitiseNonVolatileStorage(start_address + 1, start_address);
-	if ((minimum_address_written != 0xffffffff) || (maximum_address_written != 0))
-	{
-		printf("sanitiseNonVolatileStorage() clearing something when it's not supposed to 2\n");
 		reportFailure();
 	}
 	else
@@ -2653,21 +2777,21 @@ int main(void)
 	abort = false;
 	for (i = 0; i < 5000; i++)
 	{
-		start_address = (uint32_t)(rand() % TEST_FILE_SIZE);
-		end_address = start_address + (uint32_t)(rand() % TEST_FILE_SIZE);
-		if (end_address > TEST_FILE_SIZE)
+		start_address = (uint32_t)((rand() % TEST_ACCOUNTS_PARTITION_SIZE) & 0xfffffffc);
+		end_address = start_address + (uint32_t)((rand() % TEST_ACCOUNTS_PARTITION_SIZE) & 0xfffffffc);
+		if (end_address > TEST_ACCOUNTS_PARTITION_SIZE)
 		{
-			end_address = TEST_FILE_SIZE;
+			end_address = TEST_ACCOUNTS_PARTITION_SIZE;
 		}
 		initialiseDefaultEntropyPool(); // needed in case pool or checksum gets corrupted by writes
 		clearVersionFieldWriteLog();
-		sanitiseNonVolatileStorage(start_address, end_address);
+		sanitiseNonVolatileStorage(PARTITION_ACCOUNTS, start_address, end_address - start_address);
 		// version_field_address is stepped through every possible address
 		// (ignoring start_address and end_address) that could hold a wallet's
 		// version field.
-		version_field_address = ADDRESS_WALLET_START + ((uint8_t *)&(current_wallet.unencrypted.version) - (uint8_t *)&current_wallet);
+		version_field_address = (uint8_t *)&(current_wallet.unencrypted.version) - (uint8_t *)&current_wallet;
 		version_field_counter = 0;
-		while ((version_field_address + 4) <= TEST_FILE_SIZE)
+		while ((version_field_address + 4) <= TEST_ACCOUNTS_PARTITION_SIZE)
 		{
 			if ((version_field_address >= start_address)
 				&& ((version_field_address + 4) <= end_address))
@@ -2692,7 +2816,7 @@ int main(void)
 				version_field_counter++;
 			}
 			version_field_address += sizeof(WalletRecord);
-		} // end while ((version_field_address + 4) <= TEST_FILE_SIZE)
+		} // end while ((version_field_address + 4) <= TEST_ACCOUNTS_PARTITION_SIZE)
 		if (abort)
 		{
 			break;
@@ -2715,24 +2839,51 @@ int main(void)
 	}
 	suppress_write_debug_info = false; // can start reporting writes again
 
-	// Check that findOutNonVolatileSize() works for various sizes.
-	testFindOutNonVolatileSize(TEST_FILE_SIZE - 1);
-	testFindOutNonVolatileSize(424242);
-	// Cannot do size = 0xffffffff because an overflow would occur in
-	// nonVolatileRead().
-	testFindOutNonVolatileSize(0xfffffffe);
-	testFindOutNonVolatileSize(0x80000000);
-	testFindOutNonVolatileSize(0x7fffffff);
-	allow_test_reads_up_to = TEST_FILE_SIZE - 1; // disable test read behaviour for next test
+	// Check that sanitising the global partition does not touch any version
+	// fields.
+	clearVersionFieldWriteLog();
+	sanitisePartition(PARTITION_GLOBAL);
+	if (version_field_index == 0)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitisePartition(PARTITION_GLOBAL) is touching version fields\n");
+		reportFailure();
+	}
+
+	// Check that sanitising the accounts partition touches all version fields.
+	clearVersionFieldWriteLog();
+	sanitisePartition(PARTITION_ACCOUNTS);
+	// version_field_address is stepped through every possible address
+	// (ignoring start_address and end_address) that could hold a wallet's
+	// version field.
+	version_field_address = (uint8_t *)&(current_wallet.unencrypted.version) - (uint8_t *)&current_wallet;
+	version_field_counter = 0;
+	while ((version_field_address + 4) <= TEST_ACCOUNTS_PARTITION_SIZE)
+	{
+		version_field_counter++;
+		version_field_address += sizeof(WalletRecord);
+	} // end while ((version_field_address + 4) <= TEST_ACCOUNTS_PARTITION_SIZE)
+	if (version_field_index == version_field_counter)
+	{
+		reportSuccess();
+	}
+	else
+	{
+		printf("sanitisePartition(PARTITION_ACCOUNTS) not touching all version fields\n");
+		reportFailure();
+	}
 
 	// Check that getNumberOfWallets() works and returns the appropriate value
 	// for various non-volatile storage sizes.
 	abort = false;
 	abort_error = false;
 	// Step in increments of 1 byte to look for off-by-one errors.
-	for (i = TEST_FILE_SIZE; i < TEST_FILE_SIZE + 1024; i++)
+	for (i = TEST_ACCOUNTS_PARTITION_SIZE; i < TEST_ACCOUNTS_PARTITION_SIZE + 1024; i++)
 	{
-		allow_test_reads_up_to = i - 1; // i = size but allow_test_reads_up_to = size - 1
+		accounts_partition_size = i;
 		num_wallets = 0; // reset cache
 		returned_num_wallets = getNumberOfWallets();
 		if (returned_num_wallets == 0)
@@ -2743,7 +2894,7 @@ int main(void)
 			break;
 		}
 		stupidly_calculated_num_wallets = 0;
-		for (j = ADDRESS_WALLET_START; (int)(j + (sizeof(WalletRecord) - 1)) < i; j += sizeof(WalletRecord))
+		for (j = 0; (int)(j + (sizeof(WalletRecord) - 1)) < i; j += sizeof(WalletRecord))
 		{
 			stupidly_calculated_num_wallets++;
 		}
@@ -2763,7 +2914,7 @@ int main(void)
 	{
 		reportSuccess();
 	}
-	allow_test_reads_up_to = TEST_FILE_SIZE - 1; // disable test read behaviour for next test
+	accounts_partition_size = TEST_ACCOUNTS_PARTITION_SIZE;
 	num_wallets = 0; // reset cache for next test
 
 	// For all functions which accept wallet numbers, try some wallet numbers
@@ -2932,7 +3083,7 @@ int main(void)
 	// non-volatile storage can hold and checks that they can all create
 	// addresses independently.
 	returned_num_wallets = getNumberOfWallets();
-	address_buffer = malloc(returned_num_wallets * 20);
+	address_buffer = (uint8_t *)malloc(returned_num_wallets * 20);
 	for (i = 0; i < (int)returned_num_wallets; i++)
 	{
 		deleteWallet((uint32_t)i);
@@ -2985,8 +3136,8 @@ int main(void)
 	free(address_buffer);
 
 	// Clear NV storage, then create a new hidden wallet.
-	sanitiseNonVolatileStorage(0, 0xffffffff);
-	nonVolatileRead((uint8_t *)&unencrypted_part, ADDRESS_WALLET_START, sizeof(unencrypted_part));
+	sanitiseEverything();
+	nonVolatileRead((uint8_t *)&unencrypted_part, PARTITION_ACCOUNTS, 0, sizeof(unencrypted_part));
 	memcpy(name, "This will be ignored                    ", NAME_LENGTH);
 	if (newWallet(0, name, false, NULL, true, test_password0, sizeof(test_password0)) != WALLET_NO_ERROR)
 	{
@@ -3013,7 +3164,7 @@ int main(void)
 
 	// Check that unencrypted part (which contains name/version) wasn't
 	// touched.
-	nonVolatileRead((uint8_t *)&compare_unencrypted_part, ADDRESS_WALLET_START, sizeof(compare_unencrypted_part));
+	nonVolatileRead((uint8_t *)&compare_unencrypted_part, PARTITION_ACCOUNTS, 0, sizeof(compare_unencrypted_part));
 	if (memcmp(&unencrypted_part, &compare_unencrypted_part, sizeof(unencrypted_part)))
 	{
 		printf("Creation of hidden wallet writes to unencrypted portion of wallet storage\n");
@@ -3050,7 +3201,7 @@ int main(void)
 	// Check that the unencrypted part (which contains name/version) wasn't
 	// touched.
 	uninitWallet();
-	nonVolatileRead((uint8_t *)&compare_unencrypted_part, ADDRESS_WALLET_START, sizeof(compare_unencrypted_part));
+	nonVolatileRead((uint8_t *)&compare_unencrypted_part, PARTITION_ACCOUNTS, 0, sizeof(compare_unencrypted_part));
 	if (memcmp(&unencrypted_part, &compare_unencrypted_part, sizeof(unencrypted_part)))
 	{
 		printf("Key change on hidden wallet results in writes to unencrypted portion of wallet storage\n");
@@ -3096,7 +3247,7 @@ int main(void)
 		reportSuccess();
 	}
 	uninitWallet();
-	nonVolatileRead((uint8_t *)&compare_unencrypted_part, ADDRESS_WALLET_START, sizeof(compare_unencrypted_part));
+	nonVolatileRead((uint8_t *)&compare_unencrypted_part, PARTITION_ACCOUNTS, 0, sizeof(compare_unencrypted_part));
 	if (memcmp(&unencrypted_part, &compare_unencrypted_part, sizeof(unencrypted_part)))
 	{
 		printf("Key change on hidden wallet results in writes to unencrypted portion of wallet storage 2\n");
@@ -3266,6 +3417,51 @@ int main(void)
 	if (memcmp(&public_key, &compare_public_key, sizeof(PointAffine)))
 	{
 		printf("Address 2 can't be derived from master public key\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+
+	// Check that sanitisePartition() only affects one partition.
+	suppress_set_entropy_pool = true; // avoid spurious writes to global partition
+	memset(copy_of_nv, 0, sizeof(copy_of_nv));
+	memset(copy_of_nv2, 1, sizeof(copy_of_nv2));
+	nonVolatileRead(copy_of_nv, PARTITION_GLOBAL, 0, TEST_GLOBAL_PARTITION_SIZE);
+	sanitisePartition(PARTITION_ACCOUNTS);
+	nonVolatileRead(copy_of_nv2, PARTITION_GLOBAL, 0, TEST_GLOBAL_PARTITION_SIZE);
+	if (memcmp(copy_of_nv, copy_of_nv2, TEST_GLOBAL_PARTITION_SIZE))
+	{
+		printf("sanitisePartition(PARTITION_ACCOUNTS) is touching global partition\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	memset(copy_of_nv, 0, sizeof(copy_of_nv));
+	memset(copy_of_nv2, 1, sizeof(copy_of_nv2));
+	nonVolatileRead(copy_of_nv, PARTITION_ACCOUNTS, 0, TEST_ACCOUNTS_PARTITION_SIZE);
+	sanitisePartition(PARTITION_GLOBAL);
+	nonVolatileRead(copy_of_nv2, PARTITION_ACCOUNTS, 0, TEST_ACCOUNTS_PARTITION_SIZE);
+	if (memcmp(copy_of_nv, copy_of_nv2, TEST_ACCOUNTS_PARTITION_SIZE))
+	{
+		printf("sanitisePartition(PARTITION_GLOBAL) is touching accounts partition\n");
+		reportFailure();
+	}
+	else
+	{
+		reportSuccess();
+	}
+	suppress_set_entropy_pool = false;
+
+	// Check that entropy pool can still be loaded after sanitiseEverything().
+	initialiseDefaultEntropyPool();
+	sanitiseEverything();
+	if (getEntropyPool(pool_state))
+	{
+		printf("Entropy pool can't be loaded after sanitiseEverything()\n");
 		reportFailure();
 	}
 	else

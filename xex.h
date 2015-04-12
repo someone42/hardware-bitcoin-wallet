@@ -27,7 +27,7 @@ extern void setEncryptionKey(const uint8_t *in);
 extern void getEncryptionKey(uint8_t *out);
 extern bool isEncryptionKeyNonZero(void);
 extern void clearEncryptionKey(void);
-extern NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length);
-extern NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint32_t length);
+extern NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length);
+extern NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length);
 
 #endif // #ifndef XEX_H_INCLUDED

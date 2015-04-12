@@ -35,29 +35,97 @@ static uint8_t write_cache[SECTOR_SIZE];
 /** Bitmask applied to addresses to get the offset within a sector. */
 #define SECTOR_OFFSET_MASK		(SECTOR_SIZE - 1)
 
-/** Write to non-volatile storage.
+/** Get size of a partition.
+  * \param out_size On success, the size of the partition (in number of bytes)
+  *                 will be written here.
+  * \param partition Partition to query. Must be one of #NVPartitions.
+  * \return See #NonVolatileReturnEnum for return values.
+  * \warning The size of each partition must be a multiple of 4.
+  */
+extern NonVolatileReturn nonVolatileGetSize(uint32_t *out_size, NVPartitions partition)
+{
+    if (partition == PARTITION_GLOBAL)
+    {
+        *out_size = GLOBAL_PARTITION_SIZE;
+        return NV_NO_ERROR;
+    }
+    else if (partition == PARTITION_ACCOUNTS)
+    {
+        *out_size = ACCOUNTS_PARTITION_SIZE;
+        return NV_NO_ERROR;
+    }
+    else
+    {
+        return NV_INVALID_ADDRESS;
+    }
+}
+
+/** Check that an address range lies entirely within a partition, and tweak
+  * the address to convert from partition offset to non-volatile memory offset.
+  * \param address Address (offset) within a partition.
+  * \param partition The partition to check against. Must be one
+  *                  of #NVPartitions.
+  * \param length The number of bytes in the address range.
+  * \return See #NonVolatileReturnEnum for return values.
+  */
+static NonVolatileReturn checkAndTweakAddress(uint32_t *address, NVPartitions partition, uint32_t length)
+{
+    uint32_t size;
+    NonVolatileReturn r;
+
+    // As long as NV_MEMORY_SIZE is much smaller than 2 ^ 32, address + length
+	// cannot overflow.
+	if ((*address >= NV_MEMORY_SIZE) || (length > NV_MEMORY_SIZE)
+		|| ((*address + length) > NV_MEMORY_SIZE))
+	{
+		return NV_INVALID_ADDRESS;
+	}
+
+    // Check that address range falls entirely within partition.
+    r = nonVolatileGetSize(&size, partition);
+    if (r != NV_NO_ERROR)
+    {
+        return r;
+    }
+    if ((*address + length) > size)
+    {
+        return NV_INVALID_ADDRESS;
+    }
+
+    // Add partition base address to convert from partition offset to
+    // non-volatile memory offset.
+    if (partition == PARTITION_ACCOUNTS)
+    {
+        *address += GLOBAL_PARTITION_SIZE;
+    }
+    return NV_NO_ERROR;
+}
+
+/** Write to non-volatile storage. All platform-independent code assumes that
+  * non-volatile memory acts like NOR flash/EEPROM: arbitrary bits may be
+  * reset from 1 to 0 ("programmed") in any order, but setting bits
+  * from 0 to 1 ("erasing") is very expensive.
   * \param data A pointer to the data to be written.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to write to. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start writing to.
   * \param length The number of bytes to write.
   * \return See #NonVolatileReturnEnum for return values.
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
+extern NonVolatileReturn nonVolatileWrite(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length)
 {
 	uint32_t address_tag;
 	uint32_t end; // exclusive
 	uint32_t data_index;
 	NonVolatileReturn r;
 
-	// As long as NV_MEMORY_SIZE is much smaller than 2 ^ 32, address + length
-	// cannot overflow.
-	if ((address >= NV_MEMORY_SIZE) || (length > NV_MEMORY_SIZE)
-		|| ((address + length) > NV_MEMORY_SIZE))
-	{
-		return NV_INVALID_ADDRESS;
-	}
+    r = checkAndTweakAddress(&address, partition, length);
+    if (r != NV_NO_ERROR)
+    {
+        return r;
+    }
 
 	end = address + length;
 	data_index = 0;
@@ -89,25 +157,25 @@ NonVolatileReturn nonVolatileWrite(uint8_t *data, uint32_t address, uint32_t len
 
 /** Read from non-volatile storage.
   * \param data A pointer to the buffer which will receive the data.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to read from. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start reading from.
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn nonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
+extern NonVolatileReturn nonVolatileRead(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length)
 {
 	uint32_t address_tag;
 	uint32_t end; // exclusive
 	uint32_t nv_read_length; // length of contiguous non-volatile read
 	uint32_t data_index;
+    NonVolatileReturn r;
 
-	// As long as NV_MEMORY_SIZE is much smaller than 2 ^ 32, address + length
-	// cannot overflow.
-	if ((address >= NV_MEMORY_SIZE) || (length > NV_MEMORY_SIZE)
-		|| ((address + length) > NV_MEMORY_SIZE))
-	{
-		return NV_INVALID_ADDRESS;
-	}
+	r = checkAndTweakAddress(&address, partition, length);
+    if (r != NV_NO_ERROR)
+    {
+        return r;
+    }
 
 	end = address + length;
 	nv_read_length = 0;

@@ -7,6 +7,8 @@
 
 #include "../common.h"
 #include "../hwinterface.h"
+#include "../wallet.h"
+#include "../transaction.h"
 
 /**
  * \defgroup DeviceStrings Device-specific strings.
@@ -39,8 +41,6 @@ static const char str_WALLET_EMPTY[] = "Wallet has nothing in it";
 static const char str_WALLET_READ_ERROR[] = "Flash memory read error";
 /** String for #WALLET_WRITE_ERROR error. */
 static const char str_WALLET_WRITE_ERROR[] = "Flash memory write error";
-/** String for #WALLET_ADDRESS_NOT_FOUND wallet error. */
-static const char str_WALLET_ADDRESS_NOT_FOUND[] = "Address not in wallet";
 /** String for #WALLET_NOT_THERE wallet error. */
 static const char str_WALLET_NOT_THERE[] = "Wallet doesn't exist";
 /** String for #WALLET_NOT_LOADED wallet error. */
@@ -57,6 +57,8 @@ static const char str_WALLET_INVALID_WALLET_NUM[] = "Invalid wallet number";
 static const char str_WALLET_INVALID_OPERATION[] = "Operation not allowed";
 /** String for #WALLET_ALREADY_EXISTS wallet error. */
 static const char str_WALLET_ALREADY_EXISTS[] = "Wallet already exists";
+/** String for #WALLET_BAD_ADDRESS wallet error. */
+static const char str_WALLET_BAD_ADDRESS[] = "Bad non-volatile storage address or partition number";
 /** String for #TRANSACTION_INVALID_FORMAT transaction parser error. */
 static const char str_TRANSACTION_INVALID_FORMAT[] = "Format of transaction is unknown or invalid";
 /** String for #TRANSACTION_TOO_MANY_INPUTS transaction parser error. */
@@ -143,9 +145,6 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 		case WALLET_WRITE_ERROR:
 			str = str_WALLET_WRITE_ERROR;
 			break;
-		case WALLET_ADDRESS_NOT_FOUND:
-			str = str_WALLET_ADDRESS_NOT_FOUND;
-			break;
 		case WALLET_NOT_THERE:
 			str = str_WALLET_NOT_THERE;
 			break;
@@ -169,6 +168,9 @@ char getString(StringSet set, uint8_t spec, uint16_t pos)
 			break;
         case WALLET_ALREADY_EXISTS:
 			str = str_WALLET_ALREADY_EXISTS;
+			break;
+		case WALLET_BAD_ADDRESS:
+			str = str_WALLET_BAD_ADDRESS;
 			break;
 		default:
 			str = str_UNKNOWN;
@@ -271,9 +273,6 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 		case WALLET_WRITE_ERROR:
 			return (uint16_t)(sizeof(str_WALLET_WRITE_ERROR) - 1);
 			break;
-		case WALLET_ADDRESS_NOT_FOUND:
-			return (uint16_t)(sizeof(str_WALLET_ADDRESS_NOT_FOUND) - 1);
-			break;
 		case WALLET_NOT_THERE:
 			return (uint16_t)(sizeof(str_WALLET_NOT_THERE) - 1);
 			break;
@@ -297,6 +296,9 @@ uint16_t getStringLength(StringSet set, uint8_t spec)
 			break;
         case WALLET_ALREADY_EXISTS:
 			return (uint16_t)(sizeof(str_WALLET_ALREADY_EXISTS) - 1);
+			break;
+		case WALLET_BAD_ADDRESS:
+			return (uint16_t)(sizeof(str_WALLET_BAD_ADDRESS) - 1);
 			break;
 		default:
 			return (uint16_t)(sizeof(str_UNKNOWN) - 1);

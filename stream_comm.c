@@ -40,6 +40,7 @@
 #include "pb_encode.h"
 #include "messages.pb.h"
 #include "sha256.h"
+#include "transaction.h"
 
 #ifdef TEST_STREAM_COMM
 #include "test_helpers.h"
@@ -1134,7 +1135,7 @@ void processPacket(void)
 					}
 					else
 					{
-						wallet_return = sanitiseNonVolatileStorage(0, 0xffffffff);
+						wallet_return = sanitiseEverything();
 						translateWalletError(wallet_return);
 						uninitWallet(); // force wallet to unload
 					}
@@ -1266,7 +1267,7 @@ void processPacket(void)
 		if (!receive_failure)
 		{
 			message_buffer.device_uuid.device_uuid.size = UUID_LENGTH;
-			if (nonVolatileRead(message_buffer.device_uuid.device_uuid.bytes, ADDRESS_DEVICE_UUID, UUID_LENGTH) == NV_NO_ERROR)
+			if (nonVolatileRead(message_buffer.device_uuid.device_uuid.bytes, PARTITION_GLOBAL, ADDRESS_DEVICE_UUID, UUID_LENGTH) == NV_NO_ERROR)
 			{
 				sendPacket(PACKET_TYPE_DEVICE_UUID, DeviceUUID_fields, &(message_buffer.device_uuid));
 			}
@@ -1452,9 +1453,6 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 		case WALLET_WRITE_ERROR:
 			return "Write error";
 			break;
-		case WALLET_ADDRESS_NOT_FOUND:
-			return "Address not in wallet";
-			break;
 		case WALLET_NOT_THERE:
 			return "Wallet doesn't exist";
 			break;
@@ -1478,6 +1476,9 @@ static const char *getStringInternal(StringSet set, uint8_t spec)
 			break;
 		case WALLET_ALREADY_EXISTS:
 			return "Wallet already exists";
+			break;
+		case WALLET_BAD_ADDRESS:
+			return "Bad non-volatile address or partition number";
 			break;
 		default:
 			assert(0);

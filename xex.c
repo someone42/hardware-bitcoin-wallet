@@ -248,14 +248,15 @@ void clearEncryptionKey(void)
   * than nonVolatileWrite(). The parameters and return values are identical
   * to that of nonVolatileWrite().
   * \param data A pointer to the data to be written.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to write to. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start writing to.
   * \param length The number of bytes to write.
   * \return See #NonVolatileReturnEnum for return values.
   * \warning Writes may be buffered; use nonVolatileFlush() to be sure that
   *          data is actually written to non-volatile storage.
   */
-NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uint32_t length)
+NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length)
 {
 	uint32_t block_start;
 	uint32_t block_end;
@@ -277,7 +278,7 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
 	memset(n, 0, 16);
 	for (; block_start <= block_end; block_start += 16)
 	{
-		r = nonVolatileRead(ciphertext, block_start, 16);
+		r = nonVolatileRead(ciphertext, partition, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
 			return r;
@@ -291,7 +292,7 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
 		}
 		block_offset = 0;
 		xexEncrypt(ciphertext, plaintext, n, 1);
-		r = nonVolatileWrite(ciphertext, block_start, 16);
+		r = nonVolatileWrite(ciphertext, partition, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
 			return r;
@@ -306,12 +307,13 @@ NonVolatileReturn encryptedNonVolatileWrite(uint8_t *data, uint32_t address, uin
   * than nonVolatileRead(). The parameters and return values are identical
   * to that of nonVolatileRead().
   * \param data A pointer to the buffer which will receive the data.
-  * \param address Byte offset specifying where in non-volatile storage to
+  * \param partition The partition to read from. Must be one of #NVPartitions.
+  * \param address Byte offset specifying where in the partition to
   *                start reading from.
   * \param length The number of bytes to read.
   * \return See #NonVolatileReturnEnum for return values.
   */
-NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint32_t length)
+NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, NVPartitions partition, uint32_t address, uint32_t length)
 {
 	uint32_t block_start;
 	uint32_t block_end;
@@ -333,7 +335,7 @@ NonVolatileReturn encryptedNonVolatileRead(uint8_t *data, uint32_t address, uint
 	memset(n, 0, 16);
 	for (; block_start <= block_end; block_start += 16)
 	{
-		r = nonVolatileRead(ciphertext, block_start, 16);
+		r = nonVolatileRead(ciphertext, partition, block_start, 16);
 		if (r != NV_NO_ERROR)
 		{
 			return r;
@@ -628,11 +630,11 @@ int main(void)
 	}
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encryptedNonVolatileWrite(&(what_storage_should_be[i]), i, 128);
+		encryptedNonVolatileWrite(&(what_storage_should_be[i]), PARTITION_ACCOUNTS, i, 128);
 	}
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encryptedNonVolatileRead(buffer, i, 128);
+		encryptedNonVolatileRead(buffer, PARTITION_ACCOUNTS, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			printf("Storage mismatch in encryptedNonVolatileRead()\n");
@@ -665,7 +667,7 @@ int main(void)
 				buffer[j] = (uint8_t)rand();
 			}
 			memcpy(&(what_storage_should_be[address]), buffer, length);
-			if (encryptedNonVolatileWrite(buffer, address, length) != NV_NO_ERROR)
+			if (encryptedNonVolatileWrite(buffer, PARTITION_ACCOUNTS, address, length) != NV_NO_ERROR)
 			{
 				printf("encryptedNonVolatileWrite() failed\n");
 				printf("test number = %u, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
@@ -679,7 +681,7 @@ int main(void)
 		else
 		{
 			// Read 50% of the time
-			if (encryptedNonVolatileRead(buffer, address, length) != NV_NO_ERROR)
+			if (encryptedNonVolatileRead(buffer, PARTITION_ACCOUNTS, address, length) != NV_NO_ERROR)
 			{
 				printf("encryptedNonVolatileRead() failed\n");
 				printf("test number = %u, address = 0x%08x, length = %d\n", i, (int)address, (int)length);
@@ -710,7 +712,7 @@ int main(void)
 	setEncryptionKey(one_key);
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encryptedNonVolatileRead(buffer, i, 128);
+		encryptedNonVolatileRead(buffer, PARTITION_ACCOUNTS, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			reportSuccess();
@@ -729,7 +731,7 @@ int main(void)
 	setEncryptionKey(one_key);
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encryptedNonVolatileRead(buffer, i, 128);
+		encryptedNonVolatileRead(buffer, PARTITION_ACCOUNTS, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			reportSuccess();
@@ -746,7 +748,7 @@ int main(void)
 	clearEncryptionKey();
 	for (i = 0; i < MAX_ADDRESS; i += 128)
 	{
-		encryptedNonVolatileRead(buffer, i, 128);
+		encryptedNonVolatileRead(buffer, PARTITION_ACCOUNTS, i, 128);
 		if (memcmp(&(what_storage_should_be[i]), buffer, 128))
 		{
 			printf("Storage mismatch in encryptedNonVolatileRead() when keys are okay\n");
